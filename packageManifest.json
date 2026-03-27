@@ -1,0 +1,33 @@
+{
+  "packageName": "Hestia Dashboard",
+  "author": "Haven",
+  "version": "1.0.0",
+  "minimumHEVersion": "2.3.0",
+  "dateReleased": "2025-03-27",
+  "licenseFile": "https://raw.githubusercontent.com/h4ven88/hestia-dashboard/main/LICENSE",
+  "releaseNotes": "https://github.com/h4ven88/hestia-dashboard/releases/tag/v1.0.0",
+  "documentationLink": "https://github.com/h4ven88/hestia-dashboard/blob/main/README.md",
+  "communityLink": "https://community.hubitat.com",
+  "tags": [
+    "Dashboard",
+    "Utility",
+    "Lighting",
+    "Temperature",
+    "Fans",
+    "Window Shades",
+    "Locks"
+  ],
+  "description": "Hestia™ is a fast, elegant smart home dashboard for Hubitat Elevation. Responsive across desktop, tablet, and mobile. Lights, dimmers, color bulbs, fans, blinds, thermostats, and locks — all your devices, all your rooms, at a glance. No cloud. No subscription. Your safe haven.",
+  "apps": [
+    {
+      "id": "hestia-dashboard-app",
+      "name": "Hestia Dashboard",
+      "namespace": "h4ven88",
+      "location": "https://raw.githubusercontent.com/h4ven88/hestia-dashboard/main/HestiaDashboard.groovy",
+      "required": true,
+      "oauth": true,
+      "primary": true
+    }
+  ],
+  "drivers": []
+}
