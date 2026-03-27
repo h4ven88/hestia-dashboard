@@ -30,6 +30,8 @@
  *  GET  /ping               Health check
  */
 
+import groovy.transform.Field
+
 definition(
     name:        "Hestia Dashboard",
     namespace:   "h4ven88",
