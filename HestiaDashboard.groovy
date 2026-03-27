@@ -246,6 +246,10 @@ private boolean isNewerVersion(String candidate, String current) {
 def serveDashboard() {
     if (state.dashboardHtml) {
         def html = state.dashboardHtml
+        // Ensure DOCTYPE is present — Hubitat state storage can strip the opening declaration
+        if (!html.trim().startsWith("<!DOCTYPE") && !html.trim().startsWith("<!doctype")) {
+            html = "<!DOCTYPE html>\n" + html
+        }
         if (state.updateAvailable) {
             def hubIp   = location.hubs[0].localIP
             def updUrl  = "http://${hubIp}/apps/api/${app.id}/update?access_token=${state.accessToken}"
