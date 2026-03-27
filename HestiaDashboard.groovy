@@ -246,9 +246,14 @@ private boolean isNewerVersion(String candidate, String current) {
 def serveDashboard() {
     if (state.dashboardHtml) {
         def html = state.dashboardHtml
-        // Ensure DOCTYPE is present — Hubitat state storage can strip the opening declaration
-        if (!html.trim().startsWith("<!DOCTYPE") && !html.trim().startsWith("<!doctype")) {
+        // Ensure DOCTYPE is first — build output may have copyright comment before it
+        // Find DOCTYPE position and move it to the very front
+        def dtIdx = html.toLowerCase().indexOf("<!doctype html>")
+        if (dtIdx < 0) {
             html = "<!DOCTYPE html>\n" + html
+        } else if (dtIdx > 0) {
+            // DOCTYPE exists but isn't first — move it to front
+            html = "<!DOCTYPE html>\n" + html.substring(dtIdx + 15)
         }
         if (state.updateAvailable) {
             def hubIp   = location.hubs[0].localIP
