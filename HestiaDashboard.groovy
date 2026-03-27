@@ -1,5 +1,5 @@
 /**
- *  Hestia™ Home Dashboard  v1.0.2
+ *  Hestia™ Home Dashboard  v1.0.3
  *  ════════════════════════════════════════════════════════════════
  *  Single Hubitat app — serves the dashboard and stores config.
  *
@@ -44,7 +44,7 @@ preferences {
 @Field static final String GITHUB_VERSION_URL =
     "https://api.github.com/repos/h4ven88/hestia-dashboard/releases/latest"
 
-@Field static final String APP_VERSION        = "1.0.2"
+@Field static final String APP_VERSION        = "1.0.3"
 @Field static final String DASHBOARD_FILENAME = "hestia-dashboard.html"
 @Field static final String TOKEN_FILENAME     = "hestia-token.json"
 @Field static final String CONFIG_FILENAME    = "hestia-config.json"
@@ -87,12 +87,10 @@ def mainPage() {
         section("Dashboard URL") {
             if (state.accessToken && state.dashboardStored) {
                 def hubIp   = location.hubs[0].localIP
-                def dashUrl = "http://${hubIp}/local/${DASHBOARD_FILENAME}"
+                def dashUrl = "http://${hubIp}/apps/api/${app.id}/dashboard?access_token=${state.accessToken}"
                 paragraph "Open this URL in any browser on your local network:\n\n" +
                           "<b>${dashUrl}</b>\n\n" +
-                          "Bookmark it or save it as a PWA on your tablet.\n\n" +
-                          "Note: the dashboard file is public on your local network " +
-                          "(no token needed — credentials are stored separately on the hub)."
+                          "Bookmark it or save it as a PWA on your tablet."
             } else if (!state.dashboardStored) {
                 paragraph "⚠ Dashboard not yet fetched. Click 'Fetch Latest Dashboard from GitHub' below."
             } else {
@@ -264,22 +262,25 @@ private boolean isNewerVersion(String candidate, String current) {
 // ── Endpoints ─────────────────────────────────────────────────────────────
 
 def serveDashboard() {
-    def hubIp   = location.hubs[0].localIP
-    def fileUrl = "http://${hubIp}/local/${DASHBOARD_FILENAME}"
-
-    if (state.dashboardStored) {
-        // Redirect browser directly to the file in File Manager
-        // File Manager serves static files natively — no size limit, no encoding issues
-        redirect(location: fileUrl, status: 302)
-    } else {
-        // No file yet — try fetching then redirect
+    if (!state.dashboardStored) {
         log.warn "Hestia: dashboard not stored — fetching from GitHub"
         fetchDashboardFromGitHub()
-        if (state.dashboardStored) {
-            redirect(location: fileUrl, status: 302)
-        } else {
+        if (!state.dashboardStored) {
             render contentType: "text/html; charset=UTF-8", data: fallbackPage()
+            return
         }
+    }
+    // Read from File Manager via local HTTP and serve directly —
+    // browser stays on the apps/api URL, hub IP and file path never exposed
+    try {
+        def hubIp   = location.hubs[0].localIP
+        def fileUrl = "http://${hubIp}/local/${DASHBOARD_FILENAME}"
+        def html    = new URL(fileUrl).getText("UTF-8")
+        if (!html || html.length() < 1000) throw new Exception("file too short: ${html?.length()} bytes")
+        render contentType: "text/html; charset=UTF-8", data: html
+    } catch(e) {
+        log.error "Hestia: could not read dashboard file: ${e.message}"
+        render contentType: "text/html; charset=UTF-8", data: fallbackPage()
     }
 }
 
