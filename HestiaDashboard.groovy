@@ -1,5 +1,5 @@
 /**
- *  Hestia™ Home Dashboard  v1.0.3
+ *  Hestia™ Home Dashboard  v1.0.4
  *  ════════════════════════════════════════════════════════════════
  *  Single Hubitat app — serves the dashboard and stores config.
  *
@@ -44,7 +44,7 @@ preferences {
 @Field static final String GITHUB_VERSION_URL =
     "https://api.github.com/repos/h4ven88/hestia-dashboard/releases/latest"
 
-@Field static final String APP_VERSION        = "1.0.3"
+@Field static final String APP_VERSION        = "1.0.4"
 @Field static final String DASHBOARD_FILENAME = "hestia-dashboard.html"
 @Field static final String TOKEN_FILENAME     = "hestia-token.json"
 @Field static final String CONFIG_FILENAME    = "hestia-config.json"
@@ -270,18 +270,25 @@ def serveDashboard() {
             return
         }
     }
-    // Read from File Manager via local HTTP and serve directly —
+    // Read from File Manager via httpGet and serve directly —
     // browser stays on the apps/api URL, hub IP and file path never exposed
+    def hubIp   = location.hubs[0].localIP
+    def fileUrl = "http://${hubIp}/local/${DASHBOARD_FILENAME}"
+    def served  = false
     try {
-        def hubIp   = location.hubs[0].localIP
-        def fileUrl = "http://${hubIp}/local/${DASHBOARD_FILENAME}"
-        def html    = new URL(fileUrl).getText("UTF-8")
-        if (!html || html.length() < 1000) throw new Exception("file too short: ${html?.length()} bytes")
-        render contentType: "text/html; charset=UTF-8", data: html
+        httpGet([uri: fileUrl, textParser: true]) { resp ->
+            if (resp.status == 200) {
+                def html = resp.data.text
+                if (html && html.length() > 1000) {
+                    render contentType: "text/html; charset=UTF-8", data: html
+                    served = true
+                }
+            }
+        }
     } catch(e) {
         log.error "Hestia: could not read dashboard file: ${e.message}"
-        render contentType: "text/html; charset=UTF-8", data: fallbackPage()
     }
+    if (!served) render contentType: "text/html; charset=UTF-8", data: fallbackPage()
 }
 
 def getConfig() {
