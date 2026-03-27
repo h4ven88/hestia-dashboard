@@ -1,5 +1,5 @@
 /**
- *  Hestia™ Home Dashboard  v1.0.4
+ *  Hestia™ Home Dashboard  v1.0.5
  *  ════════════════════════════════════════════════════════════════
  *  Single Hubitat app — serves the dashboard and stores config.
  *
@@ -44,7 +44,7 @@ preferences {
 @Field static final String GITHUB_VERSION_URL =
     "https://api.github.com/repos/h4ven88/hestia-dashboard/releases/latest"
 
-@Field static final String APP_VERSION        = "1.0.4"
+@Field static final String APP_VERSION        = "1.0.5"
 @Field static final String DASHBOARD_FILENAME = "hestia-dashboard.html"
 @Field static final String TOKEN_FILENAME     = "hestia-token.json"
 @Field static final String CONFIG_FILENAME    = "hestia-config.json"
@@ -86,11 +86,12 @@ def mainPage() {
 
         section("Dashboard URL") {
             if (state.accessToken && state.dashboardStored) {
-                def hubIp   = location.hubs[0].localIP
-                def dashUrl = "http://${hubIp}/apps/api/${app.id}/dashboard?access_token=${state.accessToken}"
-                paragraph "Open this URL in any browser on your local network:\n\n" +
-                          "<b>${dashUrl}</b>\n\n" +
-                          "Bookmark it or save it as a PWA on your tablet."
+                def hubIp    = location.hubs[0].localIP
+                def directUrl = "http://${hubIp}/local/${DASHBOARD_FILENAME}"
+                def apiUrl    = "http://${hubIp}/apps/api/${app.id}/dashboard?access_token=${state.accessToken}"
+                paragraph "Bookmark this URL — clean, no token required:\n\n" +
+                          "<b>${directUrl}</b>\n\n" +
+                          "Or use the full API URL (also works):\n${apiUrl}"
             } else if (!state.dashboardStored) {
                 paragraph "⚠ Dashboard not yet fetched. Click 'Fetch Latest Dashboard from GitHub' below."
             } else {
@@ -270,25 +271,11 @@ def serveDashboard() {
             return
         }
     }
-    // Read from File Manager via httpGet and serve directly —
-    // browser stays on the apps/api URL, hub IP and file path never exposed
+    // Redirect to File Manager — Hubitat sandbox blocks loopback httpGet
+    // The /local/ URL is the clean bookmark URL for the dashboard
     def hubIp   = location.hubs[0].localIP
     def fileUrl = "http://${hubIp}/local/${DASHBOARD_FILENAME}"
-    def served  = false
-    try {
-        httpGet([uri: fileUrl, textParser: true]) { resp ->
-            if (resp.status == 200) {
-                def html = resp.data.text
-                if (html && html.length() > 1000) {
-                    render contentType: "text/html; charset=UTF-8", data: html
-                    served = true
-                }
-            }
-        }
-    } catch(e) {
-        log.error "Hestia: could not read dashboard file: ${e.message}"
-    }
-    if (!served) render contentType: "text/html; charset=UTF-8", data: fallbackPage()
+    redirect(location: fileUrl, status: 302)
 }
 
 def getConfig() {
