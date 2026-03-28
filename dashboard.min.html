@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-/*!
- * Hestia™ Home Dashboard
- * Copyright © 2025 Haven. All rights reserved.
- * Licence: CC BY-NC 4.0 — personal use only.
- * https://github.com/haven-hestia/hestia-dashboard
- */ <html lang="en">
+<!--
+  Hestia™ Home Dashboard
+  Copyright © 2025 Haven. All rights reserved.
+  License: CC BY-NC 4.0 — personal use only.
+  https://github.com/haven-hestia/hestia-dashboard
+--> <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
@@ -759,6 +759,9 @@ ma.innerHTML = `
 ${thermRows}
 </div>
 ${weatherCardHTML()}
+<div style="display:flex;justify-content:flex-end;padding:10px 0 14px;border-top:1px solid var(--border-s);margin-top:4px">
+<span style="font-size:10px;color:var(--t4);letter-spacing:.04em">© 2025 Haven &nbsp;·&nbsp; CC BY-NC 4.0 &nbsp;·&nbsp; Personal use only</span>
+</div>
 </div>`;
 return;
 }
@@ -794,6 +797,9 @@ ${roomHeader('', 'Home', '')}
 ${thermRows}
 </div>
 ${weatherCardHTML()}
+</div>
+<div style="display:flex;justify-content:flex-end;padding:10px 0 14px;border-top:1px solid var(--border-s);margin-top:4px">
+<span style="font-size:10px;color:var(--t4);letter-spacing:.04em">© 2025 Haven &nbsp;·&nbsp; CC BY-NC 4.0 &nbsp;·&nbsp; Personal use only</span>
 </div>`;
 }
 function toggleSwitch(id, checked) {

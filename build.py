@@ -18,13 +18,12 @@ from datetime import datetime, timezone
 SRC   = 'dashboard-unified.html'
 DIST  = 'dist/dashboard.min.html'
 META  = 'dist/build-info.json'
-COPYRIGHT_BLOCK = """\
-/*!
- * Hestia™ Home Dashboard
- * Copyright © 2025 Haven. All rights reserved.
- * Licence: CC BY-NC 4.0 — personal use only.
- * https://github.com/haven-hestia/hestia-dashboard
- */"""
+COPYRIGHT_BLOCK = """<!--
+  Hestia™ Home Dashboard
+  Copyright © 2025 Haven. All rights reserved.
+  License: CC BY-NC 4.0 — personal use only.
+  https://github.com/haven-hestia/hestia-dashboard
+-->"""
 
 def get_version():
     for arg in sys.argv[1:]:
@@ -134,8 +133,12 @@ def build():
     for i, js in enumerate(js_blocks):
         src = src.replace('<script>§JS§' + str(i) + '§</script>', f'<script>{js}</script>')
 
-    # ── Prepend copyright block ───────────────────────────────────────
-    src = COPYRIGHT_BLOCK + '\n' + src
+    # ── Prepend copyright block AFTER DOCTYPE ───────────────────────────
+    # DOCTYPE must be absolute first — insert copyright on line 2
+    if '<!DOCTYPE html>' in src:
+        src = src.replace('<!DOCTYPE html>', '<!DOCTYPE html>\n' + COPYRIGHT_BLOCK, 1)
+    else:
+        src = '<!DOCTYPE html>\n' + COPYRIGHT_BLOCK + '\n' + src
 
     # ── Write output ─────────────────────────────────────────────────
     os.makedirs('dist', exist_ok=True)
