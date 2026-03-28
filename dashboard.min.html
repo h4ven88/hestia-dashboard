@@ -2705,6 +2705,8 @@ return;
 await saveConfig();
 applyConfig();
 closeSettings();
+wxData = null; wxForecastUrl = null;
+bootstrapWeather();
 const saved = document.getElementById('sp-saved');
 if (saved) { saved.textContent = '✓ Saved and applied'; setTimeout(() => { saved.textContent = ''; }, 3000); }
 }
