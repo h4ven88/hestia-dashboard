@@ -1895,6 +1895,21 @@ function dismissPINOverlay() {
 const overlay = document.getElementById('pin-overlay');
 if (overlay) overlay.style.display = 'none';
 }
+function toggleAppearance() {
+const wrap = document.getElementById('sp-appearance-wrap');
+if (!wrap) return;
+wrap.classList.toggle('collapsed');
+try { localStorage.setItem('hestia-appearance-open', !wrap.classList.contains('collapsed')); } catch(e) {}
+}
+function restoreAppearanceState() {
+try {
+const open = localStorage.getItem('hestia-appearance-open');
+if (open === 'false') {
+const wrap = document.getElementById('sp-appearance-wrap');
+if (wrap) wrap.classList.add('collapsed');
+}
+} catch(e) {}
+}
 function closeSettings() {
 document.getElementById('settings-overlay').classList.remove('open');
 document.getElementById('settings-panel').classList.remove('open');
