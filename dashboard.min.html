@@ -112,7 +112,7 @@ poll:          1000,
 defaultRoom:   'home',
 returnTimeout: 60000,
 lock:          { id: '13', label: 'Front Door' },
-weather: { lat: 36.52, lon: -82.56, zip: '', refresh: 600000 }
+weather: { lat: 36.52, lon: -82.56, zip: '', city: 'Kingsport, TN', refresh: 600000 }
 },
 thermostats: [
 { id: '7', name: 'Upstairs',   zone: 'Master Bedroom · Office · Guest Rooms' },
@@ -615,10 +615,10 @@ function weatherCardHTML() {
 const isM = isMobile();
 if (!wxData) return isM
 ? `<div class="m-weather-card"><div style="color:var(--t3);font-size:12px">Fetching weather…</div></div>`
-: `<div class="weather-card"><div class="home-card-top"><div class="home-stat-lbl">Weather — Kingsport, TN</div></div><div class="wx-loading">Fetching weather…</div></div>`;
+: `<div class="weather-card"><div class="home-card-top"><div class="home-stat-lbl">Weather — ${CONFIG.weather.city || 'your location'}</div></div><div class="wx-loading">Fetching weather…</div></div>`;
 if (wxData.error) return isM
 ? `<div class="m-weather-card"><div style="color:var(--t3);font-size:11px;font-style:italic">Weather unavailable</div></div>`
-: `<div class="weather-card"><div class="home-card-top"><div class="home-stat-lbl">Weather — Kingsport, TN</div></div><div class="wx-err">Unable to reach weather service</div></div>`;
+: `<div class="weather-card"><div class="home-card-top"><div class="home-stat-lbl">Weather — ${CONFIG.weather.city || 'your location'}</div></div><div class="wx-err">Unable to reach weather service</div></div>`;
 const cur   = wxData.current;
 const temp  = cur.temperature;
 const unit  = cur.temperatureUnit === 'F' ? '°F' : '°C';
@@ -634,7 +634,7 @@ const forecasts = (wxData.forecast || []).map(p => `
 </div>`).join('');
 return `
 <div class="m-weather-card">
-<div class="sec-lbl">Weather — Kingsport, TN</div>
+<div class="sec-lbl">Weather — ${CONFIG.weather.city || 'your location'}</div>
 <div class="m-wx-top">
 <div style="display:flex;align-items:flex-end;gap:10px">
 <div class="m-wx-temp">${temp}<span class="m-wx-unit">${unit}</span></div>
@@ -657,7 +657,7 @@ const forecastPeriods = (wxData.forecast || []).map(p => `
 return `
 <div class="weather-card">
 <div class="home-card-top">
-<div class="home-stat-lbl">Weather — Kingsport, TN</div>
+<div class="home-stat-lbl">Weather — ${CONFIG.weather.city || 'your location'}</div>
 </div>
 <div class="wx-top">
 <div class="wx-left">
@@ -2495,7 +2495,8 @@ const latEl = document.getElementById('sp-lat');
 const lonEl = document.getElementById('sp-lon');
 if (latEl) latEl.value = lat;
 if (lonEl) lonEl.value = lon;
-CONFIG.weather.zip = zip;
+CONFIG.weather.zip  = zip;
+CONFIG.weather.city = city;
 if (statusEl) { statusEl.textContent = '\u2713 ' + city + ' \u2014 ' + lat + ', ' + lon; statusEl.style.color = 'var(--t2)'; }
 } catch(e) {
 if (statusEl) { statusEl.textContent = 'ZIP not found \u2014 check the code or enter coordinates manually'; statusEl.style.color = 'var(--conn-err)'; }
