@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<!--
+  Hestia™ Home Dashboard — Interactive Demo
+  Copyright © 2025 Haven. All rights reserved.
+  License: CC BY-NC 4.0 — personal use only.
+  https://github.com/h4ven88/hestia-dashboard
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Hestia™ — Live Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@100;200;300;400&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0A0A0A;--bg-panel:#111111;--bg-card:#181818;--bg-hover:#212121;
+  --border:#272727;--border-s:#1C1C1C;
+  --amber:#F59E0B;--amber-dim:#1A1200;--amber-bdr:#6B4A08;
+  --t1:#F2F2F2;--t2:#999;--t3:#555;--t4:#2C2C2C;
+  --cool:#60A5FA;--cool-dim:#071526;--cool-bdr:#1D4E8A;
+  --heat:#F59E0B;--heat-dim:#1A1200;--heat-bdr:#6B4A08;
+  --conn-ok:#4ADE80;
+}
+[data-theme="light"]{
+  --bg:#F5F5F3;--bg-panel:#FFF;--bg-card:#FFF;--bg-hover:#F0F0EE;
+  --border:#E5E5E0;--border-s:#EEEEE A;
+  --amber:#D97706;--amber-dim:#FFF8EC;--amber-bdr:#F0C070;
+  --t1:#1A1A1A;--t2:#666;--t3:#AAA;--t4:#CCC;
+  --conn-ok:#16A34A;
+}
+[data-theme="slate"]{
+  --bg:#1C2028;--bg-panel:#242833;--bg-card:#242833;--bg-hover:#2C3140;
+  --border:#2E3340;--border-s:#282E3A;
+  --t1:#E8EAF0;--t2:#A0A8B8;--t3:#5A6070;--t4:#363C4A;
+}
+[data-theme="warm"]{
+  --bg:#1C1A17;--bg-panel:#252219;--bg-card:#252219;--bg-hover:#2E2A20;
+  --border:#312E28;--border-s:#28251F;
+  --t1:#EDE8E0;--t2:#A89880;--t3:#5E5748;--t4:#38332A;
+}
+[data-theme="cream"]{
+  --bg:#F5F0E8;--bg-panel:#EDE6D4;--bg-card:#EDE6D4;--bg-hover:#E4D9C4;
+  --border:#DDD5C4;--border-s:#E4DDD0;
+  --amber:#B8710A;--amber-dim:#FDF0E0;--amber-bdr:#D4A050;
+  --t1:#2C2318;--t2:#6A5A40;--t3:#9C8C70;--t4:#C4B89C;
+}
+
+body{background:var(--bg);font-family:'Outfit',system-ui,sans-serif;color:var(--t1);height:100vh;overflow:hidden;transition:background .3s,color .3s}
+
+/* ── LAYOUT ── */
+.shell{display:flex;flex-direction:column;height:100vh}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:0 22px;height:56px;background:var(--bg-panel);border-bottom:1px solid var(--border);flex-shrink:0}
+.tb-left{display:flex;align-items:center;gap:12px}
+.tb-logo{display:flex;align-items:center;gap:10px;margin-right:8px}
+.tb-name{font-size:17px;font-weight:200;letter-spacing:.22em;text-transform:uppercase;color:var(--t1)}
+.divider{width:1px;height:20px;background:var(--border)}
+.tb-clock{font-size:24px;font-weight:300;color:var(--t1);letter-spacing:-.5px}
+.tb-date{font-size:12px;color:var(--t3)}
+.tb-right{display:flex;align-items:center;gap:6px}
+.tb-stat{display:flex;align-items:center;gap:7px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:5px 12px;font-size:12px}
+.tb-stat-val{color:var(--t1);font-weight:500}
+.tb-stat-lbl{color:var(--t3)}
+.dot{width:6px;height:6px;border-radius:50%}
+.dot-on{background:var(--amber)}
+.dot-off{background:var(--t4)}
+.conn-dot{width:7px;height:7px;border-radius:50%;background:var(--conn-ok)}
+.gear-btn{background:none;border:none;cursor:pointer;color:var(--t3);font-size:18px;padding:4px 6px;transition:color .15s}
+.gear-btn:hover{color:var(--t1)}
+
+.body{display:flex;flex:1;overflow:hidden}
+
+/* ── SIDEBAR ── */
+.sidebar{width:176px;background:var(--bg-panel);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
+.sb-section{font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--t1);padding:10px 16px 8px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--bg-hover)}
+.nav-btn{display:flex;flex-direction:column;justify-content:center;padding:0 16px;min-height:54px;cursor:pointer;border:none;background:transparent;text-align:left;border-bottom:1px solid var(--border-s);transition:background .15s;width:100%;border-left:3px solid transparent;font-family:inherit}
+.nav-btn:hover{background:var(--bg-hover)}
+.nav-btn.active{background:var(--bg-hover);border-left-color:var(--amber)}
+.nav-name{font-size:13px;font-weight:500;color:var(--t2)}
+.nav-btn.active .nav-name{color:var(--amber)}
+.nav-status{font-size:11px;color:var(--t3);margin-top:2px}
+.nav-status.live{color:var(--t2)}
+
+/* ── MAIN ── */
+.main{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.room-hdr{padding:14px 22px 12px;border-bottom:1px solid var(--border-s);display:flex;align-items:flex-end;justify-content:space-between;flex-shrink:0}
+.rh-crumb{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--amber);margin-bottom:3px}
+.rh-name{font-size:19px;font-weight:500;color:var(--t1)}
+.rh-sub{font-size:12px;color:var(--t3);margin-top:1px}
+.devices{flex:1;overflow-y:auto;padding:14px 18px;display:grid;grid-template-columns:repeat(3,1fr);gap:11px;align-content:start}
+.dcard{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:13px 15px}
+.dcard-lbl{font-size:10px;color:var(--t3);letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:10px}
+
+/* ── DEVICE ROWS ── */
+.drow{display:flex;align-items:center;justify-content:space-between;min-height:46px;border-bottom:1px solid var(--border-s)}
+.drow:last-child{border-bottom:none}
+.drow-name{font-size:13px;color:var(--t2)}
+.tog{position:relative;width:44px;height:25px;cursor:pointer;flex-shrink:0}
+.tog input{opacity:0;width:0;height:0;position:absolute}
+.tog-t{position:absolute;inset:0;background:var(--t4);border-radius:13px;transition:background .3s,border-color .3s;border:1px solid var(--border)}
+.tog-k{position:absolute;top:3.5px;left:3.5px;width:18px;height:18px;background:var(--t3);border-radius:50%;transition:transform .3s,background .3s;pointer-events:none}
+.tog input:checked~.tog-t{background:var(--amber-dim);border-color:var(--amber-bdr)}
+.tog input:checked~.tog-t .tog-k{transform:translateX(19px);background:var(--amber)}
+
+/* ── DIMMER ── */
+.dim-wrap{padding:3px 0 8px;border-bottom:1px solid var(--border-s)}
+.dim-wrap:last-of-type{border-bottom:none}
+.dim-top{display:flex;align-items:center;min-height:40px;gap:8px}
+.dim-name{font-size:13px;color:var(--t2);flex:1}
+.dim-v{font-size:14px;font-weight:500;color:var(--t1);min-width:36px;text-align:right}
+.dim-v.off{color:var(--t4)}
+input[type=range].srng{-webkit-appearance:none;appearance:none;width:100%;height:3px;border-radius:2px;background:var(--border);outline:none;cursor:pointer;margin-top:6px}
+input[type=range].srng::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:var(--t1);cursor:pointer;border:2px solid var(--bg)}
+
+/* ── FAN ── */
+.spds{display:flex;gap:4px;flex-wrap:wrap}
+.spd{font-size:11px;padding:0 9px;height:32px;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:transparent;color:var(--t3);transition:all .2s;font-family:inherit;font-weight:500}
+.spd.on{background:var(--amber-dim);border-color:var(--amber-bdr);color:var(--amber)}
+.spd:hover:not(.on){background:var(--bg-hover);color:var(--t2)}
+
+/* ── SHADE ── */
+.shade-row{display:flex;flex-direction:column;padding:9px 0;border-bottom:1px solid var(--border-s);gap:7px}
+.shade-row:last-child{border-bottom:none}
+.shade-top{display:flex;align-items:center;gap:10px}
+.shade-name{font-size:13px;color:var(--t2);flex:1}
+.shade-pct{font-size:12px;font-weight:600;color:var(--amber);min-width:40px;text-align:right}
+.shade-pct.closed{color:var(--t4)}
+.shade-tgl{height:28px;padding:0 12px;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:transparent;color:var(--t2);font-size:11px;font-family:inherit;transition:all .15s;font-weight:500}
+.shade-tgl:hover{background:var(--bg-hover);color:var(--t1)}
+.shade-slider{-webkit-appearance:none;width:100%;height:3px;border-radius:2px;background:linear-gradient(to right,var(--amber) 0%,var(--amber) var(--pct,50%),var(--border) var(--pct,50%));outline:none;cursor:pointer}
+.shade-slider::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--t1);cursor:pointer;border:2px solid var(--bg)}
+
+/* ── THERM CARD ── */
+.therm-wrap{display:flex;align-items:center;justify-content:space-between;min-height:54px}
+.therm-cur{font-size:30px;font-weight:300;color:var(--t1);line-height:1}
+.therm-unit{font-size:14px;color:var(--t3)}
+.therm-modes{display:flex;gap:4px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border-s)}
+.therm-mode{flex:1;height:30px;border:1px solid var(--border);border-radius:6px;background:transparent;cursor:pointer;font-size:11px;color:var(--t3);font-family:inherit;font-weight:500;transition:all .15s}
+.therm-mode.on.cool{background:var(--cool-dim);border-color:var(--cool-bdr);color:var(--cool)}
+.therm-mode.on.heat{background:var(--heat-dim);border-color:var(--heat-bdr);color:var(--heat)}
+.therm-set{font-size:12px;color:var(--t2)}
+.therm-btns{display:flex;gap:5px;margin-top:5px;justify-content:flex-end}
+.therm-btn{width:34px;height:34px;border:1px solid var(--border);border-radius:7px;background:transparent;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;color:var(--t2);font-family:inherit;transition:all .15s}
+.therm-btn:hover{background:var(--bg-hover);color:var(--t1)}
+
+/* ── WEATHER ── */
+.wx-card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:16px 18px;grid-column:span 2}
+.wx-lbl{font-size:10px;color:var(--t3);letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:10px}
+.wx-top{display:flex;align-items:flex-start;justify-content:space-between}
+.wx-temp{font-size:52px;font-weight:200;color:var(--t1);line-height:1;letter-spacing:-2px}
+.wx-unit{font-size:18px;color:var(--t3);vertical-align:super}
+.wx-cond{font-size:13px;font-weight:500;color:var(--t1);margin-bottom:4px}
+.wx-detail{font-size:11px;color:var(--t3);line-height:1.7}
+.wx-forecast{display:flex;border-top:1px solid var(--border-s);padding-top:10px;margin-top:8px}
+.wx-period{flex:1;text-align:center;border-right:1px solid var(--border-s)}
+.wx-period:last-child{border-right:none}
+.wx-pname{font-size:9px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--t3);margin-bottom:3px}
+.wx-ptemp{font-size:15px;color:var(--t1)}
+
+/* ── HOME GRID ── */
+.home-grid{flex:1;overflow-y:auto;padding:18px 20px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-content:start}
+.home-stat{background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:20px 22px;display:flex;flex-direction:column;gap:8px}
+.home-stat-lbl{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--t3)}
+.home-stat-val{font-size:36px;font-weight:300;color:var(--t1);line-height:1}
+.home-stat-val.amber{color:var(--amber)}
+.home-stat-sub{font-size:12px;color:var(--t3)}
+.home-stat-sub .live{color:var(--t2)}
+.clim-card{background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:20px 22px}
+.clim-row{padding:6px 0;border-bottom:1px solid var(--border-s)}
+.clim-row:last-child{border-bottom:none}
+.clim-name{font-size:10px;font-weight:600;color:var(--t3);letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px}
+.clim-stats{display:flex;align-items:center;gap:0;font-size:13px;color:var(--t2)}
+.clim-sep{font-size:11px;color:var(--t4);margin:0 7px}
+.clim-temp{font-size:15px;font-weight:500;color:var(--t1)}
+
+/* ── THEME SWITCHER ── */
+.theme-bar{position:fixed;bottom:16px;right:16px;display:flex;gap:6px;background:var(--bg-panel);border:1px solid var(--border);border-radius:12px;padding:8px 10px;z-index:50}
+.theme-pill{width:28px;height:28px;border-radius:7px;cursor:pointer;border:2px solid transparent;transition:border-color .2s;flex-shrink:0}
+.theme-pill:hover{border-color:var(--t2)}
+.theme-pill.active{border-color:var(--amber)!important}
+
+/* ── DEMO BADGE ── */
+.demo-badge{position:fixed;top:0;left:50%;transform:translateX(-50%);background:var(--amber-dim);border:1px solid var(--amber-bdr);border-radius:0 0 10px 10px;padding:3px 14px;font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--amber);z-index:100}
+
+/* ── CLIMATE SCREEN ── */
+.climate-grid{flex:1;overflow-y:auto;padding:20px;display:grid;grid-template-columns:1fr 1fr;gap:16px;align-content:start}
+.climate-card{background:var(--bg-card);border:1px solid var(--border);border-radius:16px;padding:22px 24px}
+.climate-name{font-size:18px;font-weight:500;color:var(--t1);margin-bottom:3px}
+.climate-zone{font-size:11px;color:var(--t3);margin-bottom:16px}
+.climate-temp{font-size:64px;font-weight:200;color:var(--t1);line-height:1;letter-spacing:-3px}
+.climate-temp-unit{font-size:22px;color:var(--t3);vertical-align:super}
+.climate-hum{font-size:24px;font-weight:500;color:var(--t2)}
+.climate-hum-lbl{font-size:11px;color:var(--t3);margin-top:3px}
+.climate-sp{background:var(--bg-panel);border-radius:10px;overflow:hidden;display:flex;border:1px solid var(--border-s);margin-top:16px}
+.climate-sp-half{flex:1;padding:14px 16px}
+.climate-sp-divider{width:1px;background:var(--border)}
+.climate-sp-lbl{font-size:10px;color:var(--t3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px;font-weight:600}
+.climate-sp-val{font-size:26px;font-weight:300;color:var(--t3);margin-bottom:10px}
+.climate-sp-btns{display:flex;gap:4px}
+
+/* ── FOOTER ── */
+.home-footer{display:flex;justify-content:flex-end;padding:6px 20px 8px;border-top:1px solid var(--border-s);margin-top:2px}
+.copy{font-size:10px;color:var(--t4);letter-spacing:.04em}
+</style>
+</head>
+<body>
+<div class="demo-badge">Interactive Demo — Not Connected to a Hub</div>
+
+<div class="shell">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="tb-left">
+      <div class="tb-logo">
+        <svg viewBox="0 0 28 32" xmlns="http://www.w3.org/2000/svg" width="34" height="38" style="flex-shrink:0">
+          <polygon points="14,1.5 24,7 24,20 14,25.5 4,20 4,7" fill="none" stroke="#F59E0B" stroke-width="1.2" stroke-linejoin="miter"/>
+          <polygon points="14,1.5 24,7 19,11.5 9,11.5 4,7" fill="#F0EEE8"/>
+          <polygon points="14,1.5 4,7 9,11.5" fill="#E4E2DA"/>
+          <polygon points="14,1.5 24,7 19,11.5" fill="#D0CEC6"/>
+          <polygon points="14,1.5 19,5 18,8 14,9.5 10,8 9,5" fill="none" stroke="#C8C6BE" stroke-width=".6" stroke-linejoin="miter" opacity=".6"/>
+          <line x1="14" y1="1.5" x2="14" y2="9.5" stroke="#C8C6BE" stroke-width=".55" opacity=".5"/>
+          <line x1="9" y1="5" x2="14" y2="9.5" stroke="#C8C6BE" stroke-width=".48" opacity=".38"/>
+          <line x1="19" y1="5" x2="14" y2="9.5" stroke="#C8C6BE" stroke-width=".48" opacity=".38"/>
+          <line x1="9" y1="11.5" x2="19" y2="11.5" stroke="#F59E0B" stroke-width="1.8" opacity=".96" stroke-linecap="square"/>
+          <line x1="4" y1="7" x2="9" y2="11.5" stroke="#F59E0B" stroke-width=".55" opacity=".33"/>
+          <line x1="24" y1="7" x2="19" y2="11.5" stroke="#F59E0B" stroke-width=".55" opacity=".33"/>
+          <polygon points="9,11.5 19,11.5 24,20 14,25.5 4,20" fill="#141C26"/>
+          <polygon points="9,11.5 4,20 14,25.5" fill="#0C1218"/>
+          <polygon points="19,11.5 24,20 14,25.5" fill="#1A2332"/>
+          <line x1="14" y1="11.5" x2="14" y2="25.5" stroke="#94A3B8" stroke-width=".7" opacity=".3"/>
+          <line x1="9" y1="11.5" x2="14" y2="25.5" stroke="#64748B" stroke-width=".55" opacity=".22"/>
+          <line x1="19" y1="11.5" x2="14" y2="25.5" stroke="#64748B" stroke-width=".55" opacity=".22"/>
+          <line x1="4" y1="20" x2="24" y2="20" stroke="#94A3B8" stroke-width=".55" opacity=".18"/>
+          <circle cx="14" cy="25.5" r="1.8" fill="#94A3B8" opacity=".28"/>
+        </svg>
+        <span class="tb-name">HESTIA™</span>
+      </div>
+      <div class="divider"></div>
+      <div class="tb-clock" id="clk">--:--</div>
+      <div class="tb-date" id="dt"></div>
+    </div>
+    <div class="tb-right">
+      <div class="tb-stat">
+        <div class="dot dot-on" id="dot-l"></div>
+        <span class="tb-stat-val" id="sv-l">4</span>
+        <span class="tb-stat-lbl">lights</span>
+      </div>
+      <div class="tb-stat">
+        <div class="dot dot-off" id="dot-f"></div>
+        <span class="tb-stat-val" id="sv-f">0</span>
+        <span class="tb-stat-lbl">fans</span>
+      </div>
+      <div class="tb-stat">
+        <div class="dot dot-off" id="dot-s"></div>
+        <span class="tb-stat-val" id="sv-s">0</span>
+        <span class="tb-stat-lbl">shades</span>
+      </div>
+      <div class="tb-stat" style="padding:5px 9px">
+        <div class="conn-dot"></div>
+        <span style="font-size:11px;color:var(--t3);margin-left:4px">demo</span>
+      </div>
+      <button class="gear-btn">⚙</button>
+    </div>
+  </div>
+
+  <!-- BODY -->
+  <div class="body">
+
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+      <div class="nav-btn active" onclick="nav('home',this)">
+        <div class="nav-name">Home</div>
+      </div>
+      <div class="sb-section">Global</div>
+      <div class="nav-btn" onclick="nav('lights',this)">
+        <div class="nav-name">Lights</div>
+        <div class="nav-status live">4 lights on</div>
+      </div>
+      <div class="nav-btn" onclick="nav('fans',this)">
+        <div class="nav-name">Fans</div>
+        <div class="nav-status">All off</div>
+      </div>
+      <div class="nav-btn" onclick="nav('blinds',this)">
+        <div class="nav-name">Blinds</div>
+        <div class="nav-status">All closed</div>
+      </div>
+      <div class="nav-btn" onclick="nav('climate',this)">
+        <div class="nav-name">Climate</div>
+        <div class="nav-status live">68° · 72°</div>
+      </div>
+      <div class="sb-section">Rooms</div>
+      <div class="nav-btn" onclick="nav('master',this)">
+        <div class="nav-name">Master</div>
+        <div class="nav-status live">1 light on</div>
+      </div>
+      <div class="nav-btn" onclick="nav('office',this)">
+        <div class="nav-name">Office</div>
+        <div class="nav-status live">1 light, 1 fan</div>
+      </div>
+      <div class="nav-btn" onclick="nav('lower',this)">
+        <div class="nav-name">Lower</div>
+        <div class="nav-status live">2 lights on</div>
+      </div>
+      <div class="nav-btn" onclick="nav('guest1',this)">
+        <div class="nav-name">Guest 1</div>
+        <div class="nav-status">All off</div>
+      </div>
+    </div>
+
+    <!-- MAIN AREA -->
+    <div class="main" id="main-area"></div>
+
+  </div>
+</div>
+
+<!-- THEME SWITCHER -->
+<div class="theme-bar" title="Switch theme">
+  <div class="theme-pill active" style="background:#0A0A0A;border:2px solid #272727" onclick="switchTheme('',this)" title="Dark"></div>
+  <div class="theme-pill" style="background:#F5F5F3;border:2px solid #E5E5E0" onclick="switchTheme('light',this)" title="Light"></div>
+  <div class="theme-pill" style="background:#1C2028;border:2px solid #2E3340" onclick="switchTheme('slate',this)" title="Slate"></div>
+  <div class="theme-pill" style="background:#1C1A17;border:2px solid #312E28" onclick="switchTheme('warm',this)" title="Warm"></div>
+  <div class="theme-pill" style="background:#EDE6D4;border:2px solid #DDD5C4" onclick="switchTheme('cream',this)" title="Cream"></div>
+</div>
+
+<script>
+// ── Clock ──────────────────────────────────────────────────────────
+function tick() {
+  const n = new Date();
+  document.getElementById('clk').textContent = n.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  document.getElementById('dt').textContent  = n.toLocaleDateString([],{weekday:'short',month:'short',day:'numeric'});
+}
+tick(); setInterval(tick,15000);
+
+// ── State ──────────────────────────────────────────────────────────
+const S = {
+  lights: { ceil:{on:true}, lamp1:{on:true,v:80}, lamp2:{on:true,v:60}, office:{on:true}, kitchen:{on:false}, dining:{on:false}, porch:{on:false} },
+  fans:   { master:{spd:'off'}, office:{spd:'off'}, living:{spd:'off'} },
+  shades: { mbLeft:{pct:0}, mbRight:{pct:0}, office:{pct:0}, living:{pct:0} },
+  therms: { down:{cur:68,heat:68,cool:72,mode:'cool',state:'idle'}, up:{cur:72,heat:68,cool:72,mode:'cool',state:'idle'} }
+};
+
+function countLights() { return Object.values(S.lights).filter(d=>d.on).length; }
+function countFans()   { return Object.values(S.fans).filter(d=>d.spd!=='off').length; }
+function countShades() { return Object.values(S.shades).filter(d=>d.pct>0).length; }
+
+function updateStats() {
+  const l=countLights(),f=countFans(),s=countShades();
+  document.getElementById('sv-l').textContent=l;
+  document.getElementById('sv-f').textContent=f;
+  document.getElementById('sv-s').textContent=s;
+  document.getElementById('dot-l').className='dot '+(l>0?'dot-on':'dot-off');
+  document.getElementById('dot-f').className='dot '+(f>0?'dot-on':'dot-off');
+  document.getElementById('dot-s').className='dot '+(s>0?'dot-on':'dot-off');
+}
+
+// ── Theme ─────────────────────────────────────────────────────────
+function switchTheme(t,pill) {
+  document.documentElement.setAttribute('data-theme',t);
+  document.querySelectorAll('.theme-pill').forEach(p=>p.classList.remove('active'));
+  pill.classList.add('active');
+}
+
+// ── Navigation ────────────────────────────────────────────────────
+function nav(id,btn) {
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const ma = document.getElementById('main-area');
+  if      (id==='home')    renderHome(ma);
+  else if (id==='lights')  renderLights(ma);
+  else if (id==='fans')    renderFans(ma);
+  else if (id==='blinds')  renderBlinds(ma);
+  else if (id==='climate') renderClimate(ma);
+  else if (id==='master')  renderMaster(ma);
+  else if (id==='office')  renderOffice(ma);
+  else if (id==='lower')   renderLower(ma);
+  else if (id==='guest1')  renderGuest1(ma);
+}
+
+// ── Toggle helpers ────────────────────────────────────────────────
+function toggle(key, el) {
+  S.lights[key].on = el.checked;
+  updateStats();
+}
+function dimInput(key, val, valEl, slrEl) {
+  S.lights[key].v = +val;
+  S.lights[key].on = +val > 0;
+  if(valEl) { document.getElementById(valEl).textContent = val+'%'; }
+  updateStats();
+}
+function setFan(key, spd, btns) {
+  S.fans[key].spd = spd;
+  document.querySelectorAll('.'+btns).forEach(b=>b.classList.remove('on'));
+  event.target.classList.add('on');
+  updateStats();
+}
+function setShade(key, val, pctEl, tglEl, slrEl) {
+  S.shades[key].pct = +val;
+  const el=document.getElementById(pctEl);
+  if(el){el.textContent=val+'%';el.className='shade-pct'+(+val===0?' closed':'');}
+  const sl=document.getElementById(slrEl);
+  if(sl){sl.style.setProperty('--pct',val+'%');}
+  updateStats();
+}
+function adjTherm(key,which,delta) {
+  S.therms[key][which]=Math.max(60,Math.min(85,S.therms[key][which]+delta));
+  const el=document.getElementById('tset-'+key+'-'+which);
+  if(el) el.textContent=(which==='heat'?'Heat':'Cool')+': '+S.therms[key][which]+'°';
+}
+
+// ── HOME ──────────────────────────────────────────────────────────
+function renderHome(ma) {
+  const l=countLights(),f=countFans(),s=countShades();
+  const d=S.therms.down,u=S.therms.up;
+  ma.innerHTML=`
+    <div class="room-hdr">
+      <div><div class="rh-name">Home</div></div>
+    </div>
+    <div class="home-grid">
+      <div class="home-stat">
+        <div class="home-stat-lbl">Lights</div>
+        <div class="home-stat-val ${l>0?'amber':''}">${l}<span style="font-size:16px;color:var(--t3);font-weight:400"> / 7</span></div>
+        <div class="home-stat-sub">${l>0?'<span class="live">'+l+' on</span>':'All off'}</div>
+      </div>
+      <div class="home-stat">
+        <div class="home-stat-lbl">Fans</div>
+        <div class="home-stat-val ${f>0?'amber':''}">${f}<span style="font-size:16px;color:var(--t3);font-weight:400"> / 3</span></div>
+        <div class="home-stat-sub">${f>0?'<span class="live">'+f+' running</span>':'All off'}</div>
+      </div>
+      <div class="home-stat">
+        <div class="home-stat-lbl">Blinds</div>
+        <div class="home-stat-val ${s>0?'amber':''}">${s}<span style="font-size:16px;color:var(--t3);font-weight:400"> / 4</span></div>
+        <div class="home-stat-sub">${s>0?'<span class="live">'+s+' open</span>':'All closed'}</div>
+      </div>
+      <div class="clim-card">
+        <div class="home-stat-lbl" style="margin-bottom:10px">Climate</div>
+        <div class="clim-row">
+          <div class="clim-name">Downstairs</div>
+          <div class="clim-stats">
+            <span class="clim-temp">${d.cur}°F</span>
+            <span class="clim-sep">·</span>
+            <span style="color:var(--cool)">Cooling</span>
+          </div>
+        </div>
+        <div class="clim-row">
+          <div class="clim-name">Upstairs</div>
+          <div class="clim-stats">
+            <span class="clim-temp">${u.cur}°F</span>
+            <span class="clim-sep">·</span>
+            <span style="color:var(--t3)">Idle</span>
+          </div>
+        </div>
+      </div>
+      <div class="wx-card">
+        <div class="wx-lbl">Weather — Kingsport, TN</div>
+        <div class="wx-top">
+          <div style="display:flex;align-items:flex-end;gap:10px">
+            <div class="wx-temp">58<span class="wx-unit">°F</span></div>
+          </div>
+          <div style="text-align:right;padding-top:4px">
+            <div class="wx-cond">Partly Cloudy</div>
+            <div class="wx-detail">52% humidity<br>Wind SW 8 mph</div>
+          </div>
+        </div>
+        <div class="wx-forecast">
+          <div class="wx-period"><div class="wx-pname">Tonight</div><div class="wx-ptemp">44°</div></div>
+          <div class="wx-period"><div class="wx-pname">Saturday</div><div class="wx-ptemp">62°</div></div>
+          <div class="wx-period"><div class="wx-pname">Sat Night</div><div class="wx-ptemp">48°</div></div>
+          <div class="wx-period"><div class="wx-pname">Sunday</div><div class="wx-ptemp">67°</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="home-footer"><span class="copy">© 2025 Haven &nbsp;·&nbsp; CC BY-NC 4.0 &nbsp;·&nbsp; Personal use only</span></div>`;
+}
+
+// ── LIGHTS ────────────────────────────────────────────────────────
+function renderLights(ma) {
+  ma.innerHTML=`
+    <div class="room-hdr"><div><div class="rh-crumb">Global Controls</div><div class="rh-name">Lights</div><div class="rh-sub">${countLights()} lights on</div></div></div>
+    <div class="devices" style="grid-template-columns:1fr 1fr">
+      <div class="dcard">
+        <div class="dcard-lbl">Switches</div>
+        ${swRow('Master Ceiling','ceil')}
+        ${swRow('Office Lights','office')}
+        ${swRow('Kitchen','kitchen')}
+        ${swRow('Dining Room','dining')}
+      </div>
+      <div class="dcard">
+        <div class="dcard-lbl">Dimmers</div>
+        ${dimRow('Left Lamp','lamp1')}
+        ${dimRow('Right Lamp','lamp2')}
+      </div>
+    </div>`;
+}
+
+function swRow(name,key) {
+  return `<div class="drow"><span class="drow-name">${name}</span>
+    <label class="tog"><input type="checkbox" ${S.lights[key].on?'checked':''} onchange="toggle('${key}',this)">
+    <span class="tog-t"><span class="tog-k"></span></span></label></div>`;
+}
+
+function dimRow(name,key) {
+  const d=S.lights[key];
+  return `<div class="dim-wrap">
+    <div class="dim-top">
+      <span class="dim-name">${name}</span>
+      <span class="dim-v ${!d.on?'off':''}" id="dv-${key}">${d.on?d.v+'%':'Off'}</span>
+      <label class="tog"><input type="checkbox" ${d.on?'checked':''} onchange="S.lights['${key}'].on=this.checked;updateStats();document.getElementById('dv-${key}').textContent=this.checked?S.lights['${key}'].v+'%':'Off';document.getElementById('dv-${key}').className='dim-v'+(this.checked?'':' off')">
+      <span class="tog-t"><span class="tog-k"></span></span></label>
+    </div>
+    <input type="range" class="srng" value="${d.v}" min="1" max="100"
+      oninput="S.lights['${key}'].v=+this.value;S.lights['${key}'].on=true;document.getElementById('dv-${key}').textContent=this.value+'%';document.getElementById('dv-${key}').className='dim-v';updateStats()">
+  </div>`;
+}
+
+// ── FANS ──────────────────────────────────────────────────────────
+function renderFans(ma) {
+  ma.innerHTML=`
+    <div class="room-hdr"><div><div class="rh-crumb">Global Controls</div><div class="rh-name">Fans</div><div class="rh-sub">${countFans()} of 3 running</div></div></div>
+    <div class="devices" style="grid-template-columns:1fr 1fr 1fr">
+      ${fanCard('Master Bedroom','master')}
+      ${fanCard('Office','office')}
+      ${fanCard('Living Room','living')}
+    </div>`;
+}
+
+function fanCard(name,key) {
+  const spd=S.fans[key].spd;
+  return `<div class="dcard"><div class="dcard-lbl">${name}</div>
+    <div class="spds" id="fanbtns-${key}">
+      ${['off','low','medium','high'].map(s=>`
+        <button class="spd fan-${key} ${spd===s?'on':''}" onclick="S.fans['${key}'].spd='${s}';document.querySelectorAll('.fan-${key}').forEach(b=>b.classList.remove('on'));this.classList.add('on');updateStats()">
+          ${s==='medium'?'med':s}
+        </button>`).join('')}
+    </div></div>`;
+}
+
+// ── BLINDS ────────────────────────────────────────────────────────
+function renderBlinds(ma) {
+  ma.innerHTML=`
+    <div class="room-hdr"><div><div class="rh-crumb">Global Controls</div><div class="rh-name">Blinds</div><div class="rh-sub">${countShades()} of 4 open</div></div></div>
+    <div class="devices" style="grid-template-columns:1fr 1fr">
+      <div class="dcard" style="grid-column:span 2"><div class="dcard-lbl">All Shades</div>
+        ${shadeRow('Master Left','mbLeft')}
+        ${shadeRow('Master Right','mbRight')}
+        ${shadeRow('Office Window','office')}
+        ${shadeRow('Living Room','living')}
+      </div>
+    </div>`;
+}
+
+function shadeRow(name,key) {
+  const pct=S.shades[key].pct;
+  return `<div class="shade-row">
+    <div class="shade-top">
+      <span class="shade-name">${name}</span>
+      <span class="shade-pct ${pct===0?'closed':''}" id="spct-${key}">${pct}%</span>
+      <button class="shade-tgl" onclick="const p=S.shades['${key}'].pct===0?50:0;S.shades['${key}'].pct=p;setShade('${key}',p,'spct-${key}','','sslr-${key}')">${pct>0?'Close':'Open'}</button>
+    </div>
+    <input type="range" class="shade-slider" id="sslr-${key}" min="0" max="100" value="${pct}"
+      style="--pct:${pct}%"
+      oninput="setShade('${key}',this.value,'spct-${key}','','sslr-${key}')">
+  </div>`;
+}
+
+// ── CLIMATE ───────────────────────────────────────────────────────
+function renderClimate(ma) {
+  ma.innerHTML=`
+    <div class="room-hdr"><div><div class="rh-crumb">Global Controls</div><div class="rh-name">Climate</div></div></div>
+    <div class="climate-grid">
+      ${thermCard('Downstairs','Foyer · Kitchen · Living · Dining','down')}
+      ${thermCard('Upstairs','Master · Office · Guest Rooms','up')}
+    </div>`;
+}
+
+function thermCard(name,zone,key) {
+  const t=S.therms[key];
+  const isCool=t.mode==='cool';
+  return `<div class="climate-card">
+    <div class="climate-name">${name}</div>
+    <div class="climate-zone">${zone}</div>
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border-s)">
+      <div class="climate-temp">${t.cur}<span class="climate-temp-unit">°F</span></div>
+      <div style="text-align:right">
+        <div class="climate-hum">--<span style="font-size:14px">%</span></div>
+        <div class="climate-hum-lbl">humidity</div>
+      </div>
+    </div>
+    <div class="climate-sp">
+      <div class="climate-sp-half" style="${!isCool?'background:var(--heat-dim)':''}">
+        <div class="climate-sp-lbl">Heat</div>
+        <div class="climate-sp-val" id="tset-${key}-heat" style="${!isCool?'color:var(--heat)':''}">Heat: ${t.heat}°</div>
+        <div class="climate-sp-btns">
+          <button class="therm-btn" onclick="adjTherm('${key}','heat',-1)">−</button>
+          <button class="therm-btn" onclick="adjTherm('${key}','heat',1)">+</button>
+        </div>
+      </div>
+      <div class="climate-sp-divider"></div>
+      <div class="climate-sp-half" style="${isCool?'background:var(--cool-dim)':''}">
+        <div class="climate-sp-lbl">Cool</div>
+        <div class="climate-sp-val" id="tset-${key}-cool" style="${isCool?'color:var(--cool)':''}">Cool: ${t.cool}°</div>
+        <div class="climate-sp-btns">
+          <button class="therm-btn" onclick="adjTherm('${key}','cool',-1)">−</button>
+          <button class="therm-btn" onclick="adjTherm('${key}','cool',1)">+</button>
+        </div>
+      </div>
+    </div>
+    <div class="therm-modes" style="margin-top:14px">
+      ${['off','heat','cool'].map(m=>`<button class="therm-mode ${t.mode===m?'on '+m:''}" onclick="S.therms['${key}'].mode='${m}';renderClimate(document.getElementById('main-area'))">${m.charAt(0).toUpperCase()+m.slice(1)}</button>`).join('')}
+    </div>
+  </div>`;
+}
+
+// ── MASTER BEDROOM ────────────────────────────────────────────────
+function renderMaster(ma) {
+  ma.innerHTML=`
+    <div class="room-hdr"><div><div class="rh-crumb">Rooms</div><div class="rh-name">Master Bedroom</div><div class="rh-sub">1 light on</div></div></div>
+    <div class="devices">
+      <div class="dcard"><div class="dcard-lbl">Switches</div>${swRow('Ceiling Lights','ceil')}</div>
+      <div class="dcard"><div class="dcard-lbl">Dimmers</div>${dimRow('Left Lamp','lamp1')}${dimRow('Right Lamp','lamp2')}</div>
+      <div class="dcard"><div class="dcard-lbl">Fan</div>
+        <div class="spds">${['off','low','medium','high'].map(s=>`<button class="spd fan-master ${S.fans.master.spd===s?'on':''}" onclick="S.fans.master.spd='${s}';document.querySelectorAll('.fan-master').forEach(b=>b.classList.remove('on'));this.classList.add('on');updateStats()">${s==='medium'?'med':s}</button>`).join('')}</div>
+      </div>
+      <div class="dcard" style="grid-column:span 2"><div class="dcard-lbl">Shades</div>${shadeRow('Left Window','mbLeft')}${shadeRow('Right Window','mbRight')}</div>
+    </div>`;
+}
+
+// ── OFFICE ────────────────────────────────────────────────────────
+function renderOffice(ma) {
+  ma.innerHTML=`
+    <div class="room-hdr"><div><div class="rh-crumb">Rooms</div><div class="rh-name">Office</div><div class="rh-sub">1 light, 1 fan</div></div></div>
+    <div class="devices">
+      <div class="dcard"><div class="dcard-lbl">Switches</div>${swRow('Office Lights','office')}</div>
+      <div class="dcard"><div class="dcard-lbl">Fan</div>
+        <div class="spds">${['off','low','medium','high'].map(s=>`<button class="spd fan-office ${S.fans.office.spd===s?'on':''}" onclick="S.fans.office.spd='${s}';document.querySelectorAll('.fan-office').forEach(b=>b.classList.remove('on'));this.classList.add('on');updateStats()">${s==='medium'?'med':s}</button>`).join('')}</div>
+      </div>
+      <div class="dcard"><div class="dcard-lbl">Shades</div>${shadeRow('Window','office')}</div>
+    </div>`;
+}
+
+// ── LOWER ─────────────────────────────────────────────────────────
+function renderLower(ma) {
+  ma.innerHTML=`
+    <div class="room-hdr"><div><div class="rh-crumb">Rooms</div><div class="rh-name">Lower</div><div class="rh-sub">2 lights on</div></div></div>
+    <div class="devices">
+      <div class="dcard"><div class="dcard-lbl">Switches</div>${swRow('Kitchen','kitchen')}${swRow('Dining Room','dining')}${swRow('Living Room','porch')}</div>
+      <div class="dcard"><div class="dcard-lbl">Fan</div>
+        <div class="spds">${['off','low','medium','high'].map(s=>`<button class="spd fan-living ${S.fans.living.spd===s?'on':''}" onclick="S.fans.living.spd='${s}';document.querySelectorAll('.fan-living').forEach(b=>b.classList.remove('on'));this.classList.add('on');updateStats()">${s==='medium'?'med':s}</button>`).join('')}</div>
+      </div>
+      <div class="dcard" style="grid-column:span 2"><div class="dcard-lbl">Shades</div>${shadeRow('Backyard','living')}${shadeRow('Left Window','mbLeft')}</div>
+    </div>`;
+}
+
+// ── GUEST 1 ───────────────────────────────────────────────────────
+function renderGuest1(ma) {
+  ma.innerHTML=`
+    <div class="room-hdr"><div><div class="rh-crumb">Rooms</div><div class="rh-name">Guest Bedroom 1</div><div class="rh-sub">All off</div></div></div>
+    <div class="devices">
+      <div class="dcard"><div class="dcard-lbl">Switches</div>${swRow('Ceiling Lights','kitchen')}</div>
+      <div class="dcard"><div class="dcard-lbl">Fan</div>
+        <div class="spds">${['off','low','medium','high'].map(s=>`<button class="spd fan-g1 ${S.fans.master.spd===s?'on':''}" onclick="S.fans.master.spd='${s}';document.querySelectorAll('.fan-g1').forEach(b=>b.classList.remove('on'));this.classList.add('on');updateStats()">${s==='medium'?'med':s}</button>`).join('')}</div>
+      </div>
+    </div>`;
+}
+
+// ── Init ──────────────────────────────────────────────────────────
+renderHome(document.getElementById('main-area'));
+</script>
+</body>
+</html>
