@@ -274,6 +274,8 @@ scheduleNextPoll();
 let thermostats = deepClone(DEFAULTS.thermostats);
 let rooms = deepClone(DEFAULTS.rooms);
 let staging = []; 
+let state_removedDevices = []; 
+let state_missCounts     = {}; 
 let DEVICE_REGISTRY = new Set();
 let newStagingCount = 0;
 let registrySeeded = false; 
