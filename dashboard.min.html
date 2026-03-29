@@ -3283,17 +3283,26 @@ updateStats();
 }
 }
 function detectNewDevices(devices) {
-if (!registrySeeded) return; 
+if (!registrySeeded) return;
 if (!devices || !devices.length) return;
+const assigned = new Set();
+rooms.forEach(r => ['switches','dimmers','fans','shades','colors','colortemps','therms'].forEach(t =>
+r[t] && r[t].forEach(d => assigned.add(String(d.id)))));
+staging.forEach(d => assigned.add(String(d.id)));
+thermostats.forEach(t => assigned.add(String(t.id)));
+if (CONFIG.lock && CONFIG.lock.id) assigned.add(String(CONFIG.lock.id));
 let found = 0;
 devices.forEach(d => {
 const id = String(d.id);
-if (DEVICE_REGISTRY.has(id)) return;
 const type = capToType(d.capabilities);
 if (!type) return; 
+if (DEVICE_REGISTRY.has(id) && assigned.has(id)) return;
+if (assigned.has(id)) return; 
+if (!assigned.has(id)) {
 staging.push({ id, name: d.label || d.name || ('Device ' + id), type });
 DEVICE_REGISTRY.add(id);
 found++;
+}
 });
 if (found > 0) {
 newStagingCount += found;
@@ -3363,15 +3372,18 @@ if (!registrySeeded) return;
 if (!devices || !devices.length) return;
 const pollIds = new Set(devices.map(d => String(d.id)));
 const missing = [];
-rooms.forEach(r => {
-['switches','dimmers','fans','shades','colors','colortemps'].forEach(t => {
-(r[t] || []).forEach(d => {
-if (!pollIds.has(String(d.id))) missing.push({ id: d.id, name: d.name, room: r.name });
-});
-});
-});
-staging.forEach(d => {
-if (!pollIds.has(String(d.id))) missing.push({ id: d.id, name: d.name, room: 'Staging' });
+const skipTypes = new Set(['therm','lock']); 
+DEVICE_REGISTRY.forEach(id => {
+if (pollIds.has(id)) return; 
+if (skipTypes.has(DEVICE_TYPE[id])) return; 
+let name = id;
+rooms.forEach(r => ['switches','dimmers','fans','shades','colors','colortemps'].forEach(t => {
+const d = (r[t]||[]).find(d => String(d.id) === id);
+if (d) name = d.name;
+}));
+const sd = staging.find(d => String(d.id) === id);
+if (sd) name = sd.name;
+missing.push({ id, name });
 });
 if (!missing.length) {
 if (state_removedDevices && state_removedDevices.length) {
