@@ -2248,7 +2248,7 @@ onclick="_devGroupBy='room';spRefreshDevices()">By room</button>
 <span class="sp-section-arrow" id="sp-arr-devices" style="margin-left:10px">▼</span>
 </div>
 <div class="sp-section-body" id="sp-sec-devices">
-<div style="display:flex;align-items:center;gap:12px;padding:8px 20px 4px;border-bottom:1px solid var(--border-s)">
+<div id="sp-dev-summary" style="display:flex;align-items:center;gap:12px;padding:8px 20px 4px;border-bottom:1px solid var(--border-s)">
 <span style="font-size:12px;color:var(--t3)">${total} total</span>
 ${unassigned > 0 ? `<span style="font-size:12px;font-weight:600;color:var(--amber)">${unassigned} unassigned</span>` : '<span style="font-size:12px;color:var(--t4)">all assigned</span>'}
 </div>
@@ -2268,8 +2268,11 @@ btn.classList.toggle('active',
 });
 const tmp = document.createElement('div');
 tmp.innerHTML = spDevicesSection();
-const newList = tmp.querySelector('#sp-dev-list');
-if (newList) container.innerHTML = newList.innerHTML;
+const newList    = tmp.querySelector('#sp-dev-list');
+const newSummary = tmp.querySelector('#sp-dev-summary');
+const oldSummary = document.getElementById('sp-dev-summary');
+if (newList)    container.innerHTML    = newList.innerHTML;
+if (newSummary && oldSummary) oldSummary.innerHTML = newSummary.innerHTML;
 }
 async function spDevAssignRoom(devId, devType, roomId) {
 if (!roomId) {
