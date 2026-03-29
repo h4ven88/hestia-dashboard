@@ -174,11 +174,6 @@ input[type=range].srng::-webkit-slider-thumb{-webkit-appearance:none;width:20px;
 .clim-sep{font-size:11px;color:var(--t4);margin:0 7px}
 .clim-temp{font-size:15px;font-weight:500;color:var(--t1)}
 
-/* ── THEME SWITCHER ── */
-.theme-bar{position:fixed;bottom:16px;right:16px;display:flex;gap:6px;background:var(--bg-panel);border:1px solid var(--border);border-radius:12px;padding:8px 10px;z-index:50}
-.theme-pill{width:28px;height:28px;border-radius:7px;cursor:pointer;border:2px solid transparent;transition:border-color .2s;flex-shrink:0}
-.theme-pill:hover{border-color:var(--t2)}
-.theme-pill.active{border-color:var(--amber)!important}
 
 /* ── DEMO BADGE ── */
 .demo-badge{position:fixed;top:0;left:50%;transform:translateX(-50%);background:var(--amber-dim);border:1px solid var(--amber-bdr);border-radius:0 0 10px 10px;padding:3px 14px;font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--amber);z-index:100}
@@ -198,6 +193,30 @@ input[type=range].srng::-webkit-slider-thumb{-webkit-appearance:none;width:20px;
 .climate-sp-lbl{font-size:10px;color:var(--t3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px;font-weight:600}
 .climate-sp-val{font-size:26px;font-weight:300;color:var(--t3);margin-bottom:10px}
 .climate-sp-btns{display:flex;gap:4px}
+
+/* ── SETTINGS OVERLAY ── */
+.sp-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;opacity:0;pointer-events:none;transition:opacity .25s}
+.sp-overlay.open{opacity:1;pointer-events:all}
+.sp-panel{position:fixed;top:0;right:0;width:380px;max-width:100vw;height:100vh;background:var(--bg-panel);border-left:1px solid var(--border);z-index:201;transform:translateX(100%);transition:transform .28s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;overflow:hidden}
+.sp-panel.open{transform:translateX(0)}
+.sp-header{display:flex;align-items:center;justify-content:space-between;padding:0 20px;height:56px;border-bottom:1px solid var(--border);flex-shrink:0}
+.sp-title{font-size:14px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--t2)}
+.sp-close{background:none;border:none;cursor:pointer;color:var(--t3);font-size:20px;line-height:1;padding:4px 6px;transition:color .15s;font-family:inherit}
+.sp-close:hover{color:var(--t1)}
+.sp-body{flex:1;overflow-y:auto}
+.sp-section{padding:20px 20px 16px;border-bottom:1px solid var(--border)}
+.sp-section-title{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin-bottom:14px}
+.sp-notice{font-size:12px;color:var(--t3);line-height:1.6;background:var(--bg-hover);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:0}
+.sp-notice a{color:var(--amber);text-decoration:none}
+.sp-notice a:hover{text-decoration:underline}
+.theme-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.theme-swatch{display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;padding:8px 4px;border-radius:10px;border:2px solid transparent;transition:all .2s}
+.theme-swatch:hover{background:var(--bg-hover)}
+.theme-swatch.active{border-color:var(--amber)}
+.theme-swatch-dot{width:36px;height:36px;border-radius:9px;border:1px solid rgba(0,0,0,.1)}
+.theme-swatch-lbl{font-size:10px;color:var(--t3);font-weight:500}
+.theme-swatch.active .theme-swatch-lbl{color:var(--amber)}
+.sp-footer-brand{display:flex;flex-direction:column;align-items:center;gap:4px;padding:20px;border-top:1px solid var(--border)}
 
 /* ── FOOTER ── */
 .home-footer{display:flex;justify-content:flex-end;padding:6px 20px 8px;border-top:1px solid var(--border-s);margin-top:2px}
@@ -260,7 +279,7 @@ input[type=range].srng::-webkit-slider-thumb{-webkit-appearance:none;width:20px;
         <div class="conn-dot"></div>
         <span style="font-size:11px;color:var(--t3);margin-left:4px">demo</span>
       </div>
-      <button class="gear-btn">⚙</button>
+      <button class="gear-btn" onclick="openSettings()">⚙</button>
     </div>
   </div>
 
@@ -314,14 +333,65 @@ input[type=range].srng::-webkit-slider-thumb{-webkit-appearance:none;width:20px;
   </div>
 </div>
 
-<!-- THEME SWITCHER -->
-<div class="theme-bar" title="Switch theme">
-  <div class="theme-pill active" style="background:#0A0A0A;border:2px solid #272727" onclick="switchTheme('',this)" title="Dark"></div>
-  <div class="theme-pill" style="background:#F5F5F3;border:2px solid #E5E5E0" onclick="switchTheme('light',this)" title="Light"></div>
-  <div class="theme-pill" style="background:#1C2028;border:2px solid #2E3340" onclick="switchTheme('slate',this)" title="Slate"></div>
-  <div class="theme-pill" style="background:#1C1A17;border:2px solid #312E28" onclick="switchTheme('warm',this)" title="Warm"></div>
-  <div class="theme-pill" style="background:#EDE6D4;border:2px solid #DDD5C4" onclick="switchTheme('cream',this)" title="Cream"></div>
+<!-- SETTINGS OVERLAY -->
+<div class="sp-overlay" id="sp-overlay" onclick="closeSettings()"></div>
+<div class="sp-panel" id="sp-panel">
+  <div class="sp-header">
+    <span class="sp-title">Settings</span>
+    <button class="sp-close" onclick="closeSettings()">✕</button>
+  </div>
+  <div class="sp-body">
+    <div class="sp-section">
+      <div class="sp-section-title">Appearance</div>
+      <div class="theme-grid">
+        <div class="theme-swatch active" id="sw-dark" onclick="demoTheme('',this)">
+          <div class="theme-swatch-dot" style="background:#111;border-color:#272727"></div>
+          <span class="theme-swatch-lbl">Dark</span>
+        </div>
+        <div class="theme-swatch" id="sw-light" onclick="demoTheme('light',this)">
+          <div class="theme-swatch-dot" style="background:#FFF;border-color:#E5E5E0"></div>
+          <span class="theme-swatch-lbl">Light</span>
+        </div>
+        <div class="theme-swatch" id="sw-slate" onclick="demoTheme('slate',this)">
+          <div class="theme-swatch-dot" style="background:#242833;border-color:#2E3340"></div>
+          <span class="theme-swatch-lbl">Slate</span>
+        </div>
+        <div class="theme-swatch" id="sw-warm" onclick="demoTheme('warm',this)">
+          <div class="theme-swatch-dot" style="background:#252219;border-color:#312E28"></div>
+          <span class="theme-swatch-lbl">Warm</span>
+        </div>
+        <div class="theme-swatch" id="sw-cream" onclick="demoTheme('cream',this)">
+          <div class="theme-swatch-dot" style="background:#EDE6D4;border-color:#DDD5C4"></div>
+          <span class="theme-swatch-lbl">Cream</span>
+        </div>
+      </div>
+    </div>
+    <div class="sp-section">
+      <div class="sp-section-title">About this demo</div>
+      <div class="sp-notice">
+        This is an interactive preview of Hestia&#x2122;. Controls work but are not connected to a real hub.<br><br>
+        To install on your Hubitat hub, visit<br>
+        <a href="https://github.com/h4ven88/hestia-dashboard" target="_blank">github.com/h4ven88/hestia-dashboard</a>
+      </div>
+    </div>
+  </div>
+  <div class="sp-footer-brand">
+    <svg viewBox="0 0 28 32" xmlns="http://www.w3.org/2000/svg" width="20" height="23">
+      <polygon points="14,1.5 24,7 24,20 14,25.5 4,20 4,7" fill="none" stroke="#F59E0B" stroke-width="1.2"/>
+      <polygon points="14,1.5 24,7 19,11.5 9,11.5 4,7" fill="#F0EEE8"/>
+      <polygon points="14,1.5 4,7 9,11.5" fill="#E4E2DA"/>
+      <polygon points="14,1.5 24,7 19,11.5" fill="#D0CEC6"/>
+      <line x1="9" y1="11.5" x2="19" y2="11.5" stroke="#F59E0B" stroke-width="1.8" stroke-linecap="square"/>
+      <polygon points="9,11.5 19,11.5 24,20 14,25.5 4,20" fill="#141C26"/>
+      <polygon points="9,11.5 4,20 14,25.5" fill="#0C1218"/>
+      <polygon points="19,11.5 24,20 14,25.5" fill="#1A2332"/>
+    </svg>
+    <span style="font-size:11px;font-weight:200;letter-spacing:.2em;color:var(--t2)">HESTIA&#x2122;</span>
+    <span style="font-size:10px;color:var(--t4)">&#x00A9; 2025 Haven &#xB7; CC BY-NC 4.0</span>
+  </div>
 </div>
+
+
 
 <script>
 // ── Clock ──────────────────────────────────────────────────────────
@@ -354,12 +424,22 @@ function updateStats() {
   document.getElementById('dot-s').className='dot '+(s>0?'dot-on':'dot-off');
 }
 
-// ── Theme ─────────────────────────────────────────────────────────
-function switchTheme(t,pill) {
-  document.documentElement.setAttribute('data-theme',t);
-  document.querySelectorAll('.theme-pill').forEach(p=>p.classList.remove('active'));
-  pill.classList.add('active');
+// ── Settings ──────────────────────────────────────────────────────
+function openSettings() {
+  document.getElementById('sp-overlay').classList.add('open');
+  document.getElementById('sp-panel').classList.add('open');
 }
+function closeSettings() {
+  document.getElementById('sp-overlay').classList.remove('open');
+  document.getElementById('sp-panel').classList.remove('open');
+}
+function demoTheme(t, swatch) {
+  document.documentElement.setAttribute('data-theme', t);
+  document.querySelectorAll('.theme-swatch').forEach(s => s.classList.remove('active'));
+  swatch.classList.add('active');
+}
+// ── Theme (legacy alias) ───────────────────────────────────────────
+function switchTheme(t, pill) { demoTheme(t, pill); }
 
 // ── Navigation ────────────────────────────────────────────────────
 function nav(id,btn) {
@@ -452,21 +532,21 @@ function renderHome(ma) {
         </div>
       </div>
       <div class="wx-card">
-        <div class="wx-lbl">Weather — Kingsport, TN</div>
+        <div class="wx-lbl">Weather — San Francisco, CA</div>
         <div class="wx-top">
           <div style="display:flex;align-items:flex-end;gap:10px">
-            <div class="wx-temp">58<span class="wx-unit">°F</span></div>
+            <div class="wx-temp">62<span class="wx-unit">°F</span></div>
           </div>
           <div style="text-align:right;padding-top:4px">
             <div class="wx-cond">Partly Cloudy</div>
-            <div class="wx-detail">52% humidity<br>Wind SW 8 mph</div>
+            <div class="wx-detail">68% humidity<br>Wind W 12 mph</div>
           </div>
         </div>
         <div class="wx-forecast">
-          <div class="wx-period"><div class="wx-pname">Tonight</div><div class="wx-ptemp">44°</div></div>
-          <div class="wx-period"><div class="wx-pname">Saturday</div><div class="wx-ptemp">62°</div></div>
-          <div class="wx-period"><div class="wx-pname">Sat Night</div><div class="wx-ptemp">48°</div></div>
-          <div class="wx-period"><div class="wx-pname">Sunday</div><div class="wx-ptemp">67°</div></div>
+          <div class="wx-period"><div class="wx-pname">Tonight</div><div class="wx-ptemp">54°</div></div>
+          <div class="wx-period"><div class="wx-pname">Saturday</div><div class="wx-ptemp">64°</div></div>
+          <div class="wx-period"><div class="wx-pname">Sat Night</div><div class="wx-ptemp">52°</div></div>
+          <div class="wx-period"><div class="wx-pname">Sunday</div><div class="wx-ptemp">66°</div></div>
         </div>
       </div>
     </div>
@@ -477,18 +557,21 @@ function renderHome(ma) {
 function renderLights(ma) {
   ma.innerHTML=`
     <div class="room-hdr"><div><div class="rh-crumb">Global Controls</div><div class="rh-name">Lights</div><div class="rh-sub">${countLights()} lights on</div></div></div>
-    <div class="devices" style="grid-template-columns:1fr 1fr">
+    <div class="devices" style="grid-template-columns:1fr">
       <div class="dcard">
-        <div class="dcard-lbl">Switches</div>
-        ${swRow('Master Ceiling','ceil')}
-        ${swRow('Office Lights','office')}
-        ${swRow('Kitchen','kitchen')}
-        ${swRow('Dining Room','dining')}
-      </div>
-      <div class="dcard">
-        <div class="dcard-lbl">Dimmers</div>
+        <div class="dcard-lbl">Master Bedroom</div>
+        ${swRow('Ceiling Lights','ceil')}
         ${dimRow('Left Lamp','lamp1')}
         ${dimRow('Right Lamp','lamp2')}
+      </div>
+      <div class="dcard">
+        <div class="dcard-lbl">Office</div>
+        ${swRow('Office Lights','office')}
+      </div>
+      <div class="dcard">
+        <div class="dcard-lbl">Lower</div>
+        ${swRow('Kitchen','kitchen')}
+        ${swRow('Dining Room','dining')}
       </div>
     </div>`;
 }
@@ -517,7 +600,7 @@ function dimRow(name,key) {
 function renderFans(ma) {
   ma.innerHTML=`
     <div class="room-hdr"><div><div class="rh-crumb">Global Controls</div><div class="rh-name">Fans</div><div class="rh-sub">${countFans()} of 3 running</div></div></div>
-    <div class="devices" style="grid-template-columns:1fr 1fr 1fr">
+    <div class="devices" style="grid-template-columns:1fr">
       ${fanCard('Master Bedroom','master')}
       ${fanCard('Office','office')}
       ${fanCard('Living Room','living')}
