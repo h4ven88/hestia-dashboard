@@ -29,7 +29,7 @@
 </svg> <span style="font-family:'Outfit',system-ui,sans-serif;font-size:11px;font-weight:200;letter-spacing:.18em;color:var(--t1);text-transform:uppercase">HESTIA™</span> <span style="font-size:9px;color:var(--t2);margin-left:auto;letter-spacing:.04em;font-style:italic">Your safe haven, at a glance.</span> </div> <div id="sp-saved" class="sp-saved"></div> <button class="sp-btn sp-btn-primary" onclick="saveSettings()">Save &amp; Apply</button> <div class="sp-btn-row"> <button class="sp-btn sp-btn-secondary" onclick="exportSettings()">Export JSON</button> <button class="sp-btn sp-btn-secondary" onclick="importSettings()">Import JSON</button> </div> <button class="sp-btn sp-btn-danger" onclick="resetSettings()">Factory Reset</button> </div>
 </div>
 <input type="file" id="sp-import-file" accept=".json" style="display:none" onchange="handleImport(event)"> <script>const HESTIA_VERSION='v1.0.0';
-const HESTIA_BUILD_DATE='2026-03-28';
+const HESTIA_BUILD_DATE='2026-03-29';
 const HESTIA_COPYRIGHT  = '© 2025 Haven';
 const THEME_META = {
 dark:  '#0A0A0A',
@@ -2211,6 +2211,25 @@ listHTML += unassignedDevs.map(d => deviceRow(d)).join('');
 listHTML += '</div>';
 }
 }
+let removedHTML = '';
+if (state_removedDevices && state_removedDevices.length) {
+const removedRows = state_removedDevices.map(d => `
+<div class="sp-dev-row" style="opacity:.7">
+<div class="sp-dev-row-top">
+<span class="sp-dev-name" style="color:#F87171">${d.name}</span>
+<button class="sp-dev-remove" title="Dismiss and remove" onclick="spDismissRemoved('${d.id}')">✕</button>
+</div>
+<div class="sp-dev-row-bottom">
+<span style="font-size:10px;color:#F87171">No longer in Maker API</span>
+<span class="sp-dev-id">#${d.id}</span>
+</div>
+</div>`).join('');
+removedHTML = `<div class="sp-dev-section-hdr" style="background:#1a0505;border-color:#5c1a1a">
+<span class="sp-dev-section-name" style="color:#F87171">Removed from Hub</span>
+<span class="sp-dev-section-count" style="color:#F87171">${state_removedDevices.length}</span>
+</div>
+<div class="sp-section-body open">${removedRows}</div>`;
+}
 const badge = unassigned > 0
 ? `<span style="font-size:10px;font-weight:700;background:var(--amber-dim);color:var(--amber);border:1px solid var(--amber-bdr);border-radius:10px;padding:1px 7px;margin-left:6px">${unassigned} unassigned</span>`
 : '';
@@ -2232,7 +2251,7 @@ onclick="_devGroupBy='room';spRefreshDevices()">By room</button>
 ${unassigned > 0 ? `<span style="font-size:12px;font-weight:600;color:var(--amber)">${unassigned} unassigned</span>` : '<span style="font-size:12px;color:var(--t4)">all assigned</span>'}
 </div>
 <div class="sp-dev-list" id="sp-dev-list" style="margin-top:0">
-${listHTML || '<div style="padding:16px 20px;font-size:12px;color:var(--t3)">No devices synced yet.</div>'}
+${removedHTML}${listHTML || '<div style="padding:16px 20px;font-size:12px;color:var(--t3)">No devices synced yet.</div>'}
 </div>
 </div>
 </div>`;
@@ -3278,13 +3297,29 @@ if (found > 0) {
 newStagingCount += found;
 saveConfig();
 updateGearBadge();
+showDeviceToast(found === 1 ? '1 new device found — check Settings' : found + ' new devices found — check Settings');
 }
+}
+function showDeviceToast(msg) {
+let t = document.getElementById('device-toast');
+if (!t) {
+t = document.createElement('div');
+t.id = 'device-toast';
+t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--amber-dim);border:1px solid var(--amber-bdr);color:var(--amber);font-size:12px;padding:8px 16px;border-radius:10px;z-index:999;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap;font-family:inherit';
+document.body.appendChild(t);
+}
+t.textContent = msg;
+t.style.opacity = '1';
+clearTimeout(t._timer);
+t._timer = setTimeout(() => { t.style.opacity = '0'; }, 4000);
 }
 function updateGearBadge() {
 const inRoom = new Set();
 rooms.forEach(r => ['switches','dimmers','fans','shades'].forEach(t =>
 r[t] && r[t].forEach(d => inRoom.add(String(d.id)))));
-const count = staging.filter(d => !inRoom.has(String(d.id))).length;
+const unassignedCount = staging.filter(d => !inRoom.has(String(d.id))).length;
+const removedCount = (state_removedDevices || []).length;
+const count = unassignedCount + removedCount;
 document.querySelectorAll('.tb-gear').forEach(btn => {
 let badge = btn.querySelector('.gear-badge');
 if (count > 0) {
@@ -3300,9 +3335,65 @@ if (badge) badge.remove();
 }
 });
 }
+function spDismissRemoved(devId) {
+state_removedDevices = state_removedDevices.filter(d => String(d.id) !== String(devId));
+state_missCounts[String(devId)] = 0;
+rooms.forEach(r => {
+['switches','dimmers','fans','shades','colors','colortemps'].forEach(t => {
+if (!r[t]) return;
+const idx = r[t].findIndex(d => String(d.id) === String(devId));
+if (idx > -1) r[t].splice(idx, 1);
+});
+});
+const si = staging.findIndex(d => String(d.id) === String(devId));
+if (si > -1) staging.splice(si, 1);
+DEVICE_REGISTRY.delete(String(devId));
+saveConfig();
+updateGearBadge();
+spRefreshDevices();
+}
 function clearGearBadge() {
 newStagingCount = 0;
 updateGearBadge();
+}
+function detectRemovedDevices(devices) {
+if (!registrySeeded) return;
+if (!devices || !devices.length) return;
+const pollIds = new Set(devices.map(d => String(d.id)));
+const missing = [];
+rooms.forEach(r => {
+['switches','dimmers','fans','shades','colors','colortemps'].forEach(t => {
+(r[t] || []).forEach(d => {
+if (!pollIds.has(String(d.id))) missing.push({ id: d.id, name: d.name, room: r.name });
+});
+});
+});
+staging.forEach(d => {
+if (!pollIds.has(String(d.id))) missing.push({ id: d.id, name: d.name, room: 'Staging' });
+});
+if (!missing.length) {
+if (state_removedDevices && state_removedDevices.length) {
+state_removedDevices = [];
+updateGearBadge();
+}
+return;
+}
+missing.forEach(d => {
+const key = String(d.id);
+state_missCounts[key] = (state_missCounts[key] || 0) + 1;
+if (state_missCounts[key] >= 3) {
+const alreadyFlagged = state_removedDevices.some(x => String(x.id) === key);
+if (!alreadyFlagged) {
+state_removedDevices.push(d);
+showDeviceToast('"' + d.name + '" removed from Maker API — check Settings');
+saveConfig();
+updateGearBadge();
+}
+}
+});
+Object.keys(state_missCounts).forEach(key => {
+if (pollIds.has(key)) state_missCounts[key] = 0;
+});
 }
 function scheduleNextPoll() {
 clearTimeout(pollTimer);
@@ -3318,6 +3409,7 @@ lastConnOk = true;
 pollDelay  = CONFIG.poll;
 migrateColorDevices(lastPollDevices);
 detectNewDevices(lastPollDevices);
+detectRemovedDevices(lastPollDevices);
 patchView(); 
 } catch (e) {
 if (lastConnOk !== false) console.warn('[POLL] Hub unreachable:', e.message);
