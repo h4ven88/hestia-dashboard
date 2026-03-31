@@ -29,7 +29,7 @@
 </svg> <span style="font-family:'Outfit',system-ui,sans-serif;font-size:11px;font-weight:200;letter-spacing:.18em;color:var(--t1);text-transform:uppercase">HESTIA™</span> <span style="font-size:9px;color:var(--t2);margin-left:auto;letter-spacing:.04em;font-style:italic">Your safe haven, at a glance.</span> </div> <div id="sp-saved" class="sp-saved"></div> <button class="sp-btn sp-btn-primary" onclick="saveSettings()">Save &amp; Apply</button> <div class="sp-btn-row"> <button class="sp-btn sp-btn-secondary" onclick="exportSettings()">Export JSON</button> <button class="sp-btn sp-btn-secondary" onclick="importSettings()">Import JSON</button> </div> <button class="sp-btn sp-btn-danger" onclick="resetSettings()">Factory Reset</button> </div>
 </div>
 <input type="file" id="sp-import-file" accept=".json" style="display:none" onchange="handleImport(event)"> <script>const HESTIA_VERSION='v1.0.0';
-const HESTIA_BUILD_DATE='2026-03-30';
+const HESTIA_BUILD_DATE='2026-03-31';
 const HESTIA_COPYRIGHT  = '© 2025 Haven';
 const THEME_META = {
 dark:  '#0A0A0A',
@@ -240,7 +240,7 @@ if (d.type === 'color')      { S[d.id] = { on: false, val: 0, hue: 0, sat: 100, 
 if (d.type === 'color-temp') { S[d.id] = { on: false, val: 0, ct: 2700 };                      DEVICE_TYPE[d.id] = 'color-temp'; }
 });
 thermostats.forEach(t => {
-S[t.id] = { cur: '--', heat: 70, cool: 72, mode: 'heat', state: 'idle', humidity: '--' };
+S[t.id] = { cur: '--', heat: 70, cool: 72, mode: 'heat', state: 'idle', humidity: '--', heatOnly: false };
 DEVICE_TYPE[t.id] = 'therm';
 });
 if (CONFIG.lock && CONFIG.lock.id) {
@@ -382,6 +382,16 @@ if (heat !== null) S[id].heat     = heat;
 if (cool !== null) S[id].cool     = cool;
 if (hum  !== null) S[id].humidity = hum;
 if (attrs.thermostatMode != null) S[id].mode = attrs.thermostatMode;
+if (attrs.supportedThermostatModes != null) {
+try {
+const modes = typeof attrs.supportedThermostatModes === 'string'
+? JSON.parse(attrs.supportedThermostatModes)
+: attrs.supportedThermostatModes;
+if (Array.isArray(modes) && modes.length > 0) {
+S[id].heatOnly = !modes.includes('cool') && !modes.includes('auto');
+}
+} catch(e) {}
+}
 if (attrs.thermostatOperatingState != null) {
 const raw = String(attrs.thermostatOperatingState).toLowerCase();
 S[id].state = raw === 'pending cool'    ? 'cooling'
@@ -994,6 +1004,7 @@ const mode     = st.mode  || 'heat';
 const state    = st.state || 'idle';
 const isOff    = mode === 'off';
 const isCool   = mode === 'cool';
+const heatOnly = st.heatOnly === true;
 const stateStr = state === 'heating' ? 'Heating'
 : state === 'cooling' ? 'Cooling' : 'Idle';
 const humStr   = typeof st.humidity === 'number' ? st.humidity + '%' : '--';
@@ -1025,7 +1036,7 @@ return `
 <button class="therm-btn" onclick="adjThermDirect('${t.id}','heat',1)"  ${isOff ? 'disabled' : ''}>+</button>
 </div>
 </div>
-<div class="climate-sp-divider"></div>
+${heatOnly ? '' : `<div class="climate-sp-divider"></div>
 <div id="sp-cool-wrap-${t.id}" class="climate-sp ${isCool && !isOff ? 'active-sp active-cool' : ''}">
 <div class="climate-sp-lbl">Cool</div>
 <div class="climate-sp-val" id="sp-cool-${t.id}">${coolDisp === '--' ? '--' : coolDisp + '°'}</div>
@@ -1033,10 +1044,10 @@ return `
 <button class="therm-btn" onclick="adjThermDirect('${t.id}','cool',-1)" ${isOff ? 'disabled' : ''}>−</button>
 <button class="therm-btn" onclick="adjThermDirect('${t.id}','cool',1)"  ${isOff ? 'disabled' : ''}>+</button>
 </div>
-</div>
+</div>`}
 </div>
 <div class="therm-modes" style="margin-top:16px;padding-top:14px">
-${['off','heat','cool'].map(m => `
+${(heatOnly ? ['off','heat'] : ['off','heat','cool']).map(m => `
 <button class="therm-mode-btn ${mode === m ? 'on ' + m : ''}"
 id="tmode-${t.id}-${m}"
 onclick="setMode('${t.id}','${m}')">
@@ -1786,7 +1797,7 @@ return `
 </div>
 </div>
 <div class="therm-modes">
-${['off','heat','cool'].map(m => `
+${(heatOnly ? ['off','heat'] : ['off','heat','cool']).map(m => `
 <button class="therm-mode-btn ${mode === m ? 'on ' + m : ''}"
 onclick="setMode('${t.id}','${m}')">
 ${m.charAt(0).toUpperCase() + m.slice(1)}
