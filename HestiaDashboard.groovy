@@ -38,9 +38,6 @@ preferences {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
-@Field static final String GITHUB_RELEASE_URL =
-    "https://github.com/h4ven88/hestia-dashboard/releases/download/v1.0.0/dashboard.min.html"
-
 @Field static final String GITHUB_VERSION_URL =
     "https://api.github.com/repos/h4ven88/hestia-dashboard/releases/latest"
 
@@ -101,11 +98,13 @@ def mainPage() {
 
         section("Status") {
             def hubIp      = location.hubs[0].localIP
-            def autoStatus = (settings.autoUpdate != false) ? "✓ On (5am, 1pm, 9pm)" : "Off"
+            def autoStatus  = (settings.autoUpdate != false) ? "✓ On (5am, 1pm, 9pm)" : "Off"
+            def appStatus   = state.appUpdateAvailable ? "⚠ App update available on GitHub" : "✓ Up to date"
             paragraph "Dashboard stored: ${state.dashboardStored ? '✓ /local/' + DASHBOARD_FILENAME + ' (' + (state.dashboardSize ?: '?') + ' bytes, cached ' + (state.dashboardCachedAt ?: '?') + ')' : '⚠ Not yet fetched'}\n" +
                       "Installed version: ${state.installedVersion ?: 'not fetched'}\n" +
                       "Latest on GitHub: ${state.latestVersion ?: 'unknown'}\n" +
                       "Auto-update: ${autoStatus}\n" +
+                      "App status: ${appStatus}\n" +
                       "Config stored: ${state.configSize ? state.configSize + ' bytes' : 'none'}\n" +
                       "App ID: ${app.id}\n" +
                       "Hub IP: ${hubIp}"
@@ -202,11 +201,36 @@ def writeDiscovery() {
 
 // ── Dashboard fetch — stores in File Manager, NOT state ───────────────────
 
-def fetchDashboardFromGitHub() {
-    log.info "Hestia: fetching dashboard from GitHub → ${GITHUB_RELEASE_URL}"
+def fetchDashboardFromGitHub(String downloadUrl = null) {
+    // If no URL provided, resolve from GitHub releases API
+    if (!downloadUrl) {
+        try {
+            httpGet([
+                uri:     GITHUB_VERSION_URL,
+                headers: ["User-Agent": "HestiaDashboard/${APP_VERSION}",
+                          "Accept":     "application/vnd.github.v3+json"]
+            ]) { resp ->
+                if (resp.status == 200) {
+                    def assets = resp.data?.assets
+                    def asset  = assets?.find { it.name == "dashboard.min.html" }
+                    downloadUrl = asset?.browser_download_url
+                    def latest  = resp.data?.tag_name?.replace("v","") ?: APP_VERSION
+                    state.latestVersion   = latest
+                    state.appUpdateAvailable = isNewerVersion(latest, APP_VERSION)
+                }
+            }
+        } catch(e) {
+            log.warn "Hestia: could not resolve download URL from API: ${e.message}"
+        }
+    }
+    if (!downloadUrl) {
+        log.error "Hestia: no download URL available — fetch aborted"
+        return
+    }
+    log.info "Hestia: fetching dashboard from GitHub → ${downloadUrl}"
     try {
         httpGet([
-            uri:             GITHUB_RELEASE_URL,
+            uri:             downloadUrl,
             followRedirects: true,
             textParser:      true,
             headers:         ["User-Agent": "HestiaDashboard/${APP_VERSION}"]
@@ -259,15 +283,23 @@ def scheduledAutoFetch() {
                       "Accept":     "application/vnd.github.v3+json"]
         ]) { resp ->
             if (resp.status == 200) {
-                def latest = resp.data?.tag_name?.replace("v","") ?: APP_VERSION
-                state.latestVersion = latest
-                def currentInstalled = state.installedVersion ?: "0.0.0"
+                def latest   = resp.data?.tag_name?.replace("v","") ?: APP_VERSION
+                def assets   = resp.data?.assets
+                def asset    = assets?.find { it.name == "dashboard.min.html" }
+                def assetUrl = asset?.browser_download_url
+                state.latestVersion      = latest
+                state.appUpdateAvailable = isNewerVersion(latest, APP_VERSION)
+                def currentInstalled     = state.installedVersion ?: "0.0.0"
                 if (isNewerVersion(latest, currentInstalled)) {
-                    log.info "Hestia: new version ${latest} available (installed: ${currentInstalled}) — fetching"
-                    fetchDashboardFromGitHub()
-                    state.updateAvailable = false
+                    log.info "Hestia: new dashboard version ${latest} available (installed: ${currentInstalled}) — fetching from ${assetUrl}"
+                    if (assetUrl) {
+                        fetchDashboardFromGitHub(assetUrl)
+                        state.updateAvailable = false
+                    } else {
+                        log.error "Hestia: dashboard.min.html asset not found in release ${latest}"
+                    }
                 } else {
-                    log.debug "Hestia: already on latest version ${currentInstalled} — no fetch needed"
+                    log.debug "Hestia: dashboard already on latest version ${currentInstalled}"
                 }
             }
         }
@@ -285,9 +317,10 @@ def checkLatestVersion() {
         ]) { resp ->
             if (resp.status == 200) {
                 def latest = resp.data?.tag_name?.replace("v","") ?: APP_VERSION
-                state.latestVersion   = latest
-                state.updateAvailable = isNewerVersion(latest, state.installedVersion ?: APP_VERSION)
-                log.info "Hestia: latest GitHub version: ${latest}, update available: ${state.updateAvailable}"
+                state.latestVersion      = latest
+                state.updateAvailable    = isNewerVersion(latest, state.installedVersion ?: APP_VERSION)
+                state.appUpdateAvailable = isNewerVersion(latest, APP_VERSION)
+                log.info "Hestia: latest GitHub version: ${latest}, dashboard update: ${state.updateAvailable}, app update: ${state.appUpdateAvailable}"
             }
         }
     } catch(e) {
@@ -362,12 +395,13 @@ def triggerUpdate() {
 def getVersion() {
     render contentType: "application/json",
            data: new groovy.json.JsonBuilder([
-               appVersion:       APP_VERSION,
-               installedVersion: state.installedVersion ?: APP_VERSION,
-               latestVersion:    state.latestVersion ?: "unknown",
-               updateAvailable:  state.updateAvailable ?: false,
-               cachedAt:         state.dashboardCachedAt ?: "never",
-               dashboardSize:    state.dashboardSize ?: 0
+               appVersion:          APP_VERSION,
+               installedVersion:    state.installedVersion ?: APP_VERSION,
+               latestVersion:       state.latestVersion ?: "unknown",
+               updateAvailable:     state.updateAvailable ?: false,
+               appUpdateAvailable:  state.appUpdateAvailable ?: false,
+               cachedAt:            state.dashboardCachedAt ?: "never",
+               dashboardSize:       state.dashboardSize ?: 0
            ]).toString()
 }
 
