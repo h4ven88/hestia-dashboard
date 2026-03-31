@@ -1,10 +1,10 @@
 /**
- *  Hestia™ Home Dashboard  v1.0.5
+ *  Hestia™ Home Dashboard  v1.0.1
  *  ════════════════════════════════════════════════════════════════
  *  Single Hubitat app — serves the dashboard and stores config.
  *
  *  Copyright © 2025 Haven. All rights reserved.
- *  Licence: CC BY-NC 4.0 — personal use only.
+ *  License: CC BY-NC 4.0 — personal use only.
  *  https://github.com/h4ven88/hestia-dashboard
  *
  *  Architecture: dashboard HTML is stored in Hub File Manager
@@ -44,7 +44,7 @@ preferences {
 @Field static final String GITHUB_VERSION_URL =
     "https://api.github.com/repos/h4ven88/hestia-dashboard/releases/latest"
 
-@Field static final String APP_VERSION        = "1.0.5"
+@Field static final String APP_VERSION        = "1.0.1"
 @Field static final String DASHBOARD_FILENAME = "hestia-dashboard.html"
 @Field static final String TOKEN_FILENAME     = "hestia-token.json"
 @Field static final String CONFIG_FILENAME    = "hestia-config.json"
@@ -100,10 +100,12 @@ def mainPage() {
         }
 
         section("Status") {
-            def hubIp = location.hubs[0].localIP
+            def hubIp      = location.hubs[0].localIP
+            def autoStatus = (settings.autoUpdate != false) ? "✓ On (5am, 1pm, 9pm)" : "Off"
             paragraph "Dashboard stored: ${state.dashboardStored ? '✓ /local/' + DASHBOARD_FILENAME + ' (' + (state.dashboardSize ?: '?') + ' bytes, cached ' + (state.dashboardCachedAt ?: '?') + ')' : '⚠ Not yet fetched'}\n" +
                       "Installed version: ${state.installedVersion ?: 'not fetched'}\n" +
                       "Latest on GitHub: ${state.latestVersion ?: 'unknown'}\n" +
+                      "Auto-update: ${autoStatus}\n" +
                       "Config stored: ${state.configSize ? state.configSize + ' bytes' : 'none'}\n" +
                       "App ID: ${app.id}\n" +
                       "Hub IP: ${hubIp}"
@@ -114,6 +116,13 @@ def mainPage() {
             input "checkVersion",   "button", title: "🔍 Check for Updates"
             input "clearDashboard", "button", title: "🗑 Clear Dashboard File"
             input "resetConfig",    "button", title: "🗑 Clear Stored Config"
+        }
+
+        section("Auto-Update") {
+            input "autoUpdate", "bool",
+                  title:        "Automatically fetch latest dashboard (3x daily: 5am, 1pm, 9pm)",
+                  defaultValue: true,
+                  required:     false
         }
 
         section("About") {
@@ -161,7 +170,14 @@ def initialize() {
     }
     writeDiscovery()
     if (!state.dashboardStored) fetchDashboardFromGitHub()
-    schedule("0 0 3 * * ?", "checkLatestVersion")
+    // Check for updates once at startup
+    checkLatestVersion()
+    // Schedule 3x daily auto-fetch: 5am, 1pm, 9pm hub local time
+    // Unschedule first to avoid duplicates on re-initialization
+    unschedule("scheduledAutoFetch")
+    schedule("0 0 5  * * ?", "scheduledAutoFetch")
+    schedule("0 0 13 * * ?", "scheduledAutoFetch")
+    schedule("0 0 21 * * ?", "scheduledAutoFetch")
     log.info "Hestia: initialized v${APP_VERSION} — app ID: ${app.id}"
 }
 
@@ -224,6 +240,39 @@ def fetchDashboardFromGitHub() {
         }
     } catch(e) {
         log.error "Hestia: fetch failed: ${e.message}"
+    }
+}
+
+// ── Scheduled auto-fetch ─────────────────────────────────────────────────
+
+def scheduledAutoFetch() {
+    if (settings.autoUpdate == false) {
+        log.debug "Hestia: auto-update disabled — skipping scheduled fetch"
+        return
+    }
+    log.info "Hestia: scheduled auto-fetch running"
+    // Check GitHub for a newer version before fetching
+    try {
+        httpGet([
+            uri:     GITHUB_VERSION_URL,
+            headers: ["User-Agent": "HestiaDashboard/${APP_VERSION}",
+                      "Accept":     "application/vnd.github.v3+json"]
+        ]) { resp ->
+            if (resp.status == 200) {
+                def latest = resp.data?.tag_name?.replace("v","") ?: APP_VERSION
+                state.latestVersion = latest
+                def currentInstalled = state.installedVersion ?: "0.0.0"
+                if (isNewerVersion(latest, currentInstalled)) {
+                    log.info "Hestia: new version ${latest} available (installed: ${currentInstalled}) — fetching"
+                    fetchDashboardFromGitHub()
+                    state.updateAvailable = false
+                } else {
+                    log.debug "Hestia: already on latest version ${currentInstalled} — no fetch needed"
+                }
+            }
+        }
+    } catch(e) {
+        log.warn "Hestia: scheduled auto-fetch version check failed: ${e.message}"
     }
 }
 
