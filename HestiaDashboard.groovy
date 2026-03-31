@@ -86,9 +86,9 @@ def mainPage() {
                 def hubIp    = location.hubs[0].localIP
                 def directUrl = "http://${hubIp}/local/${DASHBOARD_FILENAME}"
                 def apiUrl    = "http://${hubIp}/apps/api/${app.id}/dashboard?access_token=${state.accessToken}"
-                paragraph "Bookmark this URL — clean, no token required:\n\n" +
-                          "<b>${directUrl}</b>\n\n" +
-                          "Or use the full API URL (also works):\n${apiUrl}"
+                paragraph "Open your Hestia dashboard:\n\n" +
+                          "<a href=\"${directUrl}\" target=\"_blank\" style=\"font-weight:600\">${directUrl}</a>\n\n" +
+                          "Bookmark the link above — no token required, works on any device on your network."
             } else if (!state.dashboardStored) {
                 paragraph "⚠ Dashboard not yet fetched. Click 'Fetch Latest Dashboard from GitHub' below."
             } else {
