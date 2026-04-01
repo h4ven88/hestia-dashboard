@@ -29,7 +29,7 @@
 </svg> <span style="font-family:'Outfit',system-ui,sans-serif;font-size:11px;font-weight:200;letter-spacing:.18em;color:var(--t1);text-transform:uppercase">HESTIA™</span> <span style="font-size:9px;color:var(--t2);margin-left:auto;letter-spacing:.04em;font-style:italic">Your safe haven, at a glance.</span> </div> <div id="sp-saved" class="sp-saved"></div> <button class="sp-btn sp-btn-primary" onclick="saveSettings()">Save &amp; Apply</button> <div class="sp-btn-row"> <button class="sp-btn sp-btn-secondary" onclick="exportSettings()">Export JSON</button> <button class="sp-btn sp-btn-secondary" onclick="importSettings()">Import JSON</button> </div> <button class="sp-btn sp-btn-danger" onclick="resetSettings()">Factory Reset</button> </div>
 </div>
 <input type="file" id="sp-import-file" accept=".json" style="display:none" onchange="handleImport(event)"> <script>const HESTIA_VERSION='v1.0.0';
-const HESTIA_BUILD_DATE='2026-03-31';
+const HESTIA_BUILD_DATE='2026-04-01';
 const HESTIA_COPYRIGHT  = '© 2025 Haven';
 const THEME_META = {
 dark:  '#0A0A0A',
@@ -724,9 +724,12 @@ n + r.switches.filter(s => S[s.id].on).length
 + r.dimmers.filter(d => S[d.id].on && S[d.id].val > 0).length
 + (r.colors||[]).filter(d => S[d.id] && S[d.id].on).length
 + (r.colortemps||[]).filter(d => S[d.id] && S[d.id].on).length, 0);
-const totalBulbs = rooms.reduce((n, r) => n + r.switches.length + r.dimmers.length, 0);
+const totalBulbs = rooms.reduce((n, r) => n + r.switches.length + r.dimmers.length + (r.colors||[]).length + (r.colortemps||[]).length, 0);
 const litRooms   = rooms.filter(r =>
-r.switches.some(s => S[s.id].on) || r.dimmers.some(d => S[d.id].on)
+r.switches.some(s => S[s.id].on) ||
+r.dimmers.some(d => S[d.id].on) ||
+(r.colors||[]).some(d => S[d.id] && S[d.id].on) ||
+(r.colortemps||[]).some(d => S[d.id] && S[d.id].on)
 ).map(r => r.short).join(', ');
 const activeFans = rooms.reduce((n, r) =>
 n + r.fans.filter(f => S[f.id].spd !== 'off').length, 0);
@@ -1533,9 +1536,11 @@ n + r.switches.filter(s => S[s.id].on).length
 + (r.colortemps||[]).filter(d => S[d.id] && S[d.id].on).length, 0);
 const litBtns = `<button class="bulk-btn" style="width:auto;padding:0 14px" onclick="bulkAllLights(true)">All on</button>
 <button class="bulk-btn" style="width:auto;padding:0 14px;margin-left:5px" onclick="bulkAllLights(false)">All off</button>`;
-const stagingSw   = stagingOfType('switch');
-const stagingDim  = stagingOfType('dimmer');
-const stagingLights = [...stagingSw, ...stagingDim];
+const stagingSw     = stagingOfType('switch');
+const stagingDim    = stagingOfType('dimmer');
+const stagingColor  = stagingOfType('color');
+const stagingCT     = stagingOfType('colortemp');
+const stagingLights = [...stagingSw, ...stagingDim, ...stagingColor, ...stagingCT];
 const unassignedHTML = unassignedSectionHTML(stagingLights, devs => {
 return devs.map(d => {
 const type = DEVICE_TYPE[d.id];
@@ -1557,7 +1562,7 @@ onchange="toggleSwitch('${d.id}',this.checked)"><span class="tog-t"><span class=
 </div>`;
 }).join('');
 });
-const stagingLit = stagingLights.filter(d => S[d.id] && (S[d.id].on) && (DEVICE_TYPE[d.id]==='switch'||S[d.id].val>0)).length;
+const stagingLit = stagingLights.filter(d => S[d.id] && S[d.id].on && (DEVICE_TYPE[d.id]==='switch'||DEVICE_TYPE[d.id]==='color'||DEVICE_TYPE[d.id]==='colortemp'||S[d.id].val>0)).length;
 document.getElementById('main-area').innerHTML =
 roomHeader('Global Controls', 'Lights', (totalLit+stagingLit) + ' light' + ((totalLit+stagingLit) !== 1 ? 's' : '') + ' on', litBtns) +
 `<div class="agg-view">${sections}${unassignedHTML}</div>`;
