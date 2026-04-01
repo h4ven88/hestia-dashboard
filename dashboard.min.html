@@ -3181,9 +3181,16 @@ function patchHomeStats() {
 const isM = isMobile();
 const valCls  = isM ? 'stat-card-val'  : 'home-stat-val';
 const denomSz = isM ? '<span class="stat-card-denom">' : '<span style="font-size:16px;color:var(--t3);font-weight:400">';
-const totalLit   = rooms.reduce((n,r) => n + r.switches.filter(s=>S[s.id].on).length + r.dimmers.filter(d=>S[d.id].on&&S[d.id].val>0).length, 0);
-const totalBulbs = rooms.reduce((n,r) => n + r.switches.length + r.dimmers.length, 0);
-const litRooms   = rooms.filter(r=>r.switches.some(s=>S[s.id].on)||r.dimmers.some(d=>S[d.id].on)).map(r=>r.short).join(', ');
+const totalLit   = rooms.reduce((n,r) => n
++ r.switches.filter(s=>S[s.id].on).length
++ r.dimmers.filter(d=>S[d.id].on&&S[d.id].val>0).length
++ (r.colors||[]).filter(d=>S[d.id]&&S[d.id].on).length
++ (r.colortemps||[]).filter(d=>S[d.id]&&S[d.id].on).length, 0);
+const totalBulbs = rooms.reduce((n,r) => n + r.switches.length + r.dimmers.length + (r.colors||[]).length + (r.colortemps||[]).length, 0);
+const litRooms   = rooms.filter(r=>
+r.switches.some(s=>S[s.id].on) || r.dimmers.some(d=>S[d.id].on) ||
+(r.colors||[]).some(d=>S[d.id]&&S[d.id].on) || (r.colortemps||[]).some(d=>S[d.id]&&S[d.id].on)
+).map(r=>r.short).join(', ');
 const litEl  = el('home-lit-val');
 const litSub = el('home-lit-sub');
 if (litEl)  { litEl.innerHTML = totalLit + denomSz + ' / ' + totalBulbs + '</span>'; litEl.className = valCls + (totalLit>0?' amber':''); }
@@ -3231,7 +3238,7 @@ if (tempEl) {
 tempEl.innerHTML = iconThermometer(tempCol, 14) + ' ' + tempStr;
 tempEl.className = climStatCls + (isM ? '' : ' temp-val') + ' ' + state;
 }
-if (humElH) humElH.textContent = humStr;
+if (humElH) humElH.innerHTML = iconDrop('var(--t3)', 13) + ' ' + humStr;
 if (stElH)  { stElH.innerHTML = stateIcon + ' ' + stateStr; stElH.className = climStatCls + ' ' + state; }
 });
 }
