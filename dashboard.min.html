@@ -6,7 +6,7 @@
   https://github.com/haven-hestia/hestia-dashboard
 --> <html lang="en">
 <head>
-  <meta name="hestia-hash" content="ed324f25bea99800d2ffc217c8383a02bf380924aa67a2fe64b841da50dea8828347f7938219091e5563350bb3460c6c3a0c144ccea51f3e8de29cf575c4ea2d" data-version="1.1.0" data-date="2026-04-04">
+  <meta name="hestia-hash" content="4a4ec5374b11cb3716558ea8d74e6057e1ab77fa98dbd28ae82334e61b2e5917764146c81f57cc321f722abeb52a812cac3e1820447ba37689282c18841de044" data-version="1.1.0" data-date="2026-04-04">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -426,9 +426,11 @@ thermostats.forEach(t => DEVICE_REGISTRY.add(String(t.id)));
 artemisRegisterSensors(); 
 registrySeeded = true; 
 deduplicateStaging();  
+if (registrySeeded) {
 clearTimeout(pollTimer);
 pollDelay = CONFIG.poll;
 scheduleNextPoll();
+}
 }
 let thermostats = deepClone(DEFAULTS.thermostats);
 let rooms = deepClone(DEFAULTS.rooms);
@@ -5306,13 +5308,13 @@ thermostats.forEach(t => DEVICE_REGISTRY.add(String(t.id)));
 artemisRegisterSensors(); 
 registrySeeded = true;
 await fetchAllDevices();
-detectNewSecurityDevices(lastPollDevices); 
 lastConnOk = true;
 setConn('ok'); 
 } catch (e) {
 lastConnOk = false;
 setConn('err');
 }
+try { detectNewSecurityDevices(lastPollDevices); } catch(e) {}
 refreshActiveView();
 updateStats();
 syncTopbar();
