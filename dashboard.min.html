@@ -6,7 +6,7 @@
   https://github.com/haven-hestia/hestia-dashboard
 --> <html lang="en">
 <head>
-  <meta name="hestia-hash" content="1a09f7e04231d3e0d4adf41707db8d53cf628ca569035537696143ef55368d2bcba4543f1fe6bcd83e4c7df5bbbfe0a6ebff9a4757f24ba08a041bcdc6bca4c7" data-version="1.1.0" data-date="2026-04-04">
+  <meta name="hestia-hash" content="ed324f25bea99800d2ffc217c8383a02bf380924aa67a2fe64b841da50dea8828347f7938219091e5563350bb3460c6c3a0c144ccea51f3e8de29cf575c4ea2d" data-version="1.1.0" data-date="2026-04-04">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -115,7 +115,7 @@ function checkHttpsEnforcement() {
 const hub = CONFIG.hub || '';
 if (!hub || hub.startsWith('https://')) return; 
 if (localStorage.getItem('hestia-https-dismissed') === '1') return;
-const httpsUrl = hub.replace(/^http:\/\
+const httpsUrl = hub.replace('http://', 'https://').replace(/(:\d+)?$/, ':8443');
 const el = document.getElementById('https-banner');
 const sug = document.getElementById('https-suggested');
 const link = document.getElementById('https-cert-link');
