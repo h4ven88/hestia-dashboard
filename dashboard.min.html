@@ -6,7 +6,7 @@
   https://github.com/haven-hestia/hestia-dashboard
 --> <html lang="en">
 <head>
-  <meta name="hestia-hash" content="4f23ae908998ffb2eb89701084e0f5fbe018177ded0060b9d0905b9f9a0d2890fc0e3ff51a15f797b96c58d54d25b60ea19b5349ba6e7c9f59d40892189b9a49" data-version="1.1.0" data-date="2026-04-05">
+  <meta name="hestia-hash" content="0cee10a31f691009dfe91f1059cf91338a11c2b86b78e9bbd2d404fa0d0dd737f230befe2430e4085f398abd08475557416b423a8c923e5080273801e6570189" data-version="1.1.0" data-date="2026-04-05">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1211,6 +1211,52 @@ else      cmd(sh.id, 'close');
 });
 updateStats();
 }
+function computeRoomSecState() {
+const roomSecState = {};
+if (!CONFIG.artemisEnabled || !CONFIG.artemisSensors) return roomSecState;
+(CONFIG.artemisSensors.contacts || []).forEach(d => {
+if (!d.room || !S[d.id]) return;
+roomSecState[d.room] = roomSecState[d.room] || { open: 0, motion: false };
+if (S[d.id].open) roomSecState[d.room].open++;
+});
+(CONFIG.artemisSensors.motions || []).forEach(d => {
+if (!d.room || !S[d.id] || !S[d.id].active) return;
+roomSecState[d.room] = roomSecState[d.room] || { open: 0, motion: false };
+roomSecState[d.room].motion = true;
+});
+return roomSecState;
+}
+function patchSidebarSecurity() {
+const roomSecState = computeRoomSecState();
+rooms.forEach(r => {
+const btn = document.querySelector(`[data-room-id="${r.id}"]`);
+if (!btn) return;
+const statusEl = btn.querySelector('.rb-status');
+if (!statusEl) return;
+const sec = roomSecState[r.id] || null;
+const activity = roomActivity(r);
+const isLive = activity !== 'All off';
+let secText = '';
+let isAlert = false, isMotion = false;
+if (sec) {
+if (sec.open > 0) {
+secText = sec.open === 1 ? '1 open' : sec.open + ' open';
+isAlert = true;
+}
+if (sec.motion) {
+secText += (secText ? ' · ' : '') + 'Motion detected';
+isMotion = !isAlert;
+}
+}
+const parts = activity !== 'All off' ? [activity] : [];
+const secHtml = secText
+? `<span class="rb-sec-${isAlert ? 'alert' : 'motion'}">${secText}</span>`
+: '';
+const joined = parts.length ? parts.join(', ') + (secHtml ? ' · ' + secHtml : '') : (secHtml || 'All off');
+statusEl.innerHTML = joined;
+statusEl.className = 'rb-status' + (isLive || isAlert || isMotion ? ' live' : '');
+});
+}
 function roomActivity(r) {
 const lit = r.dimmers.filter(d => S[d.id].on && S[d.id].val > 0).length
 + r.switches.filter(s => S[s.id].on).length
@@ -1575,14 +1621,13 @@ const badge = n === 0
 let subRows = '';
 if (n > 0) {
 if (isMotion) {
-const alertRoomIds = [...new Set(alerts.map(d => d.room).filter(Boolean))];
-const noRoom       = alerts.filter(d => !d.room);
-const rowData = alertRoomIds.map(rid => ({ label: artemisRoomName(rid) }))
-.concat(noRoom.map(d => ({ label: d.name })));
-subRows = rowData.map(r => `
+subRows = alerts.map(d => `
 <div class="a-sub-row">
 <div class="a-si a-blue" style="width:22px;height:22px">${iconFn(blueC)}</div>
-<div class="a-sub-info"><div class="a-nm" style="font-size:11px">${r.label}</div></div>
+<div class="a-sub-info">
+<div class="a-nm" style="font-size:11px">${d.name}</div>
+${d.room ? `<div style="font-size:10px;color:var(--t3);margin-top:1px">${artemisRoomName(d.room)}</div>` : ''}
+</div>
 </div>`).join('');
 } else {
 subRows = alerts.map(d => `
@@ -2027,21 +2072,28 @@ room:    d.room || null,
 });
 });
 const roomOpts = rooms.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+const COMBINED_OPTS = [
+{ v:'contact-door',    cat:'contacts', subtype:'door',    l:'Contact — Door'      },
+{ v:'contact-window',  cat:'contacts', subtype:'window',  l:'Contact — Window'    },
+{ v:'contact-garage',  cat:'contacts', subtype:'garage',  l:'Contact — Garage'    },
+{ v:'motions',         cat:'motions',  subtype:'motion',  l:'Motion Sensor'       },
+{ v:'smokes',          cat:'smokes',   subtype:'smoke',   l:'Smoke / CO'          },
+{ v:'waters',          cat:'waters',   subtype:'water',   l:'Freeze / Water'      },
+{ v:'glass',           cat:'glass',    subtype:'glass',   l:'Glass Break'         },
+];
+function combinedVal(cat, subtype) {
+if (cat === 'contacts') return 'contact-' + (subtype || 'window');
+return cat;
+}
 function sensorRow(d) {
-const catOpts = CAT_OPTS.map(t =>
-`<option value="${t.v}"${d.cat === t.v ? ' selected' : ''}>${t.l}</option>`
-).join('');
-const subtypeOpts = SUBTYPE_OPTS.map(t =>
-`<option value="${t.v}"${d.subtype === t.v ? ' selected' : ''}>${t.l}</option>`
+const cv = combinedVal(d.cat, d.subtype);
+const combinedOptHtml = COMBINED_OPTS.map(t =>
+`<option value="${t.v}"${cv === t.v ? ' selected' : ''}>${t.l}</option>`
 ).join('');
 const roomOptsFull = `
 <option value=""${!d.room ? ' selected' : ''}>— assign room —</option>
 ${rooms.map(r => `<option value="${r.id}"${d.room === r.id ? ' selected' : ''}>${r.name}</option>`).join('')}
 <option value="__create__">+ Create new room…</option>`;
-const subtypeSel = d.cat === 'contacts'
-? `<select class="sp-dev-retype" title="Door / Window / Garage"
-onchange="artemisSetSubtype('${d.id}','${d.cat}',this.value)">${subtypeOpts}</select>`
-: `<span class="sp-dev-retype" style="pointer-events:none;color:var(--t3)">${CAT_LABEL[d.cat]}</span>`;
 return `
 <div class="sp-dev-row" id="art-devrow-${d.id}">
 <div class="sp-dev-row-top">
@@ -2049,9 +2101,8 @@ return `
 <button class="sp-dev-remove" title="Remove" onclick="artemisRemoveSensor('${d.cat}','${d.id}')">✕</button>
 </div>
 <div class="sp-dev-row-bottom">
-<select class="sp-dev-retype" title="Sensor category"
-onchange="artemisRetype('${d.id}','${d.cat}',this.value)">${catOpts}</select>
-${subtypeSel}
+<select class="sp-dev-retype" title="Sensor type"
+onchange="artemisRetypeCombined('${d.id}','${d.cat}',this.value)">${combinedOptHtml}</select>
 <select class="sp-dev-room-sel${!d.room ? ' unassigned' : ''}"
 onchange="artemisRoomChange('${d.id}','${d.cat}',this)">
 ${roomOptsFull}
@@ -2223,6 +2274,29 @@ const list = CONFIG.artemisSensors && CONFIG.artemisSensors[cat];
 if (!list) return;
 const d = list.find(s => String(s.id || s) === String(id));
 if (d && typeof d === 'object') d.room = roomId || null;
+}
+function artemisRetypeCombined(id, oldCat, combinedValue) {
+const MAP = {
+'contact-door':   { cat:'contacts', subtype:'door'   },
+'contact-window': { cat:'contacts', subtype:'window' },
+'contact-garage': { cat:'contacts', subtype:'garage' },
+'motions':        { cat:'motions',  subtype:'motion' },
+'smokes':         { cat:'smokes',   subtype:'smoke'  },
+'waters':         { cat:'waters',   subtype:'water'  },
+'glass':          { cat:'glass',    subtype:'glass'  },
+};
+const target = MAP[combinedValue];
+if (!target || !CONFIG.artemisSensors) return;
+const oldList = CONFIG.artemisSensors[oldCat] || [];
+const sensor  = oldList.find(d => String(d.id || d) === String(id));
+if (!sensor) return;
+CONFIG.artemisSensors[oldCat] = oldList.filter(d => String(d.id || d) !== String(id));
+if (typeof sensor === 'object') sensor.subtype = target.subtype;
+if (!CONFIG.artemisSensors[target.cat]) CONFIG.artemisSensors[target.cat] = [];
+CONFIG.artemisSensors[target.cat].push(sensor);
+const typeMap = { contacts:'contact', motions:'motion', smokes:'smoke', waters:'water', glass:'glass' };
+if (typeMap[target.cat]) DEVICE_TYPE[String(id)] = typeMap[target.cat];
+renderSettingsPanel();
 }
 function artemisRetype(id, oldCat, newCat) {
 if (oldCat === newCat) return;
@@ -3005,27 +3079,11 @@ items.push(navBtn('security', 'Security', artemisModeName(), false, 'security'))
 }
 items.push('<div class="sb-divider"></div>');
 items.push('<div class="sb-section-lbl">Rooms</div>');
-const roomSecState = {};
-if (CONFIG.artemisEnabled && CONFIG.artemisSensors) {
-['contacts'].forEach(cat => {
-(CONFIG.artemisSensors[cat] || []).forEach(d => {
-if (!d.room || !S[d.id]) return;
-roomSecState[d.room] = roomSecState[d.room] || { open: 0, motion: false };
-if (S[d.id].open) roomSecState[d.room].open++;
-});
-});
-(CONFIG.artemisSensors.motions || []).forEach(d => {
-if (!d.room || !S[d.id] || !S[d.id].active) return;
-roomSecState[d.room] = roomSecState[d.room] || { open: 0, motion: false };
-roomSecState[d.room].motion = true;
-});
-}
+const roomSecState = computeRoomSecState();
 rooms.forEach(r => {
 const activity = roomActivity(r);
 const sec = roomSecState[r.id] || null;
-let statusParts = [];
-if (activity !== 'All off') statusParts.push(activity);
-else if (!sec) statusParts.push('All off');
+const isLive = activity !== 'All off';
 let secText = '', isAlert = false, isMotion = false;
 if (sec) {
 if (sec.open > 0) {
@@ -3033,16 +3091,17 @@ secText = sec.open === 1 ? '1 open' : sec.open + ' open';
 isAlert = true;
 }
 if (sec.motion) {
-secText += (secText ? ' · ' : '') + 'Motion';
+secText += (secText ? ' · ' : '') + 'Motion detected';
 isMotion = !isAlert;
 }
 }
-const isLive = activity !== 'All off';
-const statusHtml = statusParts.join(', ') + (secText
-? (statusParts.length ? ' · ' : '') + `<span class="rb-sec-${isAlert ? 'alert' : 'motion'}">${secText}</span>`
-: '');
+const parts = activity !== 'All off' ? [activity] : [];
+const secHtml = secText
+? `<span class="rb-sec-${isAlert ? 'alert' : 'motion'}">${secText}</span>`
+: '';
+const statusHtml = parts.length ? parts.join(', ') + (secHtml ? ' · ' + secHtml : '') : (secHtml || 'All off');
 items.push(`
-<button class="room-btn ${activeRoom === r.id ? 'active' : ''}" onclick="selectRoom('${r.id}')">
+<button class="room-btn ${activeRoom === r.id ? 'active' : ''}" onclick="selectRoom('${r.id}')" data-room-id="${r.id}">
 <div class="rb-name ${activeRoom === r.id ? 'active' : ''}">${r.short}</div>
 <div class="rb-status ${isLive || isAlert || isMotion ? 'live' : ''}">${statusHtml}</div>
 </button>`);
@@ -4726,7 +4785,7 @@ _motionClearTimers[id] = setTimeout(() => {
 if (S[id]) S[id].active = false;
 delete _motionClearTimers[id];
 patchView();
-renderSidebar();
+patchSidebarSecurity();
 }, 30000);
 } else {
 clearTimeout(_motionClearTimers[id]);
@@ -4734,6 +4793,7 @@ delete _motionClearTimers[id];
 }
 }
 patchView();
+if (CONFIG.artemisEnabled) patchSidebarSecurity();
 } catch(e) {}
 };
 ws.onerror = function() {
@@ -4997,6 +5057,7 @@ _hsmSyncCounter = (_hsmSyncCounter || 0) + 1;
 if (_hsmSyncCounter >= 10) { _hsmSyncCounter = 0; artemisHsmSync(); }
 }
 patchView(); 
+if (CONFIG.artemisEnabled) patchSidebarSecurity();
 } catch (e) {
 if (lastConnOk !== false) console.warn('[POLL] Hub unreachable:', e.message);
 lastConnOk = false;
