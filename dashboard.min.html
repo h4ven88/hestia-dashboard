@@ -6,7 +6,7 @@
   https://github.com/haven-hestia/hestia-dashboard
 --> <html lang="en">
 <head>
-  <meta name="hestia-hash" content="09f1a92d8b1d398d356e6ac096341f713cbfe44b8314a2279fbd790902aeaac28632c3ca68269af299313fc3597535035da92de17413c1a0d7edeef7a9e5c8f5" data-version="1.1.0" data-date="2026-04-05">
+  <meta name="hestia-hash" content="58354eb03168081de27f795788ab324d87127c3a553dbc6dcfb6afc171eeaa5336ff4c78cc3377604164e72ea7010ad5300fad0276a87711f961b5dcdb4b0078" data-version="1.1.0" data-date="2026-04-05">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -2056,12 +2056,12 @@ room:    d.room || null,
 });
 });
 const COMBINED_OPTS = [
-{ v:'contact-door',    cat:'contacts', subtype:'door',   l:'Door'          },
-{ v:'contact-window',  cat:'contacts', subtype:'window', l:'Window'        },
-{ v:'motions',         cat:'motions',  subtype:'motion', l:'Motion Sensor' },
-{ v:'smokes',          cat:'smokes',   subtype:'smoke',  l:'Smoke / CO'    },
-{ v:'waters',          cat:'waters',   subtype:'water',  l:'Freeze / Water'},
-{ v:'glass',           cat:'glass',    subtype:'glass',  l:'Glass Break'   },
+{ v:'contact-door',    cat:'contacts', subtype:'door',   l:'Door',          section:'Doors'          },
+{ v:'contact-window',  cat:'contacts', subtype:'window', l:'Window',        section:'Windows'        },
+{ v:'motions',         cat:'motions',  subtype:'motion', l:'Motion Sensor', section:'Motion Sensors' },
+{ v:'smokes',          cat:'smokes',   subtype:'smoke',  l:'Smoke / CO',    section:'Smoke / CO'     },
+{ v:'waters',          cat:'waters',   subtype:'water',  l:'Freeze / Water',section:'Freeze / Water' },
+{ v:'glass',           cat:'glass',    subtype:'glass',  l:'Glass Break',   section:'Glass Break'    },
 ];
 function combinedVal(cat, subtype) {
 if (cat === 'contacts') {
@@ -2114,7 +2114,7 @@ if (!devs.length) return;
 const secId = 'art-sec-' + opt.v;
 listHTML += `
 <div class="sp-dev-section-hdr" onclick="spToggleDevSec('${secId}')" style="cursor:pointer">
-<span class="sp-dev-section-name">${opt.l}</span>
+<span class="sp-dev-section-name">${opt.section}</span>
 <span style="display:flex;align-items:center;gap:8px">
 <span class="sp-dev-section-count">${devs.length}</span>
 <span class="sp-section-arrow open" id="arr-${secId}" style="font-size:9px">▼</span>
@@ -2214,7 +2214,7 @@ ${listHTML}
 <div style="padding:8px 14px;border-bottom:1px solid var(--border)">
 <label class="sp-label" style="display:block;margin-bottom:4px">Assign to type</label>
 <select class="sp-dev-room-sel" id="a-picker-cat" style="width:100%">
-${COMBINED_OPTS.map(t=>`<option value="${t.cat}">${t.l}</option>`).join('')}
+${COMBINED_OPTS.map(t=>`<option value="${t.v}">${t.l}</option>`).join('')}
 </select>
 </div>
 <div id="a-picker-list" style="overflow-y:auto;flex:1;padding:8px 14px"></div>
@@ -2387,15 +2387,25 @@ else _pickerSelected.forEach(v => { if (v.startsWith(id+'|')) _pickerSelected.de
 }
 function artemisConfirmPicker() {
 const catEl = document.getElementById('a-picker-cat');
-const cat = (catEl && catEl.value) || _pickerCat;
-if (!cat || !_pickerSelected.size) { artemisClosePicker(); return; }
+const combinedVal = (catEl && catEl.value) || _pickerCat;
+if (!combinedVal || !_pickerSelected.size) { artemisClosePicker(); return; }
+const CMAP = {
+'contact-door':   { cat:'contacts', subtype:'door'   },
+'contact-window': { cat:'contacts', subtype:'window' },
+'motions':        { cat:'motions',  subtype:'motion' },
+'smokes':         { cat:'smokes',   subtype:'smoke'  },
+'waters':         { cat:'waters',   subtype:'water'  },
+'glass':          { cat:'glass',    subtype:'glass'  },
+};
+const resolved = CMAP[combinedVal] || { cat: combinedVal, subtype: combinedVal };
+const { cat, subtype } = resolved;
 if (!CONFIG.artemisSensors) CONFIG.artemisSensors = { contacts:[], motions:[], smokes:[], waters:[], glass:[] };
 const existing = CONFIG.artemisSensors[cat] || [];
 CONFIG.artemisSensors[cat] = existing;
 const existingIds = new Set(existing.map(d => String(d.id||d)));
 _pickerSelected.forEach(entry => {
 const [id, name] = entry.split('|');
-if (!existingIds.has(id)) existing.push({ id, name });
+if (!existingIds.has(id)) existing.push({ id, name, subtype, room: null });
 });
 artemisRegisterSensors();
 artemisClosePicker();
