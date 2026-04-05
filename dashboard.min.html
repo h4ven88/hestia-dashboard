@@ -6,7 +6,7 @@
   https://github.com/haven-hestia/hestia-dashboard
 --> <html lang="en">
 <head>
-  <meta name="hestia-hash" content="0cee10a31f691009dfe91f1059cf91338a11c2b86b78e9bbd2d404fa0d0dd737f230befe2430e4085f398abd08475557416b423a8c923e5080273801e6570189" data-version="1.1.0" data-date="2026-04-05">
+  <meta name="hestia-hash" content="09f1a92d8b1d398d356e6ac096341f713cbfe44b8314a2279fbd790902aeaac28632c3ca68269af299313fc3597535035da92de17413c1a0d7edeef7a9e5c8f5" data-version="1.1.0" data-date="2026-04-05">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -113,19 +113,17 @@ return r ? r.name : roomId;
 }
 function artemisInferSubtype(name) {
 const n = String(name).toLowerCase();
-if (/garage|tilt/i.test(n))              return 'garage';
-if (/door|front|back|entry|main|closet/i.test(n)) return 'door';
+if (/garage|tilt|door|front|back|entry|main|closet/i.test(n)) return 'door';
 return 'window';
 }
 function migrateSensorMeta() {
 if (!CONFIG.artemisSensors) return;
 let changed = false;
-const contactCats = ['contacts'];
 ['contacts','motions','smokes','waters','glass'].forEach(cat => {
 (CONFIG.artemisSensors[cat] || []).forEach(d => {
-if (typeof d === 'string' || typeof d === 'number') return; 
-if (!d.room)    { d.room = null; changed = true; }
-if (!d.subtype) {
+if (typeof d === 'string' || typeof d === 'number') return;
+if (!('room' in d))    { d.room = null; changed = true; }
+if (!d.subtype || d.subtype === 'garage') {
 d.subtype = cat === 'contacts' ? artemisInferSubtype(d.name || '') : cat;
 changed = true;
 }
@@ -135,7 +133,8 @@ if (changed) saveConfig().catch(()=>{});
 }
 function artemisSensorSubtype(d, cat) {
 if (cat !== 'contacts') return cat;
-return d.subtype || artemisInferSubtype(d.name || '');
+const sub = d.subtype || artemisInferSubtype(d.name || '');
+return sub === 'garage' ? 'door' : sub; 
 }
 async function migratePinIfNeeded(key) {
 const val = CONFIG[key];
@@ -1599,13 +1598,11 @@ return `<div class="a-card"><div class="a-card-hdr">Entry sensors<span class="a-
 }
 const doors   = contacts.filter(d => artemisSensorSubtype(d,'contacts') === 'door');
 const windows = contacts.filter(d => artemisSensorSubtype(d,'contacts') === 'window');
-const garages = contacts.filter(d => artemisSensorSubtype(d,'contacts') === 'garage');
 const openDoors   = doors.filter(d => S[d.id] && S[d.id].open);
 const openWindows = windows.filter(d => S[d.id] && S[d.id].open);
-const openGarages = garages.filter(d => S[d.id] && S[d.id].open);
 const activeMotions = motions.filter(d => S[d.id] && S[d.id].active);
 const triggeredGlass = glass.filter(d => S[d.id] && S[d.id].detected);
-const totalAlerts = openDoors.length + openWindows.length + openGarages.length
+const totalAlerts = openDoors.length + openWindows.length
 + activeMotions.length + triggeredGlass.length;
 const okC  = aOkColor();
 const warnC = '#D4891A';
@@ -1651,7 +1648,6 @@ const cntTxt = totalAlerts > 0 ? totalAlerts + ' open/active' : 'All secured';
 const rows =
 typeRow('Doors',       doors,   openDoors,   false, aIconContact, warnC) +
 typeRow('Windows',     windows, openWindows, false, aIconWindow,  warnC) +
-typeRow('Garage',      garages, openGarages, false, aIconGarage,  warnC) +
 typeRow('Motion',      motions, activeMotions, true, aIconMotion, blueC) +
 typeRow('Glass break', glass,   triggeredGlass, false, aIconGlass, warnC);
 return `<div class="a-card"><div class="a-card-hdr">Entry sensors
@@ -2045,44 +2041,33 @@ artemisDoDisarm();
 function spArtemisBody() {
 const enabled = CONFIG.artemisEnabled;
 const dim = enabled ? '' : 'opacity:.4;pointer-events:none';
-const CAT_OPTS = [
-{ v:'contacts', l:'Contact Sensor' },
-{ v:'motions',  l:'Motion Sensor'  },
-{ v:'smokes',   l:'Smoke / CO'     },
-{ v:'waters',   l:'Freeze / Water' },
-{ v:'glass',    l:'Glass Break'    },
-];
-const SUBTYPE_OPTS = [
-{ v:'door',    l:'Door'    },
-{ v:'window',  l:'Window'  },
-{ v:'garage',  l:'Garage'  },
-];
-const CAT_LABEL = { contacts:'Contact', motions:'Motion', smokes:'Smoke/CO', waters:'Water', glass:'Glass' };
 const CAT_ORDER = ['contacts','motions','smokes','waters','glass'];
 const allSensors = [];
 CAT_ORDER.forEach(cat => {
 (CONFIG.artemisSensors && CONFIG.artemisSensors[cat] || []).forEach(d => {
+const sub = d.subtype || (cat === 'contacts' ? artemisInferSubtype(d.name || '') : cat);
 allSensors.push({
 id:      d.id || d,
 name:    d.name || String(d.id || d),
 cat,
-subtype: d.subtype || (cat === 'contacts' ? artemisInferSubtype(d.name || '') : cat),
+subtype: sub === 'garage' ? 'door' : sub, 
 room:    d.room || null,
 });
 });
 });
-const roomOpts = rooms.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
 const COMBINED_OPTS = [
-{ v:'contact-door',    cat:'contacts', subtype:'door',    l:'Contact — Door'      },
-{ v:'contact-window',  cat:'contacts', subtype:'window',  l:'Contact — Window'    },
-{ v:'contact-garage',  cat:'contacts', subtype:'garage',  l:'Contact — Garage'    },
-{ v:'motions',         cat:'motions',  subtype:'motion',  l:'Motion Sensor'       },
-{ v:'smokes',          cat:'smokes',   subtype:'smoke',   l:'Smoke / CO'          },
-{ v:'waters',          cat:'waters',   subtype:'water',   l:'Freeze / Water'      },
-{ v:'glass',           cat:'glass',    subtype:'glass',   l:'Glass Break'         },
+{ v:'contact-door',    cat:'contacts', subtype:'door',   l:'Door'          },
+{ v:'contact-window',  cat:'contacts', subtype:'window', l:'Window'        },
+{ v:'motions',         cat:'motions',  subtype:'motion', l:'Motion Sensor' },
+{ v:'smokes',          cat:'smokes',   subtype:'smoke',  l:'Smoke / CO'    },
+{ v:'waters',          cat:'waters',   subtype:'water',  l:'Freeze / Water'},
+{ v:'glass',           cat:'glass',    subtype:'glass',  l:'Glass Break'   },
 ];
 function combinedVal(cat, subtype) {
-if (cat === 'contacts') return 'contact-' + (subtype || 'window');
+if (cat === 'contacts') {
+const s = subtype === 'garage' ? 'door' : (subtype || 'window');
+return 'contact-' + s;
+}
 return cat;
 }
 function sensorRow(d) {
@@ -2123,13 +2108,13 @@ let listHTML = '';
 if (!allSensors.length) {
 listHTML = `<div style="padding:12px 20px;font-size:12px;color:var(--t3)">No sensors assigned yet.</div>`;
 } else if (groupBy === 'type') {
-CAT_ORDER.forEach(cat => {
-const devs = allSensors.filter(d => d.cat === cat);
+COMBINED_OPTS.forEach(opt => {
+const devs = allSensors.filter(d => combinedVal(d.cat, d.subtype) === opt.v);
 if (!devs.length) return;
-const secId = 'art-sec-' + cat;
+const secId = 'art-sec-' + opt.v;
 listHTML += `
 <div class="sp-dev-section-hdr" onclick="spToggleDevSec('${secId}')" style="cursor:pointer">
-<span class="sp-dev-section-name">${CAT_OPTS.find(t=>t.v===cat).l}</span>
+<span class="sp-dev-section-name">${opt.l}</span>
 <span style="display:flex;align-items:center;gap:8px">
 <span class="sp-dev-section-count">${devs.length}</span>
 <span class="sp-section-arrow open" id="arr-${secId}" style="font-size:9px">▼</span>
@@ -2229,7 +2214,7 @@ ${listHTML}
 <div style="padding:8px 14px;border-bottom:1px solid var(--border)">
 <label class="sp-label" style="display:block;margin-bottom:4px">Assign to type</label>
 <select class="sp-dev-room-sel" id="a-picker-cat" style="width:100%">
-${CAT_OPTS.map(t=>`<option value="${t.v}">${t.l}</option>`).join('')}
+${COMBINED_OPTS.map(t=>`<option value="${t.cat}">${t.l}</option>`).join('')}
 </select>
 </div>
 <div id="a-picker-list" style="overflow-y:auto;flex:1;padding:8px 14px"></div>
@@ -2279,7 +2264,6 @@ function artemisRetypeCombined(id, oldCat, combinedValue) {
 const MAP = {
 'contact-door':   { cat:'contacts', subtype:'door'   },
 'contact-window': { cat:'contacts', subtype:'window' },
-'contact-garage': { cat:'contacts', subtype:'garage' },
 'motions':        { cat:'motions',  subtype:'motion' },
 'smokes':         { cat:'smokes',   subtype:'smoke'  },
 'waters':         { cat:'waters',   subtype:'water'  },
