@@ -6,7 +6,7 @@
   https://github.com/haven-hestia/hestia-dashboard
 --> <html lang="en">
 <head>
-  <meta name="hestia-hash" content="4a328a318b95f4ccc9a3235fadbfe2a571ae118ebef8fb8e9fc3424646e4755b005bb5a80aca142716d98cbeca733cac7da53d1309d3934f0f43388af45512c7" data-version="1.1.0" data-date="2026-04-04">
+  <meta name="hestia-hash" content="d9dd4ccff0c64e9fd5e9bff7541ddf475218d0daa2c62b988867a2739d13c42bb8af992bb7584d18892f6406ee67fe7924f35ce69a2c836dba096e773d7cad6d" data-version="1.1.0" data-date="2026-04-05">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -31,7 +31,7 @@
 </svg> <span style="font-family:'Outfit',system-ui,sans-serif;font-size:11px;font-weight:200;letter-spacing:.18em;color:var(--t1);text-transform:uppercase">HESTIA™</span> <span style="font-size:9px;color:var(--t2);margin-left:auto;letter-spacing:.04em;font-style:italic">Your safe haven, at a glance.</span> </div> <div id="sp-saved" class="sp-saved"></div> <button class="sp-btn sp-btn-primary" onclick="saveSettings()">Save &amp; Apply</button> <div class="sp-btn-row"> <button class="sp-btn sp-btn-secondary" onclick="exportSettings()">Export JSON</button> <button class="sp-btn sp-btn-secondary" onclick="importSettings()">Import JSON</button> </div> <button class="sp-btn sp-btn-danger" onclick="resetSettings()">Factory Reset</button> </div>
 </div>
 <input type="file" id="sp-import-file" accept=".json" style="display:none" onchange="handleImport(event)"> <script>const HESTIA_VERSION='v1.1.0';
-const HESTIA_BUILD_DATE='2026-04-04';
+const HESTIA_BUILD_DATE='2026-04-05';
 const HESTIA_COPYRIGHT  = '© 2025 Haven';
 const THEME_META = {
 dark:  '#0A0A0A',
@@ -5283,16 +5283,14 @@ if (ok) {
 applyConfig(); 
 try { localStorage.setItem('dashboard-config', JSON.stringify(hubCfg)); } catch(e) {}
 } else {
-OB.hub   = 'http://' + window.location.hostname;
-OB.appId = HUB_STORE.appId;
-OB.token = HUB_STORE.token;
+OB.hub   = (hubCfg.config && hubCfg.config.hub)   || ('http://' + window.location.hostname);
+OB.appId = (hubCfg.config && hubCfg.config.appId) || '';
+OB.token = (hubCfg.config && hubCfg.config.token) || '';
 renderOnboarding();
 return;
 }
 } else {
-OB.hub   = 'http://' + window.location.hostname;
-OB.appId = HUB_STORE.appId;
-OB.token = HUB_STORE.token;
+OB.hub = 'http://' + window.location.hostname;
 renderOnboarding();
 return;
 }
