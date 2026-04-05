@@ -6,7 +6,7 @@
   https://github.com/haven-hestia/hestia-dashboard
 --> <html lang="en">
 <head>
-  <meta name="hestia-hash" content="9a5d18766488b5d9e48ace76ddbf6df0b6edb2a5eefc4a59663345b55a99dc77d68302ebeb66a7e75f9a445c2cc682351fff65e9f2a7f8d8175d2d7ecdb9d324" data-version="1.1.0" data-date="2026-04-04">
+  <meta name="hestia-hash" content="4a328a318b95f4ccc9a3235fadbfe2a571ae118ebef8fb8e9fc3424646e4755b005bb5a80aca142716d98cbeca733cac7da53d1309d3934f0f43388af45512c7" data-version="1.1.0" data-date="2026-04-04">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -5278,9 +5278,21 @@ if (needsOnboarding()) {
 if (HUB_STORE) {
 const hubCfg = await loadConfigFromHub();
 if (hubCfg) {
-applyParsedConfig(hubCfg);
+const ok = applyParsedConfig(hubCfg);
+if (ok) {
+applyConfig(); 
 try { localStorage.setItem('dashboard-config', JSON.stringify(hubCfg)); } catch(e) {}
 } else {
+OB.hub   = 'http://' + window.location.hostname;
+OB.appId = HUB_STORE.appId;
+OB.token = HUB_STORE.token;
+renderOnboarding();
+return;
+}
+} else {
+OB.hub   = 'http://' + window.location.hostname;
+OB.appId = HUB_STORE.appId;
+OB.token = HUB_STORE.token;
 renderOnboarding();
 return;
 }
