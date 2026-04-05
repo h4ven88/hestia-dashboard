@@ -6,7 +6,7 @@
   https://github.com/haven-hestia/hestia-dashboard
 --> <html lang="en">
 <head>
-  <meta name="hestia-hash" content="d9dd4ccff0c64e9fd5e9bff7541ddf475218d0daa2c62b988867a2739d13c42bb8af992bb7584d18892f6406ee67fe7924f35ce69a2c836dba096e773d7cad6d" data-version="1.1.0" data-date="2026-04-05">
+  <meta name="hestia-hash" content="335fe3668edc792cc357974fd2b1c47ecd66cf7b40fde2ed92dba6d33c53d455a7e023815ec2f96cfafed1fbfecaba5ff0e17544923876149a2067e233945777" data-version="1.1.0" data-date="2026-04-05">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -276,6 +276,9 @@ return data;
 }
 } catch(e) {}
 return null;
+}
+function hubStoreHasMakerApi() {
+return !!(HUB_STORE && HUB_STORE.makerApiAppId && HUB_STORE.makerApiToken);
 }
 async function loadConfigFromHub() {
 if (!HUB_STORE) return null;
@@ -5280,7 +5283,7 @@ const hubCfg = await loadConfigFromHub();
 if (hubCfg) {
 const ok = applyParsedConfig(hubCfg);
 if (ok) {
-applyConfig(); 
+applyConfig();
 try { localStorage.setItem('dashboard-config', JSON.stringify(hubCfg)); } catch(e) {}
 } else {
 OB.hub   = (hubCfg.config && hubCfg.config.hub)   || ('http://' + window.location.hostname);
@@ -5289,6 +5292,11 @@ OB.token = (hubCfg.config && hubCfg.config.token) || '';
 renderOnboarding();
 return;
 }
+} else if (hubStoreHasMakerApi()) {
+CONFIG.hub   = 'http://' + window.location.hostname;
+CONFIG.appId = HUB_STORE.makerApiAppId;
+CONFIG.token = HUB_STORE.makerApiToken;
+await saveConfig();
 } else {
 OB.hub = 'http://' + window.location.hostname;
 renderOnboarding();
