@@ -6,7 +6,7 @@
   https://github.com/haven-hestia/hestia-dashboard
 --> <html lang="en">
 <head>
-  <meta name="hestia-hash" content="335fe3668edc792cc357974fd2b1c47ecd66cf7b40fde2ed92dba6d33c53d455a7e023815ec2f96cfafed1fbfecaba5ff0e17544923876149a2067e233945777" data-version="1.1.0" data-date="2026-04-05">
+  <meta name="hestia-hash" content="bdbce6755f24a14f5a02324a53f5813434d4a3d50f7d37d9ce9c01309ae57f13f3667b4f9bac41b89b88463fd79a2ffd27b059102220f6716d8b777ccc48f019" data-version="1.1.0" data-date="2026-04-05">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -283,7 +283,7 @@ return !!(HUB_STORE && HUB_STORE.makerApiAppId && HUB_STORE.makerApiToken);
 async function loadConfigFromHub() {
 if (!HUB_STORE) return null;
 try {
-const hub = CONFIG.hub || ('http://' + window.location.hostname);
+const hub = window.location.origin;
 const url = `${hub}/apps/api/${HUB_STORE.appId}/config?access_token=${HUB_STORE.token}`;
 const res = await fetch(url);
 if (!res.ok) return null;
@@ -352,7 +352,7 @@ staging:     deepClone(staging)
 async function saveConfigToHub(payload) {
 if (!HUB_STORE) return;
 try {
-const hub = CONFIG.hub || ('http://' + window.location.hostname);
+const hub = window.location.origin;
 const url = `${hub}/apps/api/${HUB_STORE.appId}/config?access_token=${HUB_STORE.token}`;
 await fetch(url, {
 method: 'POST',
@@ -600,8 +600,9 @@ return JSON.stringify(S[id]) !== prev;
 let lastFetchTime = null;
 let _appUpdateCheckTimer = null;
 function checkAppVersion() {
-if (!CONFIG.hub || !CONFIG.appId || !CONFIG.token) return;
-fetch(CONFIG.hub + '/apps/api/' + CONFIG.appId + '/version?access_token=' + CONFIG.token)
+if (!HUB_STORE) return;
+const hub = window.location.origin;
+fetch(`${hub}/apps/api/${HUB_STORE.appId}/version?access_token=${HUB_STORE.token}`)
 .then(r => r.ok ? r.json() : null)
 .then(data => {
 if (!data) return;
