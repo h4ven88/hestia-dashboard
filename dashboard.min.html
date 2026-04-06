@@ -6,7 +6,7 @@
   https://github.com/haven-hestia/hestia-dashboard
 --> <html lang="en">
 <head>
-  <meta name="hestia-hash" content="b584f49b0338bc9df20a4da248815186976480a6ec3da170ea12de6d397f8021db4fd4235fae7c587fe37a8320528e4080c0c23db46348dad20bace01c0cc201" data-version="1.2.0" data-date="2026-04-06">
+  <meta name="hestia-hash" content="a9c4041fda0f0d3dfb88bae4c919442ebc34acc91c64e71747e5c6c3f221e8835641f84c6c4b93e397857d71e852cbcea8d6f2391752fbd2282e049c19faf291" data-version="1.2.0" data-date="2026-04-06">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1430,6 +1430,7 @@ let artemisLocked     = false;
 let artemisLockTimer  = null;      
 let artemisAlarmType  = null;      
 let artemisHsmMode    = 'disarmed';
+let artemisHsmReady   = null;      
 function artemisModeName() {
 if (artemisMode === 'home')  return 'Armed · Home';
 if (artemisMode === 'away')  return 'Armed · Away';
@@ -1757,6 +1758,37 @@ return `<svg viewBox="0 0 28 32" xmlns="http://www.w3.org/2000/svg" width="${w||
 <line x1="14" y1="23.8" x2="14" y2="25.0" stroke="#3A8A55" stroke-width=".85" stroke-linecap="round" opacity=".55"/>
 </svg>`;
 }
+function artemisNoHsmRightHTML() {
+return `<div class="artemis-right" style="align-items:center;justify-content:center;gap:16px;text-align:center">
+<svg viewBox="0 0 28 32" width="56" height="64" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0">
+<polygon points="14,1.5 24,7 19,11.5 9,11.5 4,7" fill="#141414"/>
+<polygon points="14,1.5 4,7 9,11.5" fill="#101010"/>
+<polygon points="14,1.5 24,7 19,11.5" fill="#0D0D0D"/>
+<polygon points="9,11.5 19,11.5 24,20 14,25.5 4,20" fill="#141414"/>
+<polygon points="9,11.5 4,20 14,25.5" fill="#101010"/>
+<polygon points="19,11.5 24,20 14,25.5" fill="#181818"/>
+<polygon points="14,1.5 24,7 24,20 14,25.5 4,20 4,7" fill="none" stroke="#F59E0B" stroke-width="1.2" stroke-linejoin="miter"/>
+<path d="M14,7 L8.5,9.2 v5.8 c0,3 2.75,4.8 5.5,5.5 2.75-.7 5.5-2.5 5.5-5.5 v-5.8 Z" fill="none" stroke="#2A2A2A" stroke-width="1.2" stroke-linejoin="round"/>
+<line x1="14" y1="10.5" x2="14" y2="15.5" stroke="#444" stroke-width="1.3" stroke-linecap="round"/>
+<circle cx="14" cy="17.5" r="1" fill="#444"/>
+</svg>
+<div style="font-size:14px;font-weight:500;color:var(--t1)">HSM Not Detected</div>
+<div style="background:var(--bg-card);border:1px solid rgba(245,158,11,.22);border-radius:10px;padding:12px 14px;text-align:left">
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+<svg width="13" height="13" viewBox="0 0 16 16" fill="none" style="flex-shrink:0"><path d="M8 1L1 14h14L8 1z" stroke="#F59E0B" stroke-width="1.2" stroke-linejoin="round"/><line x1="8" y1="6" x2="8" y2="9.5" stroke="#F59E0B" stroke-width="1.3" stroke-linecap="round"/><circle cx="8" cy="11.5" r=".8" fill="#F59E0B"/></svg>
+<span style="font-size:11px;font-weight:500;color:#D4891A">HSM required for arming</span>
+</div>
+<div style="font-size:11px;color:var(--t3);line-height:1.55">Install Hubitat Safety Monitor to enable arm and disarm. Sensors are actively monitored.</div>
+</div>
+<div class="a-brand-ftr" style="margin-top:auto">
+<div style="text-align:right">
+<div class="a-brand-nm">ARTEMIS<span class="a-brand-tm">™</span></div>
+<div class="a-brand-sub">Home Security</div>
+</div>
+${artemisGemMark(26,30)}
+</div>
+</div>`;
+}
 function artemisKeypadHTML() {
 const disarmed = artemisMode === 'disarm';
 const lbl = disarmed ? 'Select Mode' : 'Enter PIN to disarm';
@@ -1796,8 +1828,9 @@ ${!['smoke','water'].includes(artemisAlarmType)?`<button class="a-alarm-btn ${['
 <button class="a-alarm-btn ${['smoke','water'].includes(artemisAlarmType)?'a-amber':'a-red'}" onclick="artemisClearAlarm()">Clear</button>
 </div>
 </div>` : '';
-const rightHTML = `
-<div class="artemis-right">
+const rightHTML = artemisHsmReady === false
+? artemisNoHsmRightHTML()
+: `<div class="artemis-right">
 <div class="a-status">
 ${artemisGemSVG(artemisMode, 34, 39)}
 <div>
@@ -1819,6 +1852,26 @@ ${!isM ? artemisKeypadHTML() : `<div style="padding:10px 0;font-size:11px;color:
 ${artemisGemMark(26,30)}
 </div>
 </div>`;
+const mobileNoHsmHTML = artemisHsmReady === false
+? `<div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:24px 16px;text-align:center">
+<svg viewBox="0 0 28 32" width="52" height="60" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0">
+<polygon points="14,1.5 24,7 19,11.5 9,11.5 4,7" fill="#141414"/><polygon points="14,1.5 4,7 9,11.5" fill="#101010"/><polygon points="14,1.5 24,7 19,11.5" fill="#0D0D0D"/>
+<polygon points="9,11.5 19,11.5 24,20 14,25.5 4,20" fill="#141414"/><polygon points="9,11.5 4,20 14,25.5" fill="#101010"/><polygon points="19,11.5 24,20 14,25.5" fill="#181818"/>
+<polygon points="14,1.5 24,7 24,20 14,25.5 4,20 4,7" fill="none" stroke="#F59E0B" stroke-width="1.2" stroke-linejoin="miter"/>
+<path d="M14,7 L8.5,9.2 v5.8 c0,3 2.75,4.8 5.5,5.5 2.75-.7 5.5-2.5 5.5-5.5 v-5.8 Z" fill="none" stroke="#2A2A2A" stroke-width="1.2" stroke-linejoin="round"/>
+<line x1="14" y1="10.5" x2="14" y2="15.5" stroke="#444" stroke-width="1.3" stroke-linecap="round"/>
+<circle cx="14" cy="17.5" r="1" fill="#444"/>
+</svg>
+<div style="font-size:15px;font-weight:500;color:var(--t1)">HSM Not Detected</div>
+<div style="background:var(--bg-card);border:1px solid rgba(245,158,11,.22);border-radius:10px;padding:12px 14px;text-align:left;width:100%">
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+<svg width="13" height="13" viewBox="0 0 16 16" fill="none" style="flex-shrink:0"><path d="M8 1L1 14h14L8 1z" stroke="#F59E0B" stroke-width="1.2" stroke-linejoin="round"/><line x1="8" y1="6" x2="8" y2="9.5" stroke="#F59E0B" stroke-width="1.3" stroke-linecap="round"/><circle cx="8" cy="11.5" r=".8" fill="#F59E0B"/></svg>
+<span style="font-size:12px;font-weight:500;color:#D4891A">HSM required for arming</span>
+</div>
+<div style="font-size:12px;color:var(--t3);line-height:1.55">Install Hubitat Safety Monitor to enable arm and disarm. Sensors are actively monitored.</div>
+</div>
+</div>`
+: null;
 const leftHTML = `
 <div class="artemis-left">
 ${artemisEntrySensorsHTML()}
@@ -1829,6 +1882,7 @@ if (isM) {
 ma.innerHTML = `<div class="artemis-panel" style="grid-template-columns:1fr">
 ${alarmHTML}
 <div style="display:flex;flex-direction:column;gap:8px;padding:12px">
+${mobileNoHsmHTML || `
 <div class="a-status">
 ${artemisGemSVG(artemisMode, 34, 39)}
 <div>
@@ -1840,7 +1894,7 @@ ${artemisGemSVG(artemisMode, 34, 39)}
 ${artemisModeBtn('disarm','Disarm', artemisMode==='disarm')}
 ${artemisModeBtn('home',  'Home',   artemisMode==='home')}
 ${artemisModeBtn('away',  'Away',   artemisMode==='away')}
-</div>
+</div>`}
 ${artemisEntrySensorsHTML()}
 ${artemisLocksHTML()}
 ${artemisEnvHTML()}
@@ -1947,24 +2001,44 @@ if (!CONFIG.hub || !CONFIG.appId || !CONFIG.token) return;
 try {
 const url = `${CONFIG.hub}/apps/api/${CONFIG.appId}/hsm?access_token=${CONFIG.token}`;
 const res = await fetch(url);
-if (!res.ok) return;
-const data = await res.json();
-const hsm = String(data.hsm || data.hsmStatus || '');
-let newMode = 'disarm';
-if      (/armedAway|armingAway/i.test(hsm))  newMode = 'away';
-else if (/armedHome|armingHome|armedNight/i.test(hsm)) newMode = 'home';
-else if (/disarmed|allDisarmed/i.test(hsm))  newMode = 'disarm';
-if (newMode !== artemisMode) {
-artemisMode = newMode;
-if (isMobile() ? activeTab === 'security' : activeRoom === 'security') {
-renderSecurity();
+if (!res.ok) {
+if (artemisHsmReady !== false) {
+artemisHsmReady = false;
+if (isMobile() ? activeTab === 'security' : activeRoom === 'security') renderSecurity();
+updateArmedStatus();
 }
+return;
+}
+const data = await res.json();
+const hsm = String(data.hsm || data.hsmStatus || '').toLowerCase();
+const ready = hsm.length > 0 && hsm !== 'null' && hsm !== 'undefined';
+const prevReady = artemisHsmReady;
+artemisHsmReady = ready;
+if (ready) {
+let newMode = 'disarm';
+if      (/armedaway|armingaway/i.test(hsm))               newMode = 'away';
+else if (/armedhome|arminghome|armednight/i.test(hsm))    newMode = 'home';
+else if (/disarmed|alldisarmed/i.test(hsm))               newMode = 'disarm';
+if (newMode !== artemisMode || prevReady !== true) {
+artemisMode = newMode;
+if (isMobile() ? activeTab === 'security' : activeRoom === 'security') renderSecurity();
 renderSidebar();
 updateArmedStatus();
 }
-} catch(e) { console.warn('[Artemis] HSM sync failed:', e.message); }
+} else {
+if (prevReady !== false) {
+artemisMode = 'disarm';
+if (isMobile() ? activeTab === 'security' : activeRoom === 'security') renderSecurity();
+renderSidebar();
+updateArmedStatus();
+}
+}
+} catch(e) {
+console.warn('[Artemis] HSM sync failed:', e.message);
+}
 }
 function artemisDoDisarm() {
+if (artemisHsmReady === false) return;
 artemisMode = 'disarm';
 artemisPin = '';
 artemisClearAlarm();
@@ -1974,6 +2048,7 @@ renderSidebar();
 updateArmedStatus();
 }
 function artemisSetMode(m) {
+if (artemisHsmReady === false) return;
 if (m === 'disarm' && artemisMode !== 'disarm') {
 if (isMobile()) artemisOpenSheet();
 return;
