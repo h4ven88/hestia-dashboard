@@ -1,5 +1,5 @@
 /**
- * Hestia™ Home Dashboard v1.1.0
+ * Hestia™ Home Dashboard v1.2.0
  * ════════════════════════════════════════════════════════════════
  * Single Hubitat app — serves the dashboard and stores config.
  *
@@ -34,7 +34,7 @@ preferences {
 }
 
 @Field static final String GITHUB_VERSION_URL = "https://api.github.com/repos/h4ven88/hestia-dashboard/releases/latest"
-@Field static final String APP_VERSION        = "1.1.0"
+@Field static final String APP_VERSION        = "1.2.0"
 @Field static final String DASHBOARD_FILENAME = "hestia-dashboard.html"
 @Field static final String TOKEN_FILENAME     = "hestia-token.json"
 @Field static final String CONFIG_FILENAME    = "hestia-config.json"
