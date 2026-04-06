@@ -1,0 +1,13 @@
+{
+  "author": "Haven",
+  "gitHubUrl": "https://github.com/h4ven88/hestia-dashboard",
+  "payPalUrl": "",
+  "packages": [
+    {
+      "name": "Hestia Dashboard",
+      "description": "Hestia™ smart home dashboard for Hubitat Elevation with Artemis™ security module.",
+      "location": "https://raw.githubusercontent.com/h4ven88/hestia-dashboard/main/packageManifest.json",
+      "tags": ["Dashboard", "Utility", "Lighting", "Security", "Alarm"]
+    }
+  ]
+}
