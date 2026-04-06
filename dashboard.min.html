@@ -6,7 +6,7 @@
   https://github.com/haven-hestia/hestia-dashboard
 --> <html lang="en">
 <head>
-  <meta name="hestia-hash" content="c92fdb905be4f3e60368bded725096487b6f3c0b9c3ab3d0b15b262482eae143fac81de5db7f1b9d5b97cdf941cec53ec38e89353b00b196fb1241fad43e8903" data-version="1.2.0" data-date="2026-04-06">
+  <meta name="hestia-hash" content="b584f49b0338bc9df20a4da248815186976480a6ec3da170ea12de6d397f8021db4fd4235fae7c587fe37a8320528e4080c0c23db46348dad20bace01c0cc201" data-version="1.2.0" data-date="2026-04-06">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1870,9 +1870,10 @@ if (ma2) ma2.innerHTML = `<div style="padding:32px 24px">
 }
 function artemisUpdDots(prefix) {
 prefix = prefix || 'apd';
+const pin = prefix === 'asp' ? aspPin : artemisPin;
 for (let i = 0; i < 6; i++) {
 const d = document.getElementById(prefix + i);
-if (d) d.className = 'a-pd' + (i < artemisPin.length ? ' a-on' : '');
+if (d) d.className = 'a-pd' + (i < pin.length ? ' a-on' : '');
 }
 }
 function artemisKd(n) {
@@ -1927,6 +1928,7 @@ artemisLocked = false;
 artemisFails = 0;
 if (lEl) lEl.classList.remove('visible');
 artemisPin = '';
+aspPin = '';
 artemisUpdDots(dotPrefix || 'apd');
 }
 }, 1000);
@@ -2268,7 +2270,21 @@ let _artGroupBy = 'type';
 function preserveSettingsScroll(fn) {
 const body = document.getElementById('sp-body');
 const scroll = body ? body.scrollTop : 0;
+const openIds = new Set();
+if (body) {
+body.querySelectorAll('.sp-section-body.open, .sp-section-body.open')
+.forEach(el => { if (el.id) openIds.add(el.id); });
+}
 fn();
+if (body && openIds.size) {
+openIds.forEach(id => {
+const el = document.getElementById(id);
+if (el && !el.classList.contains('open')) el.classList.add('open');
+const arr = document.getElementById('arr-' + id)
+|| document.getElementById('sp-arr-' + id.replace('sp-sec-', ''));
+if (arr && !arr.classList.contains('open')) arr.classList.add('open');
+});
+}
 if (body) requestAnimationFrame(() => { body.scrollTop = scroll; });
 }
 function artemisSetSubtype(id, cat, subtype) {
