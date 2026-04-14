@@ -6903,6 +6903,12 @@ function obUpdateNext() {
 const btn = document.getElementById('ob-next');
 if (!btn) return;
 if (OB.step === 1) {
+const hubEl   = document.getElementById('ob-hub');
+const appidEl = document.getElementById('ob-appid');
+const tokenEl = document.getElementById('ob-token');
+if (hubEl)   OB.hub   = hubEl.value.trim().replace(/\/+$/, '');
+if (appidEl) OB.appId = appidEl.value.trim();
+if (tokenEl) OB.token = tokenEl.value.trim();
 btn.disabled = !(OB.hub && OB.appId && OB.token && OB.testOk);
 } else if (OB.step === 3) {
 btn.disabled = false; 
@@ -6914,6 +6920,12 @@ btn.disabled = false;
 }
 async function obTestConnection() {
 const res = document.getElementById('ob-test-result');
+const hubEl   = document.getElementById('ob-hub');
+const appidEl = document.getElementById('ob-appid');
+const tokenEl = document.getElementById('ob-token');
+if (hubEl)   OB.hub   = hubEl.value.trim().replace(/\/+$/, '');
+if (appidEl) OB.appId = appidEl.value.trim();
+if (tokenEl) OB.token = tokenEl.value.trim();
 if (!OB.hub || !OB.appId || !OB.token) {
 res.textContent = 'Please fill in all fields first.';
 res.className = 'ob-test-result err'; return;
