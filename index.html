@@ -420,7 +420,9 @@ staging:     deepClone(staging)
 async function saveConfigToHub(payload) {
 if (!HUB_STORE) return;
 try {
-const hub = window.location.origin;
+const hub = (CONFIG.hub && isServedFromHub() === false && CONFIG.hub.startsWith('http://'))
+? CONFIG.hub
+: window.location.origin;
 const url = `${hub}/apps/api/${HUB_STORE.appId}/config?access_token=${HUB_STORE.token}`;
 await fetch(url, {
 method: 'POST',
@@ -7150,6 +7152,9 @@ function obFinish() {
 CONFIG.hub    = OB.hub;
 CONFIG.appId  = OB.appId;
 CONFIG.token  = OB.token;
+if (!CONFIG.weather || typeof CONFIG.weather !== 'object') {
+CONFIG.weather = { lat: 36.52, lon: -82.56, zip: '', city: '', refresh: 600000 };
+}
 CONFIG.weather.lat = parseFloat(OB.weather.lat) || 36.52;
 CONFIG.weather.lon = parseFloat(OB.weather.lon) || -82.56;
 if (OB.lock.id) CONFIG.lock = { id: OB.lock.id, label: OB.lock.label || 'Front Door' };
