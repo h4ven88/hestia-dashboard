@@ -1335,8 +1335,12 @@ r.shades.forEach(sh  => { if (S[sh.id] && S[sh.id].pct > 0) shades++; });
 const inRoomIds = new Set();
 rooms.forEach(r => ['switches','dimmers','fans','shades'].forEach(t =>
 r[t] && r[t].forEach(d => inRoomIds.add(String(d.id)))));
+rooms.forEach(r => {
+(r.colors||[]).forEach(d => inRoomIds.add(String(d.id)));
+(r.colortemps||[]).forEach(d => inRoomIds.add(String(d.id)));
+});
 staging.filter(d => d.visible !== false && !inRoomIds.has(String(d.id))).forEach(d => {
-if ((d.type==='switch') && S[d.id] && S[d.id].on) lights++;
+if ((d.type==='switch' || d.type==='color' || d.type==='color-temp') && S[d.id] && S[d.id].on) lights++;
 if ((d.type==='dimmer') && S[d.id] && S[d.id].on && S[d.id].val > 0) lights++;
 if ((d.type==='fan')    && S[d.id] && S[d.id].spd !== 'off') fans++;
 if ((d.type==='shade')  && S[d.id] && S[d.id].pct > 0) shades++;
@@ -5843,10 +5847,22 @@ if (saved) { saved.textContent = '✓ Saved and applied'; setTimeout(() => { sav
 }
 function exportSettings() {
 const data = {
-config:      { hub: CONFIG.hub, appId: CONFIG.appId, token: CONFIG.token, poll: CONFIG.poll,
-defaultRoom: CONFIG.defaultRoom, returnTimeout: CONFIG.returnTimeout, weather: CONFIG.weather },
+config: {
+hub: CONFIG.hub, appId: CONFIG.appId, token: CONFIG.token, poll: CONFIG.poll,
+defaultRoom: CONFIG.defaultRoom, returnTimeout: CONFIG.returnTimeout,
+lock: CONFIG.lock, weather: CONFIG.weather, settingsPin: CONFIG.settingsPin,
+artemisEnabled: CONFIG.artemisEnabled, artemisPin: CONFIG.artemisPin,
+artemisSensors: CONFIG.artemisSensors,
+athenaEnabled: CONFIG.athenaEnabled, athenaApiKey: CONFIG.athenaApiKey,
+athenaWakeWord: CONFIG.athenaWakeWord, athenaRoom: CONFIG.athenaRoom,
+athenaLang: CONFIG.athenaLang, athenaVoice: CONFIG.athenaVoice,
+athenaVolume: CONFIG.athenaVolume,
+athenaGoogleTTS: CONFIG.athenaGoogleTTS, athenaGoogleApiKey: CONFIG.athenaGoogleApiKey,
+athenaGoogleVoice: CONFIG.athenaGoogleVoice
+},
 thermostats: deepClone(thermostats),
-rooms:       deepClone(rooms)
+rooms:       deepClone(rooms),
+staging:     deepClone(staging)
 };
 const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
 const a    = document.createElement('a');
