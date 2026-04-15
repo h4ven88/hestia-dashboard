@@ -811,6 +811,7 @@ setConn('err');
 }
 }
 let wxData       = null;   
+let wxObsUrl     = null;   
 let wxForecastUrl = null;  
 let wxTimer       = null;
 async function bootstrapWeather() {
@@ -822,6 +823,7 @@ const res  = await fetch(
 if (!res.ok) throw new Error(res.status);
 const data = await res.json();
 wxForecastUrl = data.properties.forecast;
+wxObsUrl = data.properties.observationStations;
 await fetchWeather();
 } catch(e) {
 wxData = { error: true };
@@ -831,15 +833,36 @@ if (activeRoom === 'home') renderHome();
 async function fetchWeather() {
 if (!wxForecastUrl) return;
 try {
-const res  = await fetch(wxForecastUrl,
-{ headers: { 'User-Agent': 'HomePanel/1.0' } }
-);
-if (!res.ok) throw new Error(res.status);
-const data    = await res.json();
+const [fRes, obsRes] = await Promise.all([
+fetch(wxForecastUrl, { headers: { 'User-Agent': 'HomePanel/1.0' } }),
+wxObsUrl
+? fetch(wxObsUrl + '?limit=1', { headers: { 'User-Agent': 'HomePanel/1.0' } })
+.then(r => r.ok ? r.json() : null)
+.then(d => {
+const stationUrl = d && d.features && d.features[0]
+? d.features[0].id + '/observations/latest'
+: null;
+return stationUrl
+? fetch(stationUrl, { headers: { 'User-Agent': 'HomePanel/1.0' } })
+.then(r => r.ok ? r.json() : null)
+: null;
+})
+.catch(() => null)
+: Promise.resolve(null)
+]);
+if (!fRes.ok) throw new Error(fRes.status);
+const data    = await fRes.json();
 const periods = data.properties.periods;
+let humidity = null;
+if (obsRes) {
+const rh = obsRes.properties && obsRes.properties.relativeHumidity;
+if (rh && rh.value != null) humidity = Math.round(rh.value);
+}
+const current = { ...periods[0] };
+if (humidity !== null) current.relativeHumidity = { value: humidity };
 wxData = {
-current:  periods[0],
-forecast: periods.slice(1, 5)   
+current:  current,
+forecast: periods.slice(1, 5)
 };
 if (activeRoom === 'home') renderHome();
 } catch(e) {
@@ -1937,13 +1960,17 @@ recog.onstart = () => {
 athenaListening = true;
 athenaSetState('listening');
 };
+let _lastTranscript = '';
+let _finalFired = false;
 recog.onresult = (e) => {
 const t = e.results[0][0].transcript;
+_lastTranscript = t;
 const input = document.getElementById('ath-text-input');
 if (input) input.value = t;
 if (e.results[0].isFinal) {
+_finalFired = true;
 athenaListening = false;
-athenaSubmitText(t);
+athenaSubmitText(athenaStripWakeWord(t));
 }
 };
 recog.onerror = (e) => {
@@ -1953,7 +1980,7 @@ if (e.error === 'not-allowed' || e.error === 'permission-denied') {
 athenaMicPermission = false;
 athenaShowMicDenied();
 } else if (e.error === 'network') {
-if (retryCount < 3) {
+if (typeof retryCount !== 'undefined' && retryCount < 3) {
 console.log(`[Athena] Network error — retrying (${retryCount + 1}/3)…`);
 const lbl = document.getElementById('ath-state-lbl');
 if (lbl) lbl.textContent = `Reconnecting… (${retryCount + 1}/3)`;
@@ -1969,6 +1996,10 @@ if (input) input.placeholder = 'No speech detected — try again or type';
 };
 recog.onend = () => {
 athenaListening = false;
+if (!_finalFired && _lastTranscript.trim()) {
+athenaSubmitText(athenaStripWakeWord(_lastTranscript.trim()));
+return;
+}
 if (athenaState === 'idle' && !isMobile()) {
 setTimeout(() => { try { athenaRecog?.start(); } catch(e){} }, 500);
 }
@@ -2342,6 +2373,15 @@ div.textContent = msg;
 t.appendChild(div);
 t.scrollTop = t.scrollHeight;
 }
+}
+function athenaStripWakeWord(text) {
+const wake = (CONFIG.athenaWakeWord || 'athena').toLowerCase().trim();
+const t = text.trim();
+const tl = t.toLowerCase();
+if (tl.startsWith(wake)) {
+return t.slice(wake.length).replace(/^[,\s]+/, '').trim() || t;
+}
+return t;
 }
 function athenaSubmitText(text) {
 if (!text || !text.trim()) return;
