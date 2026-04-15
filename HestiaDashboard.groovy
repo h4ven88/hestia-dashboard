@@ -1,35 +1,39 @@
 /**
  * Hestia™ Home Dashboard v1.3.0
  * ════════════════════════════════════════════════════════════════
- * Single Hubitat app — serves the dashboard and stores config.
+ * Lightweight companion app — discovery helper and config store.
+ *
+ * The dashboard is served from https://www.hestari.com (Cloudflare)
+ * or directly from the hub at http://[hub-ip]/local/index.html.
+ * This app no longer fetches or hosts the dashboard HTML — Cloudflare
+ * handles that. Its sole responsibilities are:
+ *
+ *   1. Write hestia-token.json  — Maker API credentials for local
+ *      network auto-discovery by the dashboard on new devices
+ *   2. Store and serve config   — cross-device settings sync
+ *   3. Health check + version   — status endpoints
  *
  * Copyright © 2026 Haven. All rights reserved.
  * License: CC BY-NC 4.0 — personal use only.
  * https://github.com/h4ven88/hestia-dashboard
  *
- * Architecture: dashboard HTML is stored in Hub File Manager
- * at /local/hestia-dashboard.html — not in state (state has
- * a ~100KB limit; our dashboard is 214KB).
- *
  * ── ENDPOINTS ───────────────────────────────────────────────────
- * GET  /dashboard   Redirects to /local/hestia-dashboard.html
- * GET  /config      Returns stored config JSON
- * POST /config      Saves config JSON
- * GET  /update      Fetches latest dashboard from GitHub
- * GET  /version     Returns version info JSON
- * GET  /ping        Health check
+ * GET  /config    Returns stored config JSON
+ * POST /config    Saves config JSON
+ * GET  /version   Returns app version info
+ * GET  /ping      Health check
  */
 
 import groovy.transform.Field
 
 definition(
-    name:        "Hestia Dashboard",
-    namespace:   "h4ven88",
-    author:      "Haven",
-    description: "Hestia™ smart home dashboard — serves the dashboard and syncs config across devices.",
-    category:    "Utility",
-    iconUrl:     "",
-    iconX2Url:   "",
+    name:         "Hestia Dashboard",
+    namespace:    "h4ven88",
+    author:       "Haven",
+    description:  "Hestia™ companion app — local discovery and config sync.",
+    category:     "Utility",
+    iconUrl:      "",
+    iconX2Url:    "",
     oauthEnabled: true
 )
 
@@ -38,24 +42,14 @@ preferences {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
-@Field static final String GITHUB_VERSION_URL =
-    "https://api.github.com/repos/h4ven88/hestia-dashboard/releases/latest"
-
-@Field static final String APP_VERSION       = "1.3.0"
-@Field static final String DASHBOARD_FILENAME = "hestia-dashboard.html"
-@Field static final String TOKEN_FILENAME     = "hestia-token.json"
-@Field static final String CONFIG_FILENAME    = "hestia-config.json"
+@Field static final String APP_VERSION     = "1.3.0"
+@Field static final String TOKEN_FILENAME  = "hestia-token.json"
+@Field static final String CONFIG_FILENAME = "hestia-config.json"
 
 // ── Endpoint mappings ─────────────────────────────────────────────────────
 mappings {
-    path("/dashboard") {
-        action: [ GET: "serveDashboard" ]
-    }
     path("/config") {
         action: [ GET: "getConfig", POST: "saveConfig" ]
-    }
-    path("/update") {
-        action: [ GET: "triggerUpdate" ]
     }
     path("/version") {
         action: [ GET: "getVersion" ]
@@ -80,47 +74,26 @@ def mainPage() {
             paragraph "<h2>Hestia™ Home Dashboard</h2><em>Your safe haven, at a glance.</em>"
         }
 
-        section("Dashboard URL") {
-            if (state.accessToken && state.dashboardStored) {
-                def hubIp    = location.hubs[0].localIP
-                def directUrl = "http://${hubIp}/local/${DASHBOARD_FILENAME}"
-                def apiUrl    = "http://${hubIp}/apps/api/${app.id}/dashboard?access_token=${state.accessToken}"
-                paragraph "Open your Hestia dashboard:\n\n" +
-                    "<a href=\"${directUrl}\" target=\"_blank\" style=\"font-weight:600\">${directUrl}</a>\n\n" +
-                    "Bookmark the link above — no token required, works on any device on your network."
-            } else if (!state.dashboardStored) {
-                paragraph "⚠ Dashboard not yet fetched. Click 'Fetch Latest Dashboard from GitHub' below."
-            } else {
-                paragraph "⚠ OAuth token not yet created. Save the app first, then reopen."
-            }
+        section("Access") {
+            def hubIp = location.hubs[0].localIP
+            paragraph "Open your dashboard:\n\n" +
+                "<strong>Hosted:</strong> <a href=\"https://www.hestari.com\" target=\"_blank\">https://www.hestari.com</a> — always up to date\n\n" +
+                "<strong>Local:</strong> <a href=\"http://${hubIp}/local/index.html\" target=\"_blank\">http://${hubIp}/local/index.html</a> — works without internet\n\n" +
+                "To use hestari.com, add to <strong>Maker API → Allowed Hosts (for CORS)</strong>:\n" +
+                "<code>https://www.hestari.com, https://hestari.com</code>"
         }
 
         section("Status") {
-            def hubIp      = location.hubs[0].localIP
-            def autoStatus = (settings.autoUpdate != false) ? "✓ On (5am, 1pm, 9pm)" : "Off"
-            def appStatus  = state.appUpdateAvailable ? "⚠ App update available on GitHub" : "✓ Up to date"
-            paragraph "Dashboard stored: ${state.dashboardStored ? '✓ /local/' + DASHBOARD_FILENAME + ' (' + (state.dashboardSize ?: '?') + ' bytes, cached ' + (state.dashboardCachedAt ?: '?') + ')' : '⚠ Not yet fetched'}\n" +
-                "Installed version: ${state.installedVersion ?: 'not fetched'}\n" +
-                "Latest on GitHub: ${state.latestVersion ?: 'unknown'}\n" +
-                "Auto-update: ${autoStatus}\n" +
-                "App status: ${appStatus}\n" +
+            def hubIp = location.hubs[0].localIP
+            paragraph "App version: ${APP_VERSION}\n" +
                 "Config stored: ${state.configSize ? state.configSize + ' bytes' : 'none'}\n" +
+                "Discovery file: ${state.discoveryWritten ? '✓ /local/' + TOKEN_FILENAME : '⚠ not written — click Done to refresh'}\n" +
                 "App ID: ${app.id}\n" +
                 "Hub IP: ${hubIp}"
         }
 
         section("Actions") {
-            input "fetchDashboard", "button", title: "⬇ Fetch Latest Dashboard from GitHub"
-            input "checkVersion",   "button", title: "🔍 Check for Updates"
-            input "clearDashboard", "button", title: "🗑 Clear Dashboard File"
-            input "resetConfig",    "button", title: "🗑 Clear Stored Config"
-        }
-
-        section("Auto-Update") {
-            input "autoUpdate", "bool",
-                title:        "Automatically fetch latest dashboard (3x daily: 5am, 1pm, 9pm)",
-                defaultValue: true,
-                required:     false
+            input "resetConfig", "button", title: "🗑 Clear Stored Config"
         }
 
         section("About") {
@@ -131,27 +104,11 @@ def mainPage() {
 }
 
 def appButtonHandler(btn) {
-    switch(btn) {
-        case "fetchDashboard":
-            fetchDashboardFromGitHub()
-            break
-        case "checkVersion":
-            checkLatestVersion()
-            break
-        case "clearDashboard":
-            state.dashboardStored   = false
-            state.dashboardSize     = null
-            state.dashboardCachedAt = null
-            state.installedVersion  = null
-            try { uploadHubFile(DASHBOARD_FILENAME, "".getBytes("UTF-8")) } catch(e) {}
-            log.info "Hestia: dashboard file cleared"
-            break
-        case "resetConfig":
-            state.config     = null
-            state.configSize = null
-            try { uploadHubFile(CONFIG_FILENAME, "null".getBytes("UTF-8")) } catch(e) {}
-            log.info "Hestia: config cleared"
-            break
+    if (btn == "resetConfig") {
+        state.config     = null
+        state.configSize = null
+        try { uploadHubFile(CONFIG_FILENAME, "null".getBytes("UTF-8")) } catch(e) {}
+        log.info "Hestia: config cleared"
     }
 }
 
@@ -165,203 +122,47 @@ def initialize() {
             log.error "Hestia: could not create access token: ${e.message}"
         }
     }
-
+    unschedule()
     writeDiscovery()
-    if (!state.dashboardStored) fetchDashboardFromGitHub()
-
-    // Check for updates once at startup
-    checkLatestVersion()
-
-    // Schedule 3x daily auto-fetch: 5am, 1pm, 9pm hub local time
-    unschedule("scheduledAutoFetch")
-    schedule("0 0 5  * * ?", "scheduledAutoFetch")
-    schedule("0 0 13 * * ?", "scheduledAutoFetch")
-    schedule("0 0 21 * * ?", "scheduledAutoFetch")
-
     log.info "Hestia: initialized v${APP_VERSION} — app ID: ${app.id}"
 }
 
 // ── Discovery file ────────────────────────────────────────────────────────
+// Writes Maker API credentials to /local/hestia-token.json so the dashboard
+// can auto-discover hub credentials on new devices on the local network.
+// Updated on every initialize() and every config save.
 def writeDiscovery() {
     if (!state.accessToken) return
     try {
-        def hubIp = location.hubs[0].localIP
-        def json  = new groovy.json.JsonBuilder([
-            appId:   app.id,
-            token:   state.accessToken,
-            hubIp:   hubIp,
-            version: APP_VERSION
+        def hubIp      = location.hubs[0].localIP
+        def makerAppId = ""
+        def makerToken = ""
+        // Extract Maker API credentials from stored config if available
+        if (state.config) {
+            try {
+                def cfg = new groovy.json.JsonSlurper().parseText(state.config)
+                makerAppId = cfg?.config?.appId ?: ""
+                makerToken = cfg?.config?.token ?: ""
+            } catch(e) {}
+        }
+        def json = new groovy.json.JsonBuilder([
+            appId:         app.id.toString(),
+            token:         state.accessToken,
+            hubIp:         hubIp,
+            version:       APP_VERSION,
+            makerApiAppId: makerAppId,
+            makerApiToken: makerToken
         ]).toString()
         uploadHubFile(TOKEN_FILENAME, json.getBytes("UTF-8"))
+        state.discoveryWritten = true
         log.info "Hestia: discovery file written → /local/${TOKEN_FILENAME}"
     } catch(e) {
+        state.discoveryWritten = false
         log.warn "Hestia: could not write discovery file: ${e.message}"
     }
 }
 
-// ── Dashboard fetch — stores in File Manager, NOT state ───────────────────
-def fetchDashboardFromGitHub(String downloadUrl = null) {
-    // If no URL provided, resolve from GitHub releases API
-    if (!downloadUrl) {
-        try {
-            httpGet([
-                uri:     GITHUB_VERSION_URL,
-                headers: ["User-Agent": "HestiaDashboard/${APP_VERSION}",
-                          "Accept":     "application/vnd.github.v3+json"]
-            ]) { resp ->
-                if (resp.status == 200) {
-                    def assets = resp.data?.assets
-                    def asset  = assets?.find { it.name == "index.html" }
-                    downloadUrl = asset?.browser_download_url
-                    def latest  = resp.data?.tag_name?.replace("v","") ?: APP_VERSION
-                    state.latestVersion      = latest
-                    state.appUpdateAvailable = isNewerVersion(latest, APP_VERSION)
-                }
-            }
-        } catch(e) {
-            log.warn "Hestia: could not resolve download URL from API: ${e.message}"
-        }
-    }
-
-    if (!downloadUrl) {
-        log.error "Hestia: no download URL available — fetch aborted"
-        return
-    }
-
-    log.info "Hestia: fetching dashboard from GitHub → ${downloadUrl}"
-    try {
-        httpGet([
-            uri:            downloadUrl,
-            followRedirects: true,
-            textParser:      true,
-            headers:        ["User-Agent": "HestiaDashboard/${APP_VERSION}"]
-        ]) { resp ->
-            if (resp.status == 200) {
-                def html = resp.data.text
-                if (html && html.length() > 1000) {
-                    // Ensure DOCTYPE is first
-                    def dtIdx = html.toLowerCase().indexOf("<!doctype html>")
-                    if (dtIdx < 0)       html = "<!DOCTYPE html>\n" + html
-                    else if (dtIdx > 0)  html = "<!DOCTYPE html>\n" + html.substring(dtIdx + 15)
-
-                    // Store in File Manager — no size limit
-                    uploadHubFile(DASHBOARD_FILENAME, html.getBytes("UTF-8"))
-
-                    // Store only metadata in state (tiny)
-                    state.dashboardStored   = true
-                    state.dashboardSize     = html.length()
-                    state.dashboardCachedAt = new Date().format("yyyy-MM-dd HH:mm")
-
-                    def vMatch = (html =~ /HESTIA_VERSION\s*=\s*['"]([^'"]+)['"]/)
-                    state.installedVersion  = vMatch ? vMatch[0][1] : APP_VERSION
-
-                    log.info "Hestia: dashboard saved to File Manager — ${html.length()} bytes"
-                } else {
-                    log.error "Hestia: response too short (${html?.length()} bytes)"
-                }
-            } else {
-                log.error "Hestia: GitHub returned HTTP ${resp.status}"
-            }
-        }
-    } catch(e) {
-        log.error "Hestia: fetch failed: ${e.message}"
-    }
-}
-
-// ── Scheduled auto-fetch ─────────────────────────────────────────────────
-def scheduledAutoFetch() {
-    if (settings.autoUpdate == false) {
-        log.debug "Hestia: auto-update disabled — skipping scheduled fetch"
-        return
-    }
-    log.info "Hestia: scheduled auto-fetch running"
-
-    // Check GitHub for a newer version before fetching
-    try {
-        httpGet([
-            uri:     GITHUB_VERSION_URL,
-            headers: ["User-Agent": "HestiaDashboard/${APP_VERSION}",
-                      "Accept":     "application/vnd.github.v3+json"]
-        ]) { resp ->
-            if (resp.status == 200) {
-                def latest   = resp.data?.tag_name?.replace("v","") ?: APP_VERSION
-                def assets   = resp.data?.assets
-                def asset    = assets?.find { it.name == "index.html" }
-                def assetUrl = asset?.browser_download_url
-
-                state.latestVersion      = latest
-                state.appUpdateAvailable = isNewerVersion(latest, APP_VERSION)
-
-                def currentInstalled = state.installedVersion ?: "0.0.0"
-                if (isNewerVersion(latest, currentInstalled)) {
-                    log.info "Hestia: new dashboard version ${latest} available (installed: ${currentInstalled}) — fetching from ${assetUrl}"
-                    if (assetUrl) {
-                        fetchDashboardFromGitHub(assetUrl)
-                        state.updateAvailable = false
-                    } else {
-                        log.error "Hestia: index.html asset not found in release ${latest}"
-                    }
-                } else {
-                    log.debug "Hestia: dashboard already on latest version ${currentInstalled}"
-                }
-            }
-        }
-    } catch(e) {
-        log.warn "Hestia: scheduled auto-fetch version check failed: ${e.message}"
-    }
-}
-
-def checkLatestVersion() {
-    try {
-        httpGet([
-            uri:     GITHUB_VERSION_URL,
-            headers: ["User-Agent": "HestiaDashboard/${APP_VERSION}",
-                      "Accept":     "application/vnd.github.v3+json"]
-        ]) { resp ->
-            if (resp.status == 200) {
-                def latest = resp.data?.tag_name?.replace("v","") ?: APP_VERSION
-                state.latestVersion      = latest
-                state.updateAvailable    = isNewerVersion(latest, state.installedVersion ?: APP_VERSION)
-                state.appUpdateAvailable = isNewerVersion(latest, APP_VERSION)
-                log.info "Hestia: latest GitHub version: ${latest}, dashboard update: ${state.updateAvailable}, app update: ${state.appUpdateAvailable}"
-            }
-        }
-    } catch(e) {
-        log.warn "Hestia: version check failed: ${e.message}"
-    }
-}
-
-private boolean isNewerVersion(String candidate, String current) {
-    try {
-        def c = candidate.tokenize('.').collect { it.toInteger() }
-        def x = current.tokenize('.').collect  { it.toInteger() }
-        for (int i = 0; i < 3; i++) {
-            def cv = c.size() > i ? c[i] : 0
-            def xv = x.size() > i ? x[i] : 0
-            if (cv > xv) return true
-            if (cv < xv) return false
-        }
-        return false
-    } catch(e) { return false }
-}
-
-// ── Endpoints ─────────────────────────────────────────────────────────────
-def serveDashboard() {
-    if (!state.dashboardStored) {
-        log.warn "Hestia: dashboard not stored — fetching from GitHub"
-        fetchDashboardFromGitHub()
-        if (!state.dashboardStored) {
-            render contentType: "text/html; charset=UTF-8", data: fallbackPage()
-            return
-        }
-    }
-
-    // Redirect to File Manager — Hubitat sandbox blocks loopback httpGet
-    def hubIp   = location.hubs[0].localIP
-    def fileUrl = "http://${hubIp}/local/${DASHBOARD_FILENAME}"
-    redirect(location: fileUrl, status: 302)
-}
-
+// ── Config endpoints ──────────────────────────────────────────────────────
 def getConfig() {
     render contentType: "application/json", data: (state.config ?: "null")
 }
@@ -374,10 +175,12 @@ def saveConfig() {
                    data: '{"status":"error","message":"empty body"}'
             return
         }
-        new groovy.json.JsonSlurper().parseText(body)
+        new groovy.json.JsonSlurper().parseText(body) // validate JSON before storing
         state.config     = body
         state.configSize = body.length()
         try { uploadHubFile(CONFIG_FILENAME, body.getBytes("UTF-8")) } catch(e) {}
+        // Refresh discovery file so makerApiToken stays current after every save
+        writeDiscovery()
         log.info "Hestia: config saved (${body.length()} bytes)"
         render contentType: "application/json", data: '{"status":"ok"}'
     } catch(e) {
@@ -387,50 +190,24 @@ def saveConfig() {
     }
 }
 
-def triggerUpdate() {
-    fetchDashboardFromGitHub()
-    state.updateAvailable = false
-    render contentType: "application/json",
-           data: """{"status":"ok","version":"${state.installedVersion}","cachedAt":"${state.dashboardCachedAt}"}"""
-}
-
+// ── Version + health endpoints ────────────────────────────────────────────
 def getVersion() {
     render contentType: "application/json",
            data: new groovy.json.JsonBuilder([
-               appVersion:        APP_VERSION,
-               installedVersion:  state.installedVersion ?: APP_VERSION,
-               latestVersion:     state.latestVersion ?: "unknown",
-               updateAvailable:   state.updateAvailable ?: false,
-               appUpdateAvailable: state.appUpdateAvailable ?: false,
-               cachedAt:          state.dashboardCachedAt ?: "never",
-               dashboardSize:     state.dashboardSize ?: 0
+               appVersion:   APP_VERSION,
+               configStored: state.config != null,
+               configSize:   state.configSize ?: 0,
+               appId:        app.id
            ]).toString()
 }
 
 def ping() {
     render contentType: "application/json",
            data: new groovy.json.JsonBuilder([
-               status:          "ok",
-               app:             "Hestia Dashboard",
-               version:         APP_VERSION,
-               appId:           app.id,
-               configStored:    state.config != null,
-               dashboardStored: state.dashboardStored ?: false
+               status:       "ok",
+               app:          "Hestia Dashboard",
+               version:      APP_VERSION,
+               appId:        app.id,
+               configStored: state.config != null
            ]).toString()
-}
-
-// ── Fallback page ─────────────────────────────────────────────────────────
-private String fallbackPage() {
-    def hubIp  = location.hubs[0].localIP
-    def updUrl = "http://${hubIp}/apps/api/${app.id}/update?access_token=${state.accessToken}"
-    return """<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Hestia</title>
-<style>*{box-sizing:border-box;margin:0;padding:0}body{background:#0A0A0A;color:#F2F1EE;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:2rem}.card{background:#111;border:1px solid #1a1a1a;border-radius:16px;padding:2.5rem;max-width:420px;width:100%;text-align:center}h1{font-size:20px;font-weight:300;letter-spacing:.2em;text-transform:uppercase;margin-bottom:.5rem}p{font-size:13px;color:#555;line-height:1.7;margin-bottom:1.5rem}a{display:inline-block;padding:10px 24px;background:#1A1200;border:1px solid #6B4A08;border-radius:8px;color:#F59E0B;font-size:13px;text-decoration:none}</style>
-</head><body><div class="card">
-<h1>Hestia™</h1>
-<p>Dashboard not yet loaded. Ensure your hub has internet access, then tap below.</p>
-<a href="${updUrl}">⬇ Fetch Dashboard Now</a>
-</div></body></html>"""
 }
