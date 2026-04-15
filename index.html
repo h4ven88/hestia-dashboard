@@ -3511,21 +3511,20 @@ value="${CONFIG.athenaApiKey||''}"
 style="font-family:var(--mono,monospace);letter-spacing:.04em"
 oninput="CONFIG.athenaApiKey=this.value"
 onblur="saveConfig()">
-<span class="sp-hint">Stored on your hub — never leaves your network.
-<a href="https://console.anthropic.com" target="_blank" style="color:var(--amber);text-decoration:none" onclick="event.stopPropagation()">Get a key ↗</a>
-&nbsp;·&nbsp; ~$0.001 per command — $5 lasts most households 6–12 months.</span>
+<span class="sp-hint">Stored locally — never sent to Hestari or any third party.
+<a href="https://console.anthropic.com" target="_blank" style="color:var(--amber);text-decoration:none" onclick="event.stopPropagation()">Get a key ↗</a></span>
 </div>
 <div class="sp-field" style="margin-top:12px">
 <label class="sp-label">AI Model</label>
 <select class="sp-select" onchange="CONFIG.athenaModel=this.value;saveConfig()">
 <option value="claude-haiku-4-5-20251001"${(CONFIG.athenaModel||'claude-haiku-4-5-20251001')==='claude-haiku-4-5-20251001'?' selected':''}>
-Haiku 4.5 — fast &amp; economical (~$5 per year typical use)
+Haiku 4.5 — fast, efficient
 </option>
 <option value="claude-sonnet-4-6"${CONFIG.athenaModel==='claude-sonnet-4-6'?' selected':''}>
-Sonnet 4.6 — smarter, better reasoning (~$5 per 3–4 months)
+Sonnet 4.6 — smarter, richer responses
 </option>
 </select>
-<span class="sp-hint">Haiku handles all home automation commands well and costs very little. Choose Sonnet if you want richer conversational responses or more complex reasoning.</span>
+<span class="sp-hint">Both models use the same API key. Haiku is faster and lower cost. Sonnet produces more detailed responses. See <a href="https://www.anthropic.com/pricing" target="_blank" style="color:var(--amber);text-decoration:none" onclick="event.stopPropagation()">anthropic.com/pricing ↗</a> for current rates.</span>
 </div>
 </div>
 </div>
