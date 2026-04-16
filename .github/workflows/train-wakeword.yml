@@ -1,1 +1,389 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# Hestia™ Wake Word Training Pipeline
+# ══════════════════════════════════════════════════════════════════════════════
+# Trains an OpenWakeWord-compatible ONNX classifier for a given wake word
+# using synthetic speech from Microsoft Edge TTS. No API keys, no accounts,
+# no GPU required. Runs entirely on GitHub's free Linux runners.
+#
+# TRIGGERS:
+#   Manual (workflow_dispatch) — train any word on demand
+#   Push to main — auto-trains the full pre-built library
+#
+# OUTPUTS:
+#   models/<word>.onnx committed to main branch
+#   Cloudflare Pages serves it automatically at hestari.com/models/<word>.onnx
+#
+# USAGE (manual):
+#   GitHub → Actions → Train Wake Word → Run workflow → enter word → Run
+# ══════════════════════════════════════════════════════════════════════════════
 
+name: Train Wake Word
+
+on:
+  workflow_dispatch:
+    inputs:
+      word:
+        description: 'Wake word to train (e.g. Athena, Hestia, Jarvis)'
+        required: true
+        default: 'Athena'
+      clips:
+        description: 'Number of synthetic clips to generate (200-1000)'
+        required: false
+        default: '500'
+
+  # Also allow triggering the full pre-built library on demand
+  workflow_call:
+    inputs:
+      word:
+        required: true
+        type: string
+      clips:
+        required: false
+        type: string
+        default: '500'
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      # ── Setup ──────────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      # ── System dependencies ─────────────────────────────────────────────────
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg libsndfile1 sox
+
+      # ── Python dependencies ─────────────────────────────────────────────────
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install \
+            edge-tts==6.1.12 \
+            numpy==1.26.4 \
+            scipy==1.13.0 \
+            soundfile==0.12.1 \
+            pydub==0.25.1 \
+            torch==2.3.0 --index-url https://download.pytorch.org/whl/cpu \
+            onnx==1.16.0 \
+            onnxruntime==1.18.0
+
+      # ── Cache negative features dataset ────────────────────────────────────
+      # The negative feature dataset from HuggingFace is ~500MB.
+      # Caching it avoids re-downloading on every run.
+      - name: Cache negative features
+        uses: actions/cache@v4
+        id: neg-cache
+        with:
+          path: /tmp/oww_negative_cache
+          key: oww-negative-features-v1
+
+      # ── Download backbone models from OpenWakeWord releases ─────────────────
+      - name: Download OpenWakeWord backbone models
+        run: |
+          mkdir -p /tmp/oww_backbone
+          wget -q -O /tmp/oww_backbone/melspectrogram.onnx \
+            "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/melspectrogram.onnx"
+          wget -q -O /tmp/oww_backbone/embedding_model.onnx \
+            "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.onnx"
+          echo "Backbone models downloaded:"
+          ls -lh /tmp/oww_backbone/
+
+      # ── Download negative features (if not cached) ─────────────────────────
+      - name: Download negative features dataset
+        if: steps.neg-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/oww_negative_cache
+          echo "Downloading negative features from HuggingFace..."
+          wget -q --show-progress \
+            "https://huggingface.co/datasets/davidscripka/openwakeword_features/resolve/main/openwakeword_features_ACAV100M_2000_hrs_16bit.npy" \
+            -O /tmp/oww_negative_cache/negative_features.npy
+          echo "Downloaded: $(du -h /tmp/oww_negative_cache/negative_features.npy | cut -f1)"
+
+      # ── Generate synthetic positive clips ──────────────────────────────────
+      - name: Generate synthetic clips
+        run: |
+          WORD="${{ github.event.inputs.word || inputs.word }}"
+          CLIPS="${{ github.event.inputs.clips || inputs.clips || '500' }}"
+          echo "Generating ${CLIPS} clips of '${WORD}'..."
+          python3 - << PYTHON
+          import asyncio, os, sys, random
+          import edge_tts
+
+          WORD  = "${WORD}"
+          CLIPS = int("${CLIPS}")
+          OUT   = f"/tmp/oww_clips/{WORD.lower()}"
+          os.makedirs(OUT, exist_ok=True)
+
+          VOICES = [
+              "en-US-AriaNeural",    "en-US-GuyNeural",
+              "en-US-JennyNeural",   "en-US-EricNeural",
+              "en-US-MichelleNeural","en-US-ChristopherNeural",
+              "en-US-MonicaNeural",  "en-US-BrandonNeural",
+              "en-GB-SoniaNeural",   "en-GB-RyanNeural",
+              "en-GB-LibbyNeural",   "en-GB-ThomasNeural",
+              "en-AU-NatashaNeural", "en-AU-WilliamNeural",
+              "en-IN-NeerjaNeural",  "en-IN-PrabhatNeural",
+              "en-CA-ClaraNeural",   "en-CA-LiamNeural",
+          ]
+          SPEEDS = ["-25%", "-15%", "-5%", "+0%", "+10%", "+20%", "+30%"]
+
+          combos = [(v, s) for v in VOICES for s in SPEEDS]
+          random.seed(42)
+          random.shuffle(combos)
+          while len(combos) < CLIPS:
+              combos += combos
+          combos = combos[:CLIPS]
+
+          async def gen(word, voice, speed, path):
+              try:
+                  c = edge_tts.Communicate(word, voice, rate=speed)
+                  await c.save(path)
+                  return True
+              except Exception as e:
+                  return False
+
+          async def main():
+              ok = 0
+              # Process in batches to avoid overwhelming the TTS service
+              batch_size = 20
+              for i in range(0, len(combos), batch_size):
+                  batch = combos[i:i+batch_size]
+                  tasks = [gen(WORD, v, s, f"{OUT}/pos_{i+j:04d}.mp3")
+                           for j, (v, s) in enumerate(batch)]
+                  results = await asyncio.gather(*tasks)
+                  ok += sum(results)
+                  if (i + batch_size) % 100 == 0 or i + batch_size >= len(combos):
+                      print(f"  {min(i+batch_size, len(combos))}/{len(combos)} clips generated ({ok} ok)")
+                  await asyncio.sleep(0.5)  # polite delay between batches
+              print(f"Done: {ok} clips saved to {OUT}")
+              if ok < 50:
+                  print("ERROR: Too few clips generated", file=sys.stderr)
+                  sys.exit(1)
+
+          asyncio.run(main())
+          PYTHON
+
+          echo "Clips generated:"
+          ls /tmp/oww_clips/${WORD,,}/ | wc -l
+
+      # ── Convert MP3 clips to 16kHz WAV ─────────────────────────────────────
+      - name: Convert clips to 16kHz WAV
+        run: |
+          WORD="${{ github.event.inputs.word || inputs.word }}"
+          WORD_LOWER=$(echo "$WORD" | tr '[:upper:]' '[:lower:]')
+          IN_DIR="/tmp/oww_clips/${WORD_LOWER}"
+          OUT_DIR="/tmp/oww_wav/${WORD_LOWER}"
+          mkdir -p "$OUT_DIR"
+          echo "Converting MP3 → 16kHz mono WAV..."
+          count=0
+          for f in "$IN_DIR"/*.mp3; do
+            base=$(basename "$f" .mp3)
+            sox "$f" -r 16000 -c 1 -b 16 "$OUT_DIR/${base}.wav" 2>/dev/null && count=$((count+1))
+          done
+          echo "Converted ${count} files"
+
+      # ── Extract features and train classifier ──────────────────────────────
+      - name: Train classifier
+        run: |
+          WORD="${{ github.event.inputs.word || inputs.word }}"
+          WORD_LOWER=$(echo "$WORD" | tr '[:upper:]' '[:lower:]')
+          python3 - << PYTHON
+          import os, sys, glob
+          import numpy as np
+          import torch
+          import torch.nn as nn
+          from torch.utils.data import DataLoader, TensorDataset
+          import onnxruntime as ort
+          import soundfile as sf
+
+          WORD       = "${WORD}"
+          WORD_LOWER = "${WORD_LOWER}"
+          WAV_DIR    = f"/tmp/oww_wav/{WORD_LOWER}"
+          NEG_FILE   = "/tmp/oww_negative_cache/negative_features.npy"
+          MEL_MODEL  = "/tmp/oww_backbone/melspectrogram.onnx"
+          EMB_MODEL  = "/tmp/oww_backbone/embedding_model.onnx"
+          OUT_DIR    = "models"
+          os.makedirs(OUT_DIR, exist_ok=True)
+
+          # ── Load backbone ONNX models ────────────────────────────────────
+          print("Loading backbone models...")
+          mel_sess = ort.InferenceSession(MEL_MODEL)
+          emb_sess = ort.InferenceSession(EMB_MODEL)
+
+          mel_input  = mel_sess.get_inputs()[0].name
+          emb_input  = emb_sess.get_inputs()[0].name
+          mel_output = mel_sess.get_outputs()[0].name
+          emb_output = emb_sess.get_outputs()[0].name
+
+          def extract_embedding(audio_chunk):
+              """Extract OWW embedding from a 1280-sample audio chunk."""
+              chunk = audio_chunk.astype(np.float32) / 32768.0
+              chunk = chunk.reshape(1, 1, -1)
+              mel = mel_sess.run([mel_output], {mel_input: chunk})[0]
+              emb = emb_sess.run([emb_output], {emb_input: mel})[0]
+              return emb.flatten()
+
+          # ── Extract features from positive clips ─────────────────────────
+          print("Extracting positive features...")
+          pos_features = []
+          wav_files = sorted(glob.glob(f"{WAV_DIR}/*.wav"))
+          print(f"  Found {len(wav_files)} WAV files")
+
+          CHUNK = 1280
+          STRIDE = 640
+
+          for i, wav_file in enumerate(wav_files):
+              try:
+                  audio, sr = sf.read(wav_file, dtype='int16')
+                  if sr != 16000:
+                      continue
+                  if len(audio) < CHUNK:
+                      audio = np.pad(audio, (0, CHUNK - len(audio)))
+                  # Extract multiple frames from each clip
+                  for start in range(0, len(audio) - CHUNK + 1, STRIDE):
+                      chunk = audio[start:start+CHUNK]
+                      emb = extract_embedding(chunk)
+                      pos_features.append(emb)
+              except Exception as e:
+                  pass
+              if (i+1) % 100 == 0:
+                  print(f"  Processed {i+1}/{len(wav_files)} files, {len(pos_features)} features")
+
+          print(f"  Total positive features: {len(pos_features)}")
+          pos_features = np.array(pos_features, dtype=np.float32)
+
+          if len(pos_features) < 50:
+              print("ERROR: Not enough features extracted", file=sys.stderr)
+              sys.exit(1)
+
+          # ── Load negative features ────────────────────────────────────────
+          print("Loading negative features...")
+          neg_all = np.load(NEG_FILE, mmap_mode='r')
+          n_neg = min(len(neg_all), len(pos_features) * 15)
+          idx = np.random.choice(len(neg_all), n_neg, replace=False)
+          neg_features = neg_all[idx].astype(np.float32)
+          print(f"  Using {n_neg} negative samples")
+
+          # ── Build training dataset ────────────────────────────────────────
+          X = np.vstack([pos_features, neg_features])
+          y = np.array([1.0]*len(pos_features) + [0.0]*n_neg, dtype=np.float32)
+          perm = np.random.permutation(len(X))
+          X, y = X[perm], y[perm]
+
+          feat_dim = X.shape[1]
+          print(f"  Dataset: {len(X)} samples, feature dim: {feat_dim}")
+
+          X_t = torch.from_numpy(X)
+          y_t = torch.from_numpy(y).unsqueeze(1)
+          ds  = TensorDataset(X_t, y_t)
+          dl  = DataLoader(ds, batch_size=512, shuffle=True)
+
+          # ── Train classifier ──────────────────────────────────────────────
+          print("Training classifier...")
+          model = nn.Sequential(
+              nn.Linear(feat_dim, 128),
+              nn.ReLU(),
+              nn.Dropout(0.2),
+              nn.Linear(128, 64),
+              nn.ReLU(),
+              nn.Dropout(0.1),
+              nn.Linear(64, 1),
+              nn.Sigmoid()
+          )
+          opt  = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
+          loss_fn = nn.BCELoss()
+          scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, patience=10)
+
+          best_loss = float('inf')
+          EPOCHS = 150
+          for epoch in range(EPOCHS):
+              model.train()
+              total = 0
+              for xb, yb in dl:
+                  opt.zero_grad()
+                  pred = model(xb)
+                  loss = loss_fn(pred, yb)
+                  loss.backward()
+                  opt.step()
+                  total += loss.item()
+              avg = total / len(dl)
+              scheduler.step(avg)
+              if avg < best_loss:
+                  best_loss = avg
+              if (epoch+1) % 30 == 0:
+                  print(f"  Epoch {epoch+1}/{EPOCHS} — loss: {avg:.4f} (best: {best_loss:.4f})")
+
+          # ── Export to ONNX ────────────────────────────────────────────────
+          print("Exporting to ONNX...")
+          model.eval()
+          onnx_path = f"{OUT_DIR}/{WORD_LOWER}.onnx"
+          dummy = torch.zeros(1, feat_dim)
+          torch.onnx.export(
+              model, dummy, onnx_path,
+              input_names=["embedding"],
+              output_names=["score"],
+              dynamic_axes={"embedding": {0: "batch"}, "score": {0: "batch"}},
+              opset_version=11
+          )
+          size_kb = os.path.getsize(onnx_path) / 1024
+          print(f"  ✓ Exported: {onnx_path} ({size_kb:.1f} KB)")
+
+          # ── Quick sanity check ────────────────────────────────────────────
+          verify = ort.InferenceSession(onnx_path)
+          test_input = np.zeros((1, feat_dim), dtype=np.float32)
+          result = verify.run(None, {"embedding": test_input})
+          print(f"  ✓ Model verified — test score: {result[0][0][0]:.4f} (expect ~0.0)")
+          print(f"\n  Training complete for '{WORD}'")
+          PYTHON
+
+      # ── Commit model to repository ─────────────────────────────────────────
+      - name: Commit trained model
+        run: |
+          WORD="${{ github.event.inputs.word || inputs.word }}"
+          WORD_LOWER=$(echo "$WORD" | tr '[:upper:]' '[:lower:]')
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Stage the new model
+          git add "models/${WORD_LOWER}.onnx"
+
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: train wake word model for '${WORD}' [skip ci]"
+            git push
+            echo "✓ Model committed and pushed"
+            echo "  Cloudflare will deploy automatically"
+            echo "  Available at: https://www.hestari.com/models/${WORD_LOWER}.onnx"
+          fi
+
+      # ── Summary ────────────────────────────────────────────────────────────
+      - name: Print summary
+        run: |
+          WORD="${{ github.event.inputs.word || inputs.word }}"
+          WORD_LOWER=$(echo "$WORD" | tr '[:upper:]' '[:lower:]')
+          echo ""
+          echo "══════════════════════════════════════════"
+          echo "  Wake Word Training Complete"
+          echo "══════════════════════════════════════════"
+          echo "  Word:  ${WORD}"
+          if [ -f "models/${WORD_LOWER}.onnx" ]; then
+            SIZE=$(du -h "models/${WORD_LOWER}.onnx" | cut -f1)
+            echo "  Model: models/${WORD_LOWER}.onnx (${SIZE})"
+            echo "  URL:   https://www.hestari.com/models/${WORD_LOWER}.onnx"
+          fi
+          echo "══════════════════════════════════════════"
