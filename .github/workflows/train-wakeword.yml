@@ -8,10 +8,9 @@ on:
         required: true
         default: 'Athena'
       clips:
-        description: 'Number of synthetic clips to generate (200-1000)'
+        description: 'Number of synthetic clips to generate'
         required: false
         default: '500'
-
   workflow_call:
     inputs:
       word:
@@ -22,17 +21,13 @@ on:
         type: string
         default: '500'
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  NEG_CACHE_DIR: ${{ github.workspace }}/.oww_cache
-  CLIPS_DIR: ${{ github.workspace }}/.oww_clips
-  WAV_DIR: ${{ github.workspace }}/.oww_wav
-  BACKBONE_DIR: ${{ github.workspace }}/.oww_backbone
-
 jobs:
   train:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: false
 
     steps:
       - name: Checkout repository
@@ -59,239 +54,220 @@ jobs:
             pydub==0.25.1 \
             onnx==1.16.0 \
             onnxruntime==1.18.0
-          # Install torch CPU separately (large package)
           pip install torch==2.3.0 --index-url https://download.pytorch.org/whl/cpu
-
-      - name: Cache negative features dataset
-        uses: actions/cache@v4
-        id: neg-cache
-        with:
-          path: ${{ env.NEG_CACHE_DIR }}
-          key: oww-negative-features-v2
 
       - name: Download OpenWakeWord backbone models
         run: |
-          mkdir -p ${{ env.BACKBONE_DIR }}
-          wget -q -O ${{ env.BACKBONE_DIR }}/melspectrogram.onnx \
+          mkdir -p $GITHUB_WORKSPACE/.oww_backbone
+          wget -q -O $GITHUB_WORKSPACE/.oww_backbone/melspectrogram.onnx \
             "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/melspectrogram.onnx"
-          wget -q -O ${{ env.BACKBONE_DIR }}/embedding_model.onnx \
+          wget -q -O $GITHUB_WORKSPACE/.oww_backbone/embedding_model.onnx \
             "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.onnx"
-          echo "Backbone models:"
-          ls -lh ${{ env.BACKBONE_DIR }}/
+          ls -lh $GITHUB_WORKSPACE/.oww_backbone/
 
       - name: Download negative features dataset
-        if: steps.neg-cache.outputs.cache-hit != 'true'
         run: |
-          mkdir -p ${{ env.NEG_CACHE_DIR }}
-          echo "Downloading negative features from HuggingFace (~500MB)..."
+          mkdir -p $GITHUB_WORKSPACE/.oww_cache
+          echo "Downloading negative features (~500MB)..."
           wget -q --show-progress \
             "https://huggingface.co/datasets/davidscripka/openwakeword_features/resolve/main/openwakeword_features_ACAV100M_2000_hrs_16bit.npy" \
-            -O ${{ env.NEG_CACHE_DIR }}/negative_features.npy
-          echo "Size: $(du -h ${{ env.NEG_CACHE_DIR }}/negative_features.npy | cut -f1)"
+            -O $GITHUB_WORKSPACE/.oww_cache/negative_features.npy
+          echo "Downloaded: $(du -h $GITHUB_WORKSPACE/.oww_cache/negative_features.npy | cut -f1)"
 
       - name: Generate synthetic clips
         run: |
           WORD="${{ github.event.inputs.word || inputs.word }}"
           CLIPS="${{ github.event.inputs.clips || inputs.clips || '500' }}"
           WORD_LOWER=$(echo "$WORD" | tr '[:upper:]' '[:lower:]')
-          mkdir -p ${{ env.CLIPS_DIR }}/${WORD_LOWER}
+          mkdir -p $GITHUB_WORKSPACE/.oww_clips/${WORD_LOWER}
 
-          python3 - << PYTHON
-          import asyncio, os, sys, random
-          import edge_tts
+          python3 << PYTHON
+import asyncio, os, sys, random
+import edge_tts
 
-          WORD      = "${WORD}"
-          CLIPS     = int("${CLIPS}")
-          OUT       = "${{ env.CLIPS_DIR }}/${WORD_LOWER}"
+WORD      = "${WORD}"
+CLIPS     = int("${CLIPS}")
+OUT       = "$GITHUB_WORKSPACE/.oww_clips/${WORD_LOWER}"
 
-          VOICES = [
-              "en-US-AriaNeural",     "en-US-GuyNeural",
-              "en-US-JennyNeural",    "en-US-EricNeural",
-              "en-US-MichelleNeural", "en-US-ChristopherNeural",
-              "en-US-MonicaNeural",   "en-US-BrandonNeural",
-              "en-GB-SoniaNeural",    "en-GB-RyanNeural",
-              "en-GB-LibbyNeural",    "en-GB-ThomasNeural",
-              "en-AU-NatashaNeural",  "en-AU-WilliamNeural",
-              "en-IN-NeerjaNeural",   "en-IN-PrabhatNeural",
-              "en-CA-ClaraNeural",    "en-CA-LiamNeural",
-          ]
-          SPEEDS = ["-25%", "-15%", "-5%", "+0%", "+10%", "+20%", "+30%"]
+VOICES = [
+    "en-US-AriaNeural",     "en-US-GuyNeural",
+    "en-US-JennyNeural",    "en-US-EricNeural",
+    "en-US-MichelleNeural", "en-US-ChristopherNeural",
+    "en-US-MonicaNeural",   "en-US-BrandonNeural",
+    "en-GB-SoniaNeural",    "en-GB-RyanNeural",
+    "en-GB-LibbyNeural",    "en-GB-ThomasNeural",
+    "en-AU-NatashaNeural",  "en-AU-WilliamNeural",
+    "en-IN-NeerjaNeural",   "en-IN-PrabhatNeural",
+    "en-CA-ClaraNeural",    "en-CA-LiamNeural",
+]
+SPEEDS = ["-25%", "-15%", "-5%", "+0%", "+10%", "+20%", "+30%"]
 
-          combos = [(v, s) for v in VOICES for s in SPEEDS]
-          random.seed(42)
-          random.shuffle(combos)
-          while len(combos) < CLIPS:
-              combos += combos
-          combos = combos[:CLIPS]
+combos = [(v, s) for v in VOICES for s in SPEEDS]
+random.seed(42)
+random.shuffle(combos)
+while len(combos) < CLIPS:
+    combos += combos
+combos = combos[:CLIPS]
 
-          async def gen(word, voice, speed, path):
-              try:
-                  c = edge_tts.Communicate(word, voice, rate=speed)
-                  await c.save(path)
-                  return True
-              except Exception as e:
-                  return False
+async def gen(word, voice, speed, path):
+    try:
+        c = edge_tts.Communicate(word, voice, rate=speed)
+        await c.save(path)
+        return True
+    except:
+        return False
 
-          async def main():
-              ok = 0
-              batch_size = 20
-              for i in range(0, len(combos), batch_size):
-                  batch = combos[i:i+batch_size]
-                  tasks = [gen(WORD, v, s, f"{OUT}/pos_{i+j:04d}.mp3")
-                           for j, (v, s) in enumerate(batch)]
-                  results = await asyncio.gather(*tasks)
-                  ok += sum(results)
-                  done = min(i + batch_size, len(combos))
-                  if done % 100 == 0 or done >= len(combos):
-                      print(f"  {done}/{len(combos)} clips ({ok} ok)")
-                  await asyncio.sleep(0.3)
-              print(f"Done: {ok}/{len(combos)} clips generated")
-              if ok < 50:
-                  print("ERROR: Too few clips", file=sys.stderr)
-                  sys.exit(1)
+async def main():
+    ok = 0
+    for i in range(0, len(combos), 20):
+        batch = combos[i:i+20]
+        tasks = [gen(WORD, v, s, f"{OUT}/pos_{i+j:04d}.mp3")
+                 for j,(v,s) in enumerate(batch)]
+        results = await asyncio.gather(*tasks)
+        ok += sum(results)
+        done = min(i+20, len(combos))
+        if done % 100 == 0 or done >= len(combos):
+            print(f"  {done}/{len(combos)} clips ({ok} ok)")
+        await asyncio.sleep(0.3)
+    print(f"Done: {ok} clips")
+    if ok < 50:
+        sys.exit(1)
 
-          asyncio.run(main())
-          PYTHON
-
-          echo "Clip count: $(ls ${{ env.CLIPS_DIR }}/${WORD_LOWER}/ | wc -l)"
+asyncio.run(main())
+PYTHON
+          echo "Clips: $(ls $GITHUB_WORKSPACE/.oww_clips/${WORD_LOWER}/ | wc -l)"
 
       - name: Convert clips to 16kHz WAV
         run: |
           WORD="${{ github.event.inputs.word || inputs.word }}"
           WORD_LOWER=$(echo "$WORD" | tr '[:upper:]' '[:lower:]')
-          IN_DIR="${{ env.CLIPS_DIR }}/${WORD_LOWER}"
-          OUT_DIR="${{ env.WAV_DIR }}/${WORD_LOWER}"
-          mkdir -p "$OUT_DIR"
+          mkdir -p $GITHUB_WORKSPACE/.oww_wav/${WORD_LOWER}
           count=0
-          for f in "$IN_DIR"/*.mp3; do
+          for f in $GITHUB_WORKSPACE/.oww_clips/${WORD_LOWER}/*.mp3; do
             base=$(basename "$f" .mp3)
-            sox "$f" -r 16000 -c 1 -b 16 "$OUT_DIR/${base}.wav" 2>/dev/null && count=$((count+1))
+            sox "$f" -r 16000 -c 1 -b 16 \
+              $GITHUB_WORKSPACE/.oww_wav/${WORD_LOWER}/${base}.wav 2>/dev/null \
+              && count=$((count+1))
           done
-          echo "Converted ${count} files to 16kHz WAV"
+          echo "Converted: ${count} WAV files"
 
-      - name: Extract features and train classifier
+      - name: Train classifier and export ONNX
         run: |
           WORD="${{ github.event.inputs.word || inputs.word }}"
           WORD_LOWER=$(echo "$WORD" | tr '[:upper:]' '[:lower:]')
 
-          python3 - << PYTHON
-          import os, sys, glob
-          import numpy as np
-          import torch
-          import torch.nn as nn
-          from torch.utils.data import DataLoader, TensorDataset
-          import onnxruntime as ort
-          import soundfile as sf
+          python3 << PYTHON
+import os, sys, glob
+import numpy as np
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, TensorDataset
+import onnxruntime as ort
+import soundfile as sf
 
-          WORD        = "${WORD}"
-          WORD_LOWER  = "${WORD_LOWER}"
-          WAV_DIR     = "${{ env.WAV_DIR }}/${WORD_LOWER}"
-          NEG_FILE    = "${{ env.NEG_CACHE_DIR }}/negative_features.npy"
-          MEL_MODEL   = "${{ env.BACKBONE_DIR }}/melspectrogram.onnx"
-          EMB_MODEL   = "${{ env.BACKBONE_DIR }}/embedding_model.onnx"
-          OUT_DIR     = "models"
-          os.makedirs(OUT_DIR, exist_ok=True)
+WORD       = "${WORD}"
+WORD_LOWER = "${WORD_LOWER}"
+WAV_DIR    = "$GITHUB_WORKSPACE/.oww_wav/${WORD_LOWER}"
+NEG_FILE   = "$GITHUB_WORKSPACE/.oww_cache/negative_features.npy"
+MEL_MODEL  = "$GITHUB_WORKSPACE/.oww_backbone/melspectrogram.onnx"
+EMB_MODEL  = "$GITHUB_WORKSPACE/.oww_backbone/embedding_model.onnx"
+OUT_DIR    = "models"
+os.makedirs(OUT_DIR, exist_ok=True)
 
-          print("Loading backbone models...")
-          mel_sess = ort.InferenceSession(MEL_MODEL)
-          emb_sess = ort.InferenceSession(EMB_MODEL)
-          mel_in   = mel_sess.get_inputs()[0].name
-          emb_in   = emb_sess.get_inputs()[0].name
-          mel_out  = mel_sess.get_outputs()[0].name
-          emb_out  = emb_sess.get_outputs()[0].name
+print("Loading backbone models...")
+mel_sess = ort.InferenceSession(MEL_MODEL)
+emb_sess = ort.InferenceSession(EMB_MODEL)
+mel_in   = mel_sess.get_inputs()[0].name
+emb_in   = emb_sess.get_inputs()[0].name
+mel_out  = mel_sess.get_outputs()[0].name
+emb_out  = emb_sess.get_outputs()[0].name
 
-          def extract_embedding(chunk):
-              arr = chunk.astype(np.float32) / 32768.0
-              arr = arr.reshape(1, 1, -1)
-              mel = mel_sess.run([mel_out], {mel_in: arr})[0]
-              emb = emb_sess.run([emb_out], {emb_in: mel})[0]
-              return emb.flatten()
+def embed(chunk):
+    a = chunk.astype(np.float32) / 32768.0
+    a = a.reshape(1, 1, -1)
+    mel = mel_sess.run([mel_out], {mel_in: a})[0]
+    return emb_sess.run([emb_out], {emb_in: mel})[0].flatten()
 
-          print("Extracting positive features...")
-          pos_features = []
-          CHUNK = 1280
-          STRIDE = 640
-          wav_files = sorted(glob.glob(f"{WAV_DIR}/*.wav"))
-          print(f"  Found {len(wav_files)} WAV files")
-          for i, f in enumerate(wav_files):
-              try:
-                  audio, sr = sf.read(f, dtype='int16')
-                  if sr != 16000: continue
-                  if len(audio) < CHUNK:
-                      audio = np.pad(audio, (0, CHUNK - len(audio)))
-                  for start in range(0, len(audio) - CHUNK + 1, STRIDE):
-                      emb = extract_embedding(audio[start:start+CHUNK])
-                      pos_features.append(emb)
-              except Exception as e:
-                  pass
-              if (i+1) % 100 == 0:
-                  print(f"  {i+1}/{len(wav_files)} files processed")
+print("Extracting positive features...")
+pos = []
+CHUNK, STRIDE = 1280, 640
+for i, f in enumerate(sorted(glob.glob(f"{WAV_DIR}/*.wav"))):
+    try:
+        audio, sr = sf.read(f, dtype='int16')
+        if sr != 16000: continue
+        if len(audio) < CHUNK:
+            audio = np.pad(audio, (0, CHUNK - len(audio)))
+        for s in range(0, len(audio) - CHUNK + 1, STRIDE):
+            pos.append(embed(audio[s:s+CHUNK]))
+    except: pass
+    if (i+1) % 100 == 0:
+        print(f"  {i+1} files, {len(pos)} features")
 
-          pos_features = np.array(pos_features, dtype=np.float32)
-          print(f"  {len(pos_features)} positive features extracted")
-          if len(pos_features) < 50:
-              print("ERROR: Not enough features", file=sys.stderr)
-              sys.exit(1)
+pos = np.array(pos, dtype=np.float32)
+print(f"  {len(pos)} positive features")
+if len(pos) < 50:
+    print("ERROR: not enough features", file=sys.stderr)
+    sys.exit(1)
 
-          print("Loading negative features...")
-          neg_all = np.load(NEG_FILE, mmap_mode='r')
-          n_neg = min(len(neg_all), len(pos_features) * 15)
-          idx = np.random.choice(len(neg_all), n_neg, replace=False)
-          neg_features = neg_all[idx].astype(np.float32)
-          print(f"  Using {n_neg} negative samples")
+print("Loading negative features...")
+neg_all = np.load(NEG_FILE, mmap_mode='r')
+n_neg = min(len(neg_all), len(pos) * 15)
+neg = neg_all[np.random.choice(len(neg_all), n_neg, replace=False)].astype(np.float32)
+print(f"  {n_neg} negative samples")
 
-          X = np.vstack([pos_features, neg_features])
-          y = np.array([1.0]*len(pos_features) + [0.0]*n_neg, dtype=np.float32)
-          perm = np.random.permutation(len(X))
-          X, y = X[perm], y[perm]
-          feat_dim = X.shape[1]
-          print(f"  Dataset: {len(X)} samples, feature dim: {feat_dim}")
+X = np.vstack([pos, neg])
+y = np.array([1.0]*len(pos) + [0.0]*n_neg, dtype=np.float32)
+p = np.random.permutation(len(X))
+X, y = X[p], y[p]
+feat_dim = X.shape[1]
+print(f"  Dataset: {len(X)} samples, dim: {feat_dim}")
 
-          X_t = torch.from_numpy(X)
-          y_t = torch.from_numpy(y).unsqueeze(1)
-          dl  = DataLoader(TensorDataset(X_t, y_t), batch_size=512, shuffle=True)
+dl = DataLoader(TensorDataset(torch.from_numpy(X), torch.from_numpy(y).unsqueeze(1)),
+                batch_size=512, shuffle=True)
 
-          print("Training classifier...")
-          model = nn.Sequential(
-              nn.Linear(feat_dim, 128), nn.ReLU(), nn.Dropout(0.2),
-              nn.Linear(128, 64),       nn.ReLU(), nn.Dropout(0.1),
-              nn.Linear(64, 1),         nn.Sigmoid()
-          )
-          opt   = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
-          sched = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, patience=10)
-          loss_fn = nn.BCELoss()
+model = nn.Sequential(
+    nn.Linear(feat_dim, 128), nn.ReLU(), nn.Dropout(0.2),
+    nn.Linear(128, 64),       nn.ReLU(), nn.Dropout(0.1),
+    nn.Linear(64, 1),         nn.Sigmoid()
+)
+opt    = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
+sched  = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, patience=10)
+loss_fn = nn.BCELoss()
 
-          for epoch in range(150):
-              model.train()
-              total = sum(
-                  (lambda l: (l.backward(), opt.step(), opt.zero_grad(), l.item()))(loss_fn(model(xb), yb))[3]
-                  for xb, yb in dl
-              )
-              avg = total / len(dl)
-              sched.step(avg)
-              if (epoch+1) % 30 == 0:
-                  print(f"  Epoch {epoch+1}/150 — loss: {avg:.4f}")
+print("Training (150 epochs)...")
+for epoch in range(150):
+    model.train()
+    total = 0
+    for xb, yb in dl:
+        opt.zero_grad()
+        loss = loss_fn(model(xb), yb)
+        loss.backward()
+        opt.step()
+        total += loss.item()
+    avg = total / len(dl)
+    sched.step(avg)
+    if (epoch+1) % 30 == 0:
+        print(f"  Epoch {epoch+1}/150 — loss: {avg:.4f}")
 
-          print("Exporting ONNX...")
-          model.eval()
-          onnx_path = f"{OUT_DIR}/{WORD_LOWER}.onnx"
-          torch.onnx.export(
-              model, torch.zeros(1, feat_dim), onnx_path,
-              input_names=["embedding"], output_names=["score"],
-              dynamic_axes={"embedding": {0: "batch"}, "score": {0: "batch"}},
-              opset_version=11
-          )
-          size_kb = os.path.getsize(onnx_path) / 1024
-          print(f"  Model: {onnx_path} ({size_kb:.1f} KB)")
+print("Exporting ONNX...")
+model.eval()
+path = f"{OUT_DIR}/{WORD_LOWER}.onnx"
+torch.onnx.export(
+    model, torch.zeros(1, feat_dim), path,
+    input_names=["embedding"], output_names=["score"],
+    dynamic_axes={"embedding": {0: "batch"}, "score": {0: "batch"}},
+    opset_version=11
+)
+size = os.path.getsize(path) / 1024
+print(f"  Saved: {path} ({size:.1f} KB)")
 
-          # Verify
-          sess = ort.InferenceSession(onnx_path)
-          result = sess.run(None, {"embedding": np.zeros((1, feat_dim), dtype=np.float32)})
-          print(f"  Verified — zero-input score: {result[0][0][0]:.4f}")
-          print(f"\nTraining complete for '{WORD}'")
-          PYTHON
+sess = ort.InferenceSession(path)
+score = sess.run(None, {"embedding": np.zeros((1, feat_dim), dtype=np.float32)})[0][0][0]
+print(f"  Verified — zero-input score: {score:.4f}")
+print(f"Training complete for '{WORD}'")
+PYTHON
 
-      - name: Commit model to repository
+      - name: Commit model
         run: |
           WORD="${{ github.event.inputs.word || inputs.word }}"
           WORD_LOWER=$(echo "$WORD" | tr '[:upper:]' '[:lower:]')
@@ -301,21 +277,20 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "chore: train wake word model '${WORD}' [skip ci]"
+            git commit -m "chore: add wake word model '${WORD}' [skip ci]"
             git push
-            echo "Model committed: models/${WORD_LOWER}.onnx"
+            echo "Committed: models/${WORD_LOWER}.onnx"
             echo "Live at: https://www.hestari.com/models/${WORD_LOWER}.onnx"
           fi
 
       - name: Summary
+        if: always()
         run: |
           WORD="${{ github.event.inputs.word || inputs.word }}"
           WORD_LOWER=$(echo "$WORD" | tr '[:upper:]' '[:lower:]')
-          echo "=================================="
-          echo "  Wake Word Training Complete"
+          echo "=============================="
           echo "  Word:  ${WORD}"
-          if [ -f "models/${WORD_LOWER}.onnx" ]; then
-            echo "  Model: $(du -h models/${WORD_LOWER}.onnx | cut -f1)"
-            echo "  URL:   https://www.hestari.com/models/${WORD_LOWER}.onnx"
-          fi
-          echo "=================================="
+          [ -f "models/${WORD_LOWER}.onnx" ] && \
+            echo "  Model: $(du -h models/${WORD_LOWER}.onnx | cut -f1)" || \
+            echo "  Model: not produced"
+          echo "=============================="
