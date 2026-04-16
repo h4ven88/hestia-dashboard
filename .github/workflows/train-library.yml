@@ -1,1 +1,62 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# Hestia™ Wake Word Library — Train All Pre-built Models
+# ══════════════════════════════════════════════════════════════════════════════
+# Trains all words in the Hestia pre-built library using the train-wakeword
+# workflow in parallel. Run this once to populate the full model library.
+#
+# Trigger manually from GitHub Actions tab.
+# ══════════════════════════════════════════════════════════════════════════════
 
+name: Train Wake Word Library
+
+on:
+  workflow_dispatch:
+
+jobs:
+  train-athena:
+    uses: ./.github/workflows/train-wakeword.yml
+    with:
+      word: Athena
+      clips: '500'
+
+  train-hestia:
+    uses: ./.github/workflows/train-wakeword.yml
+    with:
+      word: Hestia
+      clips: '500'
+
+  train-artemis:
+    uses: ./.github/workflows/train-wakeword.yml
+    with:
+      word: Artemis
+      clips: '500'
+
+  train-jarvis:
+    uses: ./.github/workflows/train-wakeword.yml
+    with:
+      word: Jarvis
+      clips: '500'
+
+  train-friday:
+    uses: ./.github/workflows/train-wakeword.yml
+    with:
+      word: Friday
+      clips: '500'
+
+  train-computer:
+    uses: ./.github/workflows/train-wakeword.yml
+    with:
+      word: Computer
+      clips: '500'
+
+  train-nova:
+    uses: ./.github/workflows/train-wakeword.yml
+    with:
+      word: Nova
+      clips: '500'
+
+  train-aria:
+    uses: ./.github/workflows/train-wakeword.yml
+    with:
+      word: Aria
+      clips: '500'
