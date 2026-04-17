@@ -40,7 +40,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg libsndfile1 sox espeak-ng
+          sudo apt-get install -y ffmpeg libsndfile1 sox espeak-ng libsox-fmt-mp3 libmad0
 
       - name: Install Python dependencies
         run: |
@@ -84,13 +84,40 @@ jobs:
           IN_DIR="$GITHUB_WORKSPACE/.clips/${WORD_LOWER}"
           OUT_DIR="$GITHUB_WORKSPACE/.wav/${WORD_LOWER}"
           mkdir -p "$OUT_DIR"
+
+          if [ ! -d "$IN_DIR" ] || [ -z "$(ls -A $IN_DIR 2>/dev/null)" ]; then
+            echo "ERROR: No clips found in $IN_DIR"
+            exit 1
+          fi
+
+          echo "Clip count: $(ls $IN_DIR | wc -l)"
+          echo "File types: $(ls $IN_DIR | sed 's/.*\.//' | sort -u | tr '\n' ' ')"
+
           count=0
+
+          # MP3 files — from edge-tts
           for f in "$IN_DIR"/*.mp3; do
+            [ -f "$f" ] || continue
             base=$(basename "$f" .mp3)
             sox "$f" -r 16000 -c 1 -b 16 "$OUT_DIR/${base}.wav" 2>/dev/null \
-              && count=$((count+1))
+              && count=$((count+1)) \
+              || echo "WARNING: failed to convert $f"
           done
+
+          # WAV files — from espeak-ng fallback (already audio, just normalise)
+          for f in "$IN_DIR"/*.wav; do
+            [ -f "$f" ] || continue
+            base=$(basename "$f" .wav)
+            sox "$f" -r 16000 -c 1 -b 16 "$OUT_DIR/${base}.wav" 2>/dev/null \
+              && count=$((count+1)) \
+              || cp "$f" "$OUT_DIR/${base}.wav" && count=$((count+1))
+          done
+
           echo "Converted: ${count} WAV files"
+          if [ "$count" -eq 0 ]; then
+            echo "ERROR: No WAV files produced"
+            exit 1
+          fi
 
       - name: Train classifier and export ONNX
         run: |
