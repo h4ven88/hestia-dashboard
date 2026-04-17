@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Extract OWW embeddings from WAV clips and train a classifier.
-Usage: python train_classifier.py <word> <wav_dir> <neg_features_npy> 
+Usage: python train_classifier.py <word> <wav_dir> <neg_features_npy>
                                   <mel_onnx> <emb_onnx> <output_dir>
 """
 import os, sys, glob
@@ -31,54 +31,122 @@ def main():
     mel_out  = mel_sess.get_outputs()[0].name
     emb_out  = emb_sess.get_outputs()[0].name
 
+    # Print model input shapes so we know what we're working with
+    print(f"  Mel input:  name={mel_in}  shape={mel_sess.get_inputs()[0].shape}")
+    print(f"  Emb input:  name={emb_in}  shape={emb_sess.get_inputs()[0].shape}")
+    print(f"  Mel output: name={mel_out} shape={mel_sess.get_outputs()[0].shape}")
+    print(f"  Emb output: name={emb_out} shape={emb_sess.get_outputs()[0].shape}")
+
     def embed(chunk):
         a = chunk.astype(np.float32) / 32768.0
         a = a.reshape(1, 1, -1)
         mel = mel_sess.run([mel_out], {mel_in: a})[0]
         return emb_sess.run([emb_out], {emb_in: mel})[0].flatten()
 
-    # ── Extract positive features ─────────────────────────────────────────
-    print("Extracting positive features...")
-    pos = []
-    CHUNK, STRIDE = 1280, 640
+    # ── Probe first WAV file to verify format ─────────────────────────────
     wav_files = sorted(glob.glob(f"{wav_dir}/*.wav"))
+    print(f"\nExtracting positive features...")
     print(f"  Found {len(wav_files)} WAV files")
+
+    if len(wav_files) == 0:
+        print(f"ERROR: No WAV files found in {wav_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    # Probe first file
+    try:
+        probe_audio, probe_sr = sf.read(wav_files[0], dtype='int16')
+        print(f"  Probe file: {os.path.basename(wav_files[0])}")
+        print(f"    Sample rate: {probe_sr} Hz")
+        print(f"    Duration:    {len(probe_audio)/probe_sr:.3f}s ({len(probe_audio)} samples)")
+        print(f"    dtype:       {probe_audio.dtype}")
+        if len(probe_audio.shape) > 1:
+            print(f"    Channels:    {probe_audio.shape[1]} (will use first)")
+            probe_audio = probe_audio[:, 0]
+
+        # Try embedding on a chunk from the probe file
+        CHUNK = 1280
+        if len(probe_audio) >= CHUNK:
+            test_chunk = probe_audio[:CHUNK]
+            test_emb = embed(test_chunk)
+            print(f"  Test embedding shape: {test_emb.shape} ✓")
+        else:
+            print(f"  WARNING: Probe file too short ({len(probe_audio)} < {CHUNK} samples)")
+    except Exception as e:
+        print(f"  ERROR probing first WAV file: {type(e).__name__}: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+    # ── Extract features from all clips ───────────────────────────────────
+    pos = []
+    CHUNK  = 1280
+    STRIDE = 640
+    sr_skip = 0
+    short_skip = 0
+    err_count = 0
 
     for i, f in enumerate(wav_files):
         try:
             audio, sr = sf.read(f, dtype='int16')
-            if sr != 16000:
-                continue
-            if len(audio) < CHUNK:
-                audio = np.pad(audio, (0, CHUNK - len(audio)))
-            for s in range(0, len(audio) - CHUNK + 1, STRIDE):
-                pos.append(embed(audio[s:s+CHUNK]))
-        except Exception as e:
-            pass
-        if (i + 1) % 100 == 0:
-            print(f"  {i+1}/{len(wav_files)} files, {len(pos)} features", flush=True)
 
-    pos = np.array(pos, dtype=np.float32)
+            # Handle stereo
+            if len(audio.shape) > 1:
+                audio = audio[:, 0]
+
+            # Skip wrong sample rate
+            if sr != 16000:
+                sr_skip += 1
+                if sr_skip <= 3:
+                    print(f"  WARNING: {os.path.basename(f)} has sr={sr}, skipping")
+                continue
+
+            # Skip files that are too short
+            if len(audio) < CHUNK:
+                short_skip += 1
+                # Pad instead of skipping
+                audio = np.pad(audio, (0, CHUNK - len(audio)))
+
+            # Extract embeddings
+            for s in range(0, len(audio) - CHUNK + 1, STRIDE):
+                emb = embed(audio[s:s+CHUNK])
+                pos.append(emb)
+
+        except Exception as e:
+            err_count += 1
+            if err_count <= 5:
+                print(f"  ERROR on {os.path.basename(f)}: {type(e).__name__}: {e}",
+                      file=sys.stderr)
+
+        if (i + 1) % 100 == 0:
+            print(f"  {i+1}/{len(wav_files)} files, {len(pos)} features "
+                  f"(sr_skip={sr_skip} short={short_skip} err={err_count})",
+                  flush=True)
+
     print(f"  Total positive features: {len(pos)}")
+    if sr_skip:   print(f"  Skipped (wrong sr): {sr_skip}")
+    if short_skip: print(f"  Padded (too short): {short_skip}")
+    if err_count:  print(f"  Errors: {err_count}")
 
     if len(pos) < 50:
-        print("ERROR: Not enough positive features", file=sys.stderr)
+        print(f"ERROR: Not enough positive features ({len(pos)} < 50)", file=sys.stderr)
         sys.exit(1)
 
+    pos = np.array(pos, dtype=np.float32)
+
     # ── Load negative features ────────────────────────────────────────────
-    print("Loading negative features...")
+    print("\nLoading negative features...")
     neg_all = np.load(neg_file, mmap_mode='r')
     n_neg   = min(len(neg_all), len(pos) * 15)
     neg     = neg_all[np.random.choice(len(neg_all), n_neg, replace=False)].astype(np.float32)
-    print(f"  Using {n_neg} negative samples")
+    print(f"  Using {n_neg} negative samples (from {len(neg_all)} total)")
 
     # ── Build dataset ─────────────────────────────────────────────────────
     X = np.vstack([pos, neg])
     y = np.array([1.0] * len(pos) + [0.0] * n_neg, dtype=np.float32)
     p = np.random.permutation(len(X))
-    X, y   = X[p], y[p]
+    X, y     = X[p], y[p]
     feat_dim = X.shape[1]
-    print(f"  Dataset: {len(X)} samples, feature dim: {feat_dim}")
+    print(f"\nDataset: {len(X)} samples, feature dim: {feat_dim}")
 
     dl = DataLoader(
         TensorDataset(torch.from_numpy(X), torch.from_numpy(y).unsqueeze(1)),
@@ -111,17 +179,14 @@ def main():
             print(f"  Epoch {epoch+1}/150 — loss: {avg:.4f}", flush=True)
 
     # ── Export ONNX ───────────────────────────────────────────────────────
-    print("Exporting ONNX model...")
+    print("\nExporting ONNX model...")
     model.eval()
     word_slug = word.lower().replace(" ", "_")
     onnx_path = os.path.join(out_dir, f"{word_slug}.onnx")
 
     torch.onnx.export(
-        model,
-        torch.zeros(1, feat_dim),
-        onnx_path,
-        input_names=["embedding"],
-        output_names=["score"],
+        model, torch.zeros(1, feat_dim), onnx_path,
+        input_names=["embedding"], output_names=["score"],
         dynamic_axes={"embedding": {0: "batch"}, "score": {0: "batch"}},
         opset_version=11
     )
@@ -129,8 +194,8 @@ def main():
     print(f"  Saved: {onnx_path} ({size_kb:.1f} KB)")
 
     # ── Verify ────────────────────────────────────────────────────────────
-    sess   = ort.InferenceSession(onnx_path)
-    score  = sess.run(None, {"embedding": np.zeros((1, feat_dim), dtype=np.float32)})[0][0][0]
+    sess  = ort.InferenceSession(onnx_path)
+    score = sess.run(None, {"embedding": np.zeros((1, feat_dim), dtype=np.float32)})[0][0][0]
     print(f"  Verified — zero-input score: {score:.4f}")
     print(f"\nTraining complete for '{word}'")
 
