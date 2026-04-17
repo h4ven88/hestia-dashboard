@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
 """
 Generate synthetic TTS clips for wake word training.
-Usage: python generate_clips.py <word> <count> <output_dir>
+Usage: python generate_clips.py <word> <count> <output_dir> [neg_dir]
 
-Primary: Microsoft Edge TTS (edge-tts) — high quality, 18 voices
-Fallback: espeak-ng — local, no network required, lower quality but works everywhere
+If neg_dir is provided, also generates negative samples using random words.
+Primary: Microsoft Edge TTS  |  Fallback: espeak-ng (local)
 """
-import asyncio
-import os
-import subprocess
-import sys
-import random
+import asyncio, os, subprocess, sys, random
 
 VOICES = [
     "en-US-AriaNeural",     "en-US-GuyNeural",
@@ -25,6 +21,17 @@ VOICES = [
 ]
 SPEEDS = ["-25%", "-15%", "-5%", "+0%", "+10%", "+20%", "+30%"]
 
+# Common words unlikely to be confused with wake words
+NEGATIVE_WORDS = [
+    "hello", "okay", "yes", "no", "stop", "go", "help", "time",
+    "light", "music", "weather", "news", "call", "text", "home",
+    "open", "close", "play", "pause", "next", "back", "up", "down",
+    "left", "right", "start", "end", "good", "bad", "hot", "cold",
+    "morning", "evening", "today", "tomorrow", "please", "thank you",
+    "kitchen", "bedroom", "living room", "bathroom", "garage",
+    "one", "two", "three", "four", "five", "six", "seven", "eight",
+]
+
 ESPEAK_VOICES = [
     "en", "en-us", "en-gb", "en-au", "en-in",
     "en-us+m1", "en-us+m2", "en-us+m3",
@@ -35,59 +42,52 @@ ESPEAK_SPEEDS = [120, 140, 160, 180, 200, 130, 150, 170]
 
 
 async def test_edge_tts(word):
-    """Quick connectivity test for edge-tts."""
     try:
         import edge_tts
-        communicate = edge_tts.Communicate(word, "en-US-AriaNeural")
-        test_path = "/tmp/edge_tts_test.mp3"
-        await communicate.save(test_path)
-        ok = os.path.exists(test_path) and os.path.getsize(test_path) > 100
-        if os.path.exists(test_path):
-            os.remove(test_path)
+        c = edge_tts.Communicate(word, "en-US-AriaNeural")
+        p = "/tmp/_edge_test.mp3"
+        await c.save(p)
+        ok = os.path.exists(p) and os.path.getsize(p) > 100
+        if os.path.exists(p): os.remove(p)
         return ok
     except Exception as e:
-        print(f"  Edge TTS test failed: {type(e).__name__}: {e}")
+        print(f"  Edge TTS unavailable: {e}")
         return False
 
 
-async def generate_edge_clip(word, voice, speed, path):
+async def gen_edge(word, voice, speed, path):
     try:
         import edge_tts
-        communicate = edge_tts.Communicate(word, voice, rate=speed)
-        await communicate.save(path)
+        c = edge_tts.Communicate(word, voice, rate=speed)
+        await c.save(path)
         return os.path.exists(path) and os.path.getsize(path) > 100
-    except Exception:
+    except:
         return False
 
 
-def generate_espeak_clips(word, out_dir, count):
-    print("  Using espeak-ng (local TTS — no network required)")
-    ok = 0
-    combos = [(v, s) for v in ESPEAK_VOICES for s in ESPEAK_SPEEDS]
-    random.seed(42)
-    random.shuffle(combos)
-    while len(combos) < count:
-        combos += combos
-    combos = combos[:count]
-
-    for i, (voice, speed) in enumerate(combos):
-        path = os.path.join(out_dir, f"pos_{i:04d}.wav")
-        try:
-            result = subprocess.run(
-                ["espeak-ng", "-v", voice, "-s", str(speed), "-w", path, word],
-                capture_output=True, timeout=10
-            )
-            if result.returncode == 0 and os.path.exists(path) and os.path.getsize(path) > 100:
-                ok += 1
-        except Exception:
-            pass
-        if (i + 1) % 100 == 0 or (i + 1) >= len(combos):
-            print(f"  {i+1}/{len(combos)} clips ({ok} ok)", flush=True)
-    return ok
+def gen_espeak(word, voice, speed, path):
+    try:
+        r = subprocess.run(
+            ["espeak-ng", "-v", voice, "-s", str(speed), "-w", path, word],
+            capture_output=True, timeout=10)
+        return r.returncode == 0 and os.path.exists(path) and os.path.getsize(path) > 100
+    except:
+        return False
 
 
-async def generate_edge_clips(word, out_dir, count):
-    combos = [(v, s) for v in VOICES for s in SPEEDS]
+async def generate(words_list, out_dir, count, use_edge):
+    """Generate `count` clips for words in words_list into out_dir."""
+    os.makedirs(out_dir, exist_ok=True)
+    combos = []
+    if use_edge:
+        for s in SPEEDS:
+            for v in VOICES:
+                combos.append(("edge", v, s))
+    else:
+        for s in ESPEAK_SPEEDS:
+            for v in ESPEAK_VOICES:
+                combos.append(("espeak", v, s))
+
     random.seed(42)
     random.shuffle(combos)
     while len(combos) < count:
@@ -97,49 +97,53 @@ async def generate_edge_clips(word, out_dir, count):
     ok = 0
     for i in range(0, len(combos), 20):
         batch = combos[i:i+20]
-        tasks = [
-            generate_edge_clip(word, v, s, os.path.join(out_dir, f"pos_{i+j:04d}.mp3"))
-            for j, (v, s) in enumerate(batch)
-        ]
+        word  = random.choice(words_list)
+        tasks = []
+        for j, (engine, v, s) in enumerate(batch):
+            path = os.path.join(out_dir, f"clip_{i+j:04d}.mp3"
+                                if engine == "edge" else f"clip_{i+j:04d}.wav")
+            if engine == "edge":
+                tasks.append(gen_edge(word, v, s, path))
+            else:
+                tasks.append(asyncio.get_event_loop().run_in_executor(
+                    None, gen_espeak, word, v, s, path))
+
         results = await asyncio.gather(*tasks)
         ok += sum(results)
         done = min(i + 20, len(combos))
         if done % 100 == 0 or done >= len(combos):
             print(f"  {done}/{len(combos)} clips ({ok} ok)", flush=True)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.3)
+
     return ok
 
 
 async def main():
     if len(sys.argv) < 4:
-        print("Usage: python generate_clips.py <word> <count> <output_dir>")
+        print("Usage: generate_clips.py <word> <count> <pos_dir> [neg_dir]")
         sys.exit(1)
 
     word    = sys.argv[1]
     count   = int(sys.argv[2])
-    out_dir = sys.argv[3]
-    os.makedirs(out_dir, exist_ok=True)
+    pos_dir = sys.argv[3]
+    neg_dir = sys.argv[4] if len(sys.argv) > 4 else None
 
-    print(f"Generating {count} clips of '{word}'...")
-    print("Testing edge-tts connectivity...")
-    edge_ok = await test_edge_tts(word)
+    print(f"Testing edge-tts...")
+    use_edge = await test_edge_tts(word)
+    engine   = "edge-tts" if use_edge else "espeak-ng (local)"
+    print(f"  Using {engine}")
 
-    if edge_ok:
-        print(f"  Edge TTS available — generating {count} clips across {len(VOICES)} voices")
-        ok = await generate_edge_clips(word, out_dir, count)
-    else:
-        print("  Edge TTS unavailable — falling back to espeak-ng (local)")
-        ok = generate_espeak_clips(word, out_dir, count)
+    print(f"\nGenerating {count} POSITIVE clips for '{word}'...")
+    pos_ok = await generate([word], pos_dir, count, use_edge)
+    print(f"  {pos_ok}/{count} positive clips ready")
 
-    total = len([f for f in os.listdir(out_dir) if f.startswith("pos_")])
-    print(f"Generated: {ok} clips saved to {out_dir} ({total} total files)")
+    if neg_dir:
+        print(f"\nGenerating {count} NEGATIVE clips (random words)...")
+        neg_ok = await generate(NEGATIVE_WORDS, neg_dir, count, use_edge)
+        print(f"  {neg_ok}/{count} negative clips ready")
 
-    if ok < 50:
-        print(f"ERROR: Only {ok} clips generated (minimum 50 required)", file=sys.stderr)
+    if pos_ok < 50:
+        print(f"ERROR: only {pos_ok} positive clips (need ≥50)", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Success: {ok} clips ready for training")
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
