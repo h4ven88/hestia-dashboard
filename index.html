@@ -1515,7 +1515,7 @@ function athenaInit() {
 if (!CONFIG.athenaEnabled || !CONFIG.athenaApiKey) return;
 const fab = document.getElementById('ath-fab');
 if (fab) fab.style.display = 'flex';
-if (!isMobile()) {
+if (!isMobile() || isTablet()) {
 athenaStartWakeDetection();  
 }
 }
@@ -1748,6 +1748,9 @@ else athenaClose();
 }
 function athenaMicTap() {
 if (athenaListening) {
+if (athenaActiveRecog) {
+try { athenaActiveRecog.stop(); } catch(e){}
+}
 athenaCommitSpeech();
 } else if (athenaState === 'listening' || athenaState === 'responding' || athenaState === 'idle') {
 athenaStartListening();
@@ -2056,7 +2059,7 @@ const granted = await athenaRequestMicPermission();
 athenaMicPermission = granted ? true : false;
 athenaUpdateMicStatusDot();
 if (granted) {
-if (!athenaRecog && !isMobile() && CONFIG.athenaEnabled) {
+if (!athenaRecog && (!isMobile() || isTablet()) && CONFIG.athenaEnabled) {
 athenaStartWakeDetection();
 }
 } else {
@@ -2106,6 +2109,7 @@ return;
 }
 try { if (athenaRecog) athenaRecog.stop(); } catch(e){}
 const recog = new SR();
+athenaActiveRecog = recog;  
 recog.lang           = CONFIG.athenaLang || 'en-US';
 recog.continuous     = false;
 recog.interimResults = true;
@@ -2149,11 +2153,13 @@ if (input) input.placeholder = 'No speech detected — try again or type';
 };
 recog.onend = () => {
 athenaListening = false;
+athenaActiveRecog = null;
 if (!_finalFired && _lastTranscript.trim()) {
 athenaSubmitText(athenaStripWakeWord(_lastTranscript.trim()));
 return;
 }
-if (athenaState === 'idle' && !isMobile()) {
+if (athenaState === 'idle' && (!isMobile() || isTablet())) {
+if (OWW.running) return;  
 setTimeout(() => { try { athenaRecog?.start(); } catch(e){} }, 500);
 }
 };
