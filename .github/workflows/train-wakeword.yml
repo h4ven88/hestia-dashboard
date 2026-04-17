@@ -125,10 +125,11 @@ jobs:
           WORD_LOWER=$(echo "$WORD" | tr '[:upper:]' '[:lower:]')
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Copy backbone models to models/ so hestari.com serves them (fixes CORS)
-          cp $GITHUB_WORKSPACE/.backbone/melspectrogram.onnx models/melspectrogram.onnx
-          cp $GITHUB_WORKSPACE/.backbone/embedding_model.onnx models/embedding_model.onnx
-          git add "models/${WORD_LOWER}.onnx" models/melspectrogram.onnx models/embedding_model.onnx
+          # Only commit the trained word model — backbone models are manually uploaded once
+          git add "models/${WORD_LOWER}.onnx"
+          # Also commit backbone models if they're new (first-time setup)
+          [ -f models/melspectrogram.onnx ] && git add models/melspectrogram.onnx || true
+          [ -f models/embedding_model.onnx ] && git add models/embedding_model.onnx || true
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
