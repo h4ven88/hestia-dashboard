@@ -125,11 +125,14 @@ jobs:
           WORD_LOWER=$(echo "$WORD" | tr '[:upper:]' '[:lower:]')
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "models/${WORD_LOWER}.onnx"
+          # Copy backbone models to models/ so hestari.com serves them (fixes CORS)
+          cp $GITHUB_WORKSPACE/.backbone/melspectrogram.onnx models/melspectrogram.onnx
+          cp $GITHUB_WORKSPACE/.backbone/embedding_model.onnx models/embedding_model.onnx
+          git add "models/${WORD_LOWER}.onnx" models/melspectrogram.onnx models/embedding_model.onnx
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "chore: add wake word model '${WORD}' [skip ci]"
+            git commit -m "chore: add wake word model '${WORD}' + backbone models [skip ci]"
             git push
             echo "Live at: https://www.hestari.com/models/${WORD_LOWER}.onnx"
           fi
