@@ -24,7 +24,10 @@ on:
 jobs:
   train:
     runs-on: ubuntu-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 90
+    permissions:
+      contents: write
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
