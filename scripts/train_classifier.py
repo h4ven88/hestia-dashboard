@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 """
 Extract OWW embeddings from WAV clips and train a classifier.
-Usage: python train_classifier.py <word> <wav_dir> <neg_features_npy>
-                                  <mel_onnx> <emb_onnx> <output_dir>
+
+OpenWakeWord pipeline (corrected):
+  1. Feed 1280-sample chunks to mel model → [1, 1, 5, 32] per chunk
+  2. Accumulate 5 frames per chunk until we have 76 frames
+  3. Reshape [76, 32] → [1, 76, 32, 1] for embedding model
+  4. Embedding model outputs [1, 1, 1, 96] → flatten to 96-dim feature
+
+Usage: python train_classifier.py <word> <wav_dir> <neg_npy>
+                                  <mel_onnx> <emb_onnx> <out_dir>
 """
 import os, sys, glob
 import numpy as np
@@ -12,51 +19,11 @@ from torch.utils.data import DataLoader, TensorDataset
 import onnxruntime as ort
 import soundfile as sf
 
-# ── Audio validation and normalization ─────────────────────────────────────
-EXPECTED_SAMPLE_RATE = 16000
-MIN_AUDIO_DURATION = 0.5  # seconds
-TARGET_AUDIO_DURATION = 1.0  # seconds
-
-def validate_and_pad_audio(audio, sr, expected_sr=EXPECTED_SAMPLE_RATE, 
-                           min_duration=MIN_AUDIO_DURATION):
-    """
-    Validate audio properties and pad/trim to ensure consistency.
-    
-    Args:
-        audio: Audio samples (numpy array, int16 or float32)
-        sr: Sample rate (Hz)
-        expected_sr: Expected sample rate
-        min_duration: Minimum acceptable duration in seconds
-    
-    Returns:
-        Validated audio array (int16, mono) or None if invalid
-    """
-    try:
-        # Ensure mono
-        if len(audio.shape) > 1:
-            audio = np.mean(audio, axis=1)
-        
-        # Check sample rate
-        if sr != expected_sr:
-            print(f"    WARNING: Sample rate {sr}Hz != {expected_sr}Hz, skipping")
-            return None
-        
-        # Check minimum duration
-        duration = len(audio) / sr
-        if duration < min_duration:
-            min_samples = int(min_duration * sr)
-            print(f"    WARNING: Duration {duration:.3f}s < {min_duration}s, padding...")
-            # Pad with silence
-            audio = np.pad(audio, (0, min_samples - len(audio)), mode='constant')
-        
-        # Ensure int16
-        if audio.dtype != np.int16:
-            audio = np.clip(audio, -32768, 32767).astype(np.int16)
-        
-        return audio
-    except Exception as e:
-        print(f"    ERROR validating audio: {type(e).__name__}: {e}")
-        return None
+CHUNK        = 1280   # samples per mel chunk (80ms at 16kHz)
+FRAMES_CHUNK = 5      # mel frames produced per 1280-sample chunk
+FRAMES_NEED  = 76     # frames needed by embedding model
+CHUNKS_NEED  = 16     # ceil(76/5) — 16 chunks × 5 frames = 80, take first 76
+WINDOW       = CHUNKS_NEED * CHUNK   # 20480 samples per embedding
 
 def main():
     word      = sys.argv[1]
@@ -65,7 +32,6 @@ def main():
     mel_model = sys.argv[4]
     emb_model = sys.argv[5]
     out_dir   = sys.argv[6]
-
     os.makedirs(out_dir, exist_ok=True)
 
     # ── Load backbone models ──────────────────────────────────────────────
@@ -76,121 +42,103 @@ def main():
     emb_in   = emb_sess.get_inputs()[0].name
     mel_out  = mel_sess.get_outputs()[0].name
     emb_out  = emb_sess.get_outputs()[0].name
+    print(f"  Mel: {mel_in}{mel_sess.get_inputs()[0].shape} → "
+          f"{mel_out}{mel_sess.get_outputs()[0].shape}")
+    print(f"  Emb: {emb_in}{emb_sess.get_inputs()[0].shape} → "
+          f"{emb_out}{emb_sess.get_outputs()[0].shape}")
 
-    # Print model input shapes so we know what we're working with
-    print(f"  Mel input:  name={mel_in}  shape={mel_sess.get_inputs()[0].shape}")
-    print(f"  Emb input:  name={emb_in}  shape={emb_sess.get_inputs()[0].shape}")
-    print(f"  Mel output: name={mel_out} shape={mel_sess.get_outputs()[0].shape}")
-    print(f"  Emb output: name={emb_out} shape={emb_sess.get_outputs()[0].shape}")
+    def get_mel_frames(audio_window):
+        """
+        Process WINDOW (20480) samples through mel model in 1280-sample chunks.
+        Returns [80, 32] mel frames (16 chunks × 5 frames each).
+        """
+        frames = []
+        for i in range(CHUNKS_NEED):
+            chunk = audio_window[i*CHUNK:(i+1)*CHUNK]
+            a = chunk.astype(np.float32) / 32768.0
+            a = a.reshape(1, -1)                        # [1, 1280]
+            mel = mel_sess.run([mel_out], {mel_in: a})[0]  # [1, 1, 5, 32]
+            frames.append(mel[0, 0, :, :])              # [5, 32]
+        return np.concatenate(frames, axis=0)           # [80, 32]
 
-    def embed(chunk):
-        """Convert audio chunk to embedding using backbone models."""
-        a = chunk.astype(np.float32) / 32768.0
-        a = a.reshape(1, -1)  # rank 2: [batch, samples] as expected by mel model
-        mel = mel_sess.run([mel_out], {mel_in: a})[0]
-        return emb_sess.run([emb_out], {emb_in: mel})[0].flatten()
+    def embed(mel_frames_80):
+        """
+        Convert 80 mel frames → one embedding.
+        Takes first 76 frames → [1, 76, 32, 1] → embedding model → 96-dim vector.
+        """
+        window = mel_frames_80[:FRAMES_NEED, :]         # [76, 32]
+        inp    = window.reshape(1, FRAMES_NEED, 32, 1).astype(np.float32)
+        emb    = emb_sess.run([emb_out], {emb_in: inp})[0]
+        return emb.flatten()
 
-    # ── Probe first WAV file to verify format ─────────────────────────────
+    # ── Probe ─────────────────────────────────────────────────────────────
     wav_files = sorted(glob.glob(f"{wav_dir}/*.wav"))
-    print(f"\nExtracting positive features...")
-    print(f"  Found {len(wav_files)} WAV files")
-
-    if len(wav_files) == 0:
-        print(f"ERROR: No WAV files found in {wav_dir}", file=sys.stderr)
+    print(f"\nFound {len(wav_files)} WAV files")
+    if not wav_files:
+        print(f"ERROR: no WAV files in {wav_dir}", file=sys.stderr)
         sys.exit(1)
 
-    # Probe first file
     try:
-        probe_audio, probe_sr = sf.read(wav_files[0], dtype='int16')
-        print(f"  Probe file: {os.path.basename(wav_files[0])}")
-        print(f"    Sample rate: {probe_sr} Hz")
-        print(f"    Duration:    {len(probe_audio)/probe_sr:.3f}s ({len(probe_audio)} samples)")
-        print(f"    dtype:       {probe_audio.dtype}")
-        if len(probe_audio.shape) > 1:
-            print(f"    Channels:    {probe_audio.shape[1]} (will use first)")
-            probe_audio = probe_audio[:, 0]
-
-        # Validate probe audio
-        probe_audio = validate_and_pad_audio(probe_audio, probe_sr)
-        if probe_audio is None:
-            raise RuntimeError("Probe file failed validation")
-
-        # Try embedding on a chunk from the probe file
-        CHUNK = 1280
-        if len(probe_audio) >= CHUNK:
-            test_chunk = probe_audio[:CHUNK]
-            test_emb = embed(test_chunk)
-            print(f"  Test embedding shape: {test_emb.shape} ✓")
-        else:
-            raise RuntimeError(f"Probe file too short after padding ({len(probe_audio)} < {CHUNK} samples)")
+        probe, sr = sf.read(wav_files[0], dtype='int16')
+        if len(probe.shape) > 1:
+            probe = probe[:, 0]
+        print(f"  Probe: {os.path.basename(wav_files[0])} "
+              f"sr={sr} dur={len(probe)/sr:.2f}s")
+        # Pad probe to at least WINDOW samples
+        if len(probe) < WINDOW:
+            probe = np.pad(probe, (0, WINDOW - len(probe)))
+        mel_frames = get_mel_frames(probe[:WINDOW])
+        print(f"  Mel frames shape: {mel_frames.shape}")   # expect [80, 32]
+        test_emb = embed(mel_frames)
+        print(f"  Embedding shape: {test_emb.shape} ✓")
     except Exception as e:
-        print(f"  ERROR probing first WAV file: {type(e).__name__}: {e}", file=sys.stderr)
         import traceback
+        print(f"ERROR in probe: {e}", file=sys.stderr)
         traceback.print_exc()
         sys.exit(1)
 
-    # ── Extract features from all clips ───────────────────────────────────
+    # ── Extract positive features ─────────────────────────────────────────
+    print("\nExtracting positive features...")
     pos = []
-    CHUNK  = 1280
-    STRIDE = 640
-    sr_skip = 0
-    short_skip = 0
-    padded_count = 0
-    err_count = 0
+    STRIDE_SAMPLES = CHUNK  # slide by 80ms
 
     for i, f in enumerate(wav_files):
         try:
             audio, sr = sf.read(f, dtype='int16')
-
-            # Handle stereo
             if len(audio.shape) > 1:
                 audio = audio[:, 0]
-
-            # Validate and normalize audio
-            original_len = len(audio)
-            audio = validate_and_pad_audio(audio, sr)
-            
-            if audio is None:
-                sr_skip += 1
+            if sr != 16000:
                 continue
-            
-            # Track padding
-            if len(audio) > original_len:
-                padded_count += 1
-
-            # Extract embeddings
-            for s in range(0, len(audio) - CHUNK + 1, STRIDE):
-                emb = embed(audio[s:s+CHUNK])
+            # Pad to at least WINDOW so we always get ≥1 embedding
+            if len(audio) < WINDOW:
+                audio = np.pad(audio, (0, WINDOW - len(audio)))
+            # Slide a WINDOW-sized window across the clip
+            for start in range(0, len(audio) - WINDOW + 1, STRIDE_SAMPLES):
+                window = audio[start:start + WINDOW]
+                mel_frames = get_mel_frames(window)
+                emb = embed(mel_frames)
                 pos.append(emb)
-
         except Exception as e:
-            err_count += 1
-            if err_count <= 5:
-                print(f"  ERROR on {os.path.basename(f)}: {type(e).__name__}: {e}",
-                      file=sys.stderr)
+            if len(pos) == 0:
+                print(f"  ERROR {os.path.basename(f)}: {e}", file=sys.stderr)
 
         if (i + 1) % 100 == 0:
-            print(f"  {i+1}/{len(wav_files)} files, {len(pos)} features "
-                  f"(sr_skip={sr_skip} padded={padded_count} err={err_count})",
+            print(f"  {i+1}/{len(wav_files)} files → {len(pos)} features",
                   flush=True)
 
     print(f"  Total positive features: {len(pos)}")
-    if sr_skip:      print(f"  Skipped (wrong sr): {sr_skip}")
-    if padded_count: print(f"  Padded (too short): {padded_count}")
-    if err_count:    print(f"  Errors: {err_count}")
-
     if len(pos) < 50:
-        print(f"ERROR: Not enough positive features ({len(pos)} < 50)", file=sys.stderr)
+        print(f"ERROR: only {len(pos)} features (need ≥50)", file=sys.stderr)
         sys.exit(1)
 
     pos = np.array(pos, dtype=np.float32)
 
-    # ── Load negative features ────────────────────────────���───────────────
+    # ── Load negative features ────────────────────────────────────────────
     print("\nLoading negative features...")
     neg_all = np.load(neg_file, mmap_mode='r')
     n_neg   = min(len(neg_all), len(pos) * 15)
     neg     = neg_all[np.random.choice(len(neg_all), n_neg, replace=False)].astype(np.float32)
-    print(f"  Using {n_neg} negative samples (from {len(neg_all)} total)")
+    print(f"  {n_neg} negative samples")
 
     # ── Build dataset ─────────────────────────────────────────────────────
     X = np.vstack([pos, neg])
@@ -198,15 +146,15 @@ def main():
     p = np.random.permutation(len(X))
     X, y     = X[p], y[p]
     feat_dim = X.shape[1]
-    print(f"\nDataset: {len(X)} samples, feature dim: {feat_dim}")
+    print(f"\nDataset: {len(X)} samples, dim={feat_dim}")
 
     dl = DataLoader(
         TensorDataset(torch.from_numpy(X), torch.from_numpy(y).unsqueeze(1)),
         batch_size=512, shuffle=True
     )
 
-    # ── Train classifier ──────────────────────────────────────────────────
-    print("Training classifier (150 epochs)...")
+    # ── Train ─────────────────────────────────────────────────────────────
+    print("Training (150 epochs)...")
     model = nn.Sequential(
         nn.Linear(feat_dim, 128), nn.ReLU(), nn.Dropout(0.2),
         nn.Linear(128, 64),       nn.ReLU(), nn.Dropout(0.1),
@@ -231,11 +179,10 @@ def main():
             print(f"  Epoch {epoch+1}/150 — loss: {avg:.4f}", flush=True)
 
     # ── Export ONNX ───────────────────────────────────────────────────────
-    print("\nExporting ONNX model...")
+    print("\nExporting ONNX...")
     model.eval()
-    word_slug = word.lower().replace(" ", "_")
-    onnx_path = os.path.join(out_dir, f"{word_slug}.onnx")
-
+    slug      = word.lower().replace(" ", "_")
+    onnx_path = os.path.join(out_dir, f"{slug}.onnx")
     torch.onnx.export(
         model, torch.zeros(1, feat_dim), onnx_path,
         input_names=["embedding"], output_names=["score"],
@@ -245,7 +192,6 @@ def main():
     size_kb = os.path.getsize(onnx_path) / 1024
     print(f"  Saved: {onnx_path} ({size_kb:.1f} KB)")
 
-    # ── Verify ────────────────────────────────────────────────────────────
     sess  = ort.InferenceSession(onnx_path)
     score = sess.run(None, {"embedding": np.zeros((1, feat_dim), dtype=np.float32)})[0][0][0]
     print(f"  Verified — zero-input score: {score:.4f}")
