@@ -59,63 +59,49 @@ jobs:
             "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.onnx"
           ls -lh $GITHUB_WORKSPACE/.backbone/
 
-      - name: Download negative features dataset
-        run: |
-          mkdir -p $GITHUB_WORKSPACE/.neg_cache
-          wget -q --show-progress \
-            "https://huggingface.co/datasets/davidscripka/openwakeword_features/resolve/main/openwakeword_features_ACAV100M_2000_hrs_16bit.npy" \
-            -O $GITHUB_WORKSPACE/.neg_cache/negative_features.npy
-          echo "Downloaded: $(du -h $GITHUB_WORKSPACE/.neg_cache/negative_features.npy | cut -f1)"
-
-      - name: Generate synthetic clips
+      - name: Generate synthetic clips (positive + negative)
         run: |
           WORD="${{ github.event.inputs.word || inputs.word }}"
           CLIPS="${{ github.event.inputs.clips || inputs.clips || '500' }}"
           WORD_LOWER=$(echo "$WORD" | tr '[:upper:]' '[:lower:]')
-          mkdir -p $GITHUB_WORKSPACE/.clips/${WORD_LOWER}
-          python3 scripts/generate_clips.py \
-            "$WORD" "$CLIPS" "$GITHUB_WORKSPACE/.clips/${WORD_LOWER}"
-          echo "Clips: $(ls $GITHUB_WORKSPACE/.clips/${WORD_LOWER}/ | wc -l)"
+          POS_DIR="$GITHUB_WORKSPACE/.clips/${WORD_LOWER}/pos"
+          NEG_DIR="$GITHUB_WORKSPACE/.clips/${WORD_LOWER}/neg"
+          mkdir -p "$POS_DIR" "$NEG_DIR"
+          python3 scripts/generate_clips.py "$WORD" "$CLIPS" "$POS_DIR" "$NEG_DIR"
+          echo "Positive clips: $(ls $POS_DIR | wc -l)"
+          echo "Negative clips: $(ls $NEG_DIR | wc -l)"
 
       - name: Convert clips to 16kHz WAV
         run: |
           WORD="${{ github.event.inputs.word || inputs.word }}"
           WORD_LOWER=$(echo "$WORD" | tr '[:upper:]' '[:lower:]')
-          IN_DIR="$GITHUB_WORKSPACE/.clips/${WORD_LOWER}"
-          OUT_DIR="$GITHUB_WORKSPACE/.wav/${WORD_LOWER}"
-          mkdir -p "$OUT_DIR"
 
-          if [ ! -d "$IN_DIR" ] || [ -z "$(ls -A $IN_DIR 2>/dev/null)" ]; then
-            echo "ERROR: No clips found in $IN_DIR"
-            exit 1
-          fi
+          convert_dir() {
+            local IN_DIR="$1"
+            local OUT_DIR="$2"
+            mkdir -p "$OUT_DIR"
+            count=0
+            for f in "$IN_DIR"/*.mp3 "$IN_DIR"/*.wav; do
+              [ -f "$f" ] || continue
+              base=$(basename "${f%.*}")
+              if sox "$f" -r 16000 -c 1 -b 16 "$OUT_DIR/${base}.wav" 2>/dev/null; then
+                count=$((count+1))
+              fi
+            done
+            echo "$count"
+          }
 
-          echo "Clip count: $(ls $IN_DIR | wc -l)"
-          echo "File types: $(ls $IN_DIR | sed 's/.*\.//' | sort -u | tr '\n' ' ')"
+          POS_IN="$GITHUB_WORKSPACE/.clips/${WORD_LOWER}/pos"
+          NEG_IN="$GITHUB_WORKSPACE/.clips/${WORD_LOWER}/neg"
+          POS_WAV="$GITHUB_WORKSPACE/.wav/${WORD_LOWER}/pos"
+          NEG_WAV="$GITHUB_WORKSPACE/.wav/${WORD_LOWER}/neg"
 
-          count=0
+          pos_count=$(convert_dir "$POS_IN" "$POS_WAV")
+          neg_count=$(convert_dir "$NEG_IN" "$NEG_WAV")
+          echo "Converted: ${pos_count} positive, ${neg_count} negative WAV files"
 
-          # MP3 files — from edge-tts
-          for f in "$IN_DIR"/*.mp3; do
-            [ -f "$f" ] || continue
-            base=$(basename "$f" .mp3)
-            sox "$f" -r 16000 -c 1 -b 16 "$OUT_DIR/${base}.wav" 2>/dev/null \
-              && count=$((count+1)) \
-              || echo "WARNING: failed to convert $f"
-          done
-
-          # WAV files — from espeak-ng fallback (already audio, just normalise)
-          for f in "$IN_DIR"/*.wav; do
-            [ -f "$f" ] || continue
-            base=$(basename "$f" .wav)
-            sox "$f" -r 16000 -c 1 -b 16 "$OUT_DIR/${base}.wav" 2>/dev/null \
-              && count=$((count+1)) \
-              || cp "$f" "$OUT_DIR/${base}.wav" && count=$((count+1))
-          done
-
-          echo "Converted: ${count} WAV files"
-          if [ "$count" -eq 0 ]; then
-            echo "ERROR: No WAV files produced"
+          if [ "$pos_count" -eq 0 ] || [ "$neg_count" -eq 0 ]; then
+            echo "ERROR: Missing converted clips"
             exit 1
           fi
 
@@ -125,8 +111,8 @@ jobs:
           WORD_LOWER=$(echo "$WORD" | tr '[:upper:]' '[:lower:]')
           python3 scripts/train_classifier.py \
             "$WORD" \
-            "$GITHUB_WORKSPACE/.wav/${WORD_LOWER}" \
-            "$GITHUB_WORKSPACE/.neg_cache/negative_features.npy" \
+            "$GITHUB_WORKSPACE/.wav/${WORD_LOWER}/pos" \
+            "$GITHUB_WORKSPACE/.wav/${WORD_LOWER}/neg" \
             "$GITHUB_WORKSPACE/.backbone/melspectrogram.onnx" \
             "$GITHUB_WORKSPACE/.backbone/embedding_model.onnx" \
             "models"
@@ -143,7 +129,6 @@ jobs:
           else
             git commit -m "chore: add wake word model '${WORD}' [skip ci]"
             git push
-            echo "Committed: models/${WORD_LOWER}.onnx"
             echo "Live at: https://www.hestari.com/models/${WORD_LOWER}.onnx"
           fi
 
@@ -158,6 +143,6 @@ jobs:
             echo "  Size:  $(du -h models/${WORD_LOWER}.onnx | cut -f1)"
             echo "  URL:   https://www.hestari.com/models/${WORD_LOWER}.onnx"
           else
-            echo "  Model: not produced - check logs above"
+            echo "  Model: not produced"
           fi
           echo "=============================="
