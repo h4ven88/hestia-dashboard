@@ -12,6 +12,52 @@ from torch.utils.data import DataLoader, TensorDataset
 import onnxruntime as ort
 import soundfile as sf
 
+# ── Audio validation and normalization ─────────────────────────────────────
+EXPECTED_SAMPLE_RATE = 16000
+MIN_AUDIO_DURATION = 0.5  # seconds
+TARGET_AUDIO_DURATION = 1.0  # seconds
+
+def validate_and_pad_audio(audio, sr, expected_sr=EXPECTED_SAMPLE_RATE, 
+                           min_duration=MIN_AUDIO_DURATION):
+    """
+    Validate audio properties and pad/trim to ensure consistency.
+    
+    Args:
+        audio: Audio samples (numpy array, int16 or float32)
+        sr: Sample rate (Hz)
+        expected_sr: Expected sample rate
+        min_duration: Minimum acceptable duration in seconds
+    
+    Returns:
+        Validated audio array (int16, mono) or None if invalid
+    """
+    try:
+        # Ensure mono
+        if len(audio.shape) > 1:
+            audio = np.mean(audio, axis=1)
+        
+        # Check sample rate
+        if sr != expected_sr:
+            print(f"    WARNING: Sample rate {sr}Hz != {expected_sr}Hz, skipping")
+            return None
+        
+        # Check minimum duration
+        duration = len(audio) / sr
+        if duration < min_duration:
+            min_samples = int(min_duration * sr)
+            print(f"    WARNING: Duration {duration:.3f}s < {min_duration}s, padding...")
+            # Pad with silence
+            audio = np.pad(audio, (0, min_samples - len(audio)), mode='constant')
+        
+        # Ensure int16
+        if audio.dtype != np.int16:
+            audio = np.clip(audio, -32768, 32767).astype(np.int16)
+        
+        return audio
+    except Exception as e:
+        print(f"    ERROR validating audio: {type(e).__name__}: {e}")
+        return None
+
 def main():
     word      = sys.argv[1]
     wav_dir   = sys.argv[2]
@@ -38,6 +84,7 @@ def main():
     print(f"  Emb output: name={emb_out} shape={emb_sess.get_outputs()[0].shape}")
 
     def embed(chunk):
+        """Convert audio chunk to embedding using backbone models."""
         a = chunk.astype(np.float32) / 32768.0
         a = a.reshape(1, -1)  # rank 2: [batch, samples] as expected by mel model
         mel = mel_sess.run([mel_out], {mel_in: a})[0]
@@ -63,6 +110,11 @@ def main():
             print(f"    Channels:    {probe_audio.shape[1]} (will use first)")
             probe_audio = probe_audio[:, 0]
 
+        # Validate probe audio
+        probe_audio = validate_and_pad_audio(probe_audio, probe_sr)
+        if probe_audio is None:
+            raise RuntimeError("Probe file failed validation")
+
         # Try embedding on a chunk from the probe file
         CHUNK = 1280
         if len(probe_audio) >= CHUNK:
@@ -70,7 +122,7 @@ def main():
             test_emb = embed(test_chunk)
             print(f"  Test embedding shape: {test_emb.shape} ✓")
         else:
-            print(f"  WARNING: Probe file too short ({len(probe_audio)} < {CHUNK} samples)")
+            raise RuntimeError(f"Probe file too short after padding ({len(probe_audio)} < {CHUNK} samples)")
     except Exception as e:
         print(f"  ERROR probing first WAV file: {type(e).__name__}: {e}", file=sys.stderr)
         import traceback
@@ -83,6 +135,7 @@ def main():
     STRIDE = 640
     sr_skip = 0
     short_skip = 0
+    padded_count = 0
     err_count = 0
 
     for i, f in enumerate(wav_files):
@@ -93,18 +146,17 @@ def main():
             if len(audio.shape) > 1:
                 audio = audio[:, 0]
 
-            # Skip wrong sample rate
-            if sr != 16000:
+            # Validate and normalize audio
+            original_len = len(audio)
+            audio = validate_and_pad_audio(audio, sr)
+            
+            if audio is None:
                 sr_skip += 1
-                if sr_skip <= 3:
-                    print(f"  WARNING: {os.path.basename(f)} has sr={sr}, skipping")
                 continue
-
-            # Skip files that are too short
-            if len(audio) < CHUNK:
-                short_skip += 1
-                # Pad instead of skipping
-                audio = np.pad(audio, (0, CHUNK - len(audio)))
+            
+            # Track padding
+            if len(audio) > original_len:
+                padded_count += 1
 
             # Extract embeddings
             for s in range(0, len(audio) - CHUNK + 1, STRIDE):
@@ -119,13 +171,13 @@ def main():
 
         if (i + 1) % 100 == 0:
             print(f"  {i+1}/{len(wav_files)} files, {len(pos)} features "
-                  f"(sr_skip={sr_skip} short={short_skip} err={err_count})",
+                  f"(sr_skip={sr_skip} padded={padded_count} err={err_count})",
                   flush=True)
 
     print(f"  Total positive features: {len(pos)}")
-    if sr_skip:   print(f"  Skipped (wrong sr): {sr_skip}")
-    if short_skip: print(f"  Padded (too short): {short_skip}")
-    if err_count:  print(f"  Errors: {err_count}")
+    if sr_skip:      print(f"  Skipped (wrong sr): {sr_skip}")
+    if padded_count: print(f"  Padded (too short): {padded_count}")
+    if err_count:    print(f"  Errors: {err_count}")
 
     if len(pos) < 50:
         print(f"ERROR: Not enough positive features ({len(pos)} < 50)", file=sys.stderr)
@@ -133,7 +185,7 @@ def main():
 
     pos = np.array(pos, dtype=np.float32)
 
-    # ── Load negative features ────────────────────────────────────────────
+    # ── Load negative features ────────────────────────────���───────────────
     print("\nLoading negative features...")
     neg_all = np.load(neg_file, mmap_mode='r')
     n_neg   = min(len(neg_all), len(pos) * 15)
