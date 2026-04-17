@@ -138,7 +138,11 @@ def main():
     neg_all = np.load(neg_file, mmap_mode='r')
     n_neg   = min(len(neg_all), len(pos) * 15)
     neg     = neg_all[np.random.choice(len(neg_all), n_neg, replace=False)].astype(np.float32)
-    print(f"  {n_neg} negative samples")
+    # Flatten to 2D if stored as 3D (e.g. shape [N, 1, 96] or [N, 1, 1, 96])
+    if neg.ndim > 2:
+        print(f"  Reshaping negatives from {neg.shape} to 2D")
+        neg = neg.reshape(len(neg), -1)
+    print(f"  {n_neg} negative samples, shape={neg.shape}")
 
     # ── Build dataset ─────────────────────────────────────────────────────
     X = np.vstack([pos, neg])
