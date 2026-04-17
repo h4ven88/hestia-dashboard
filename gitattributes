@@ -1,0 +1,5 @@
+# Force binary treatment for model files — prevents git line-ending corruption
+*.onnx binary
+*.npy  binary
+*.pt   binary
+*.pth  binary
