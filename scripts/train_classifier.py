@@ -39,7 +39,7 @@ def main():
 
     def embed(chunk):
         a = chunk.astype(np.float32) / 32768.0
-        a = a.reshape(1, 1, -1)
+        a = a.reshape(1, -1)  # rank 2: [batch, samples] as expected by mel model
         mel = mel_sess.run([mel_out], {mel_in: a})[0]
         return emb_sess.run([emb_out], {emb_in: mel})[0].flatten()
 
