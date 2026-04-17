@@ -1533,8 +1533,8 @@ COOLDOWN_MS: 3000,
 _lastFire:   0,
 };
 const OWW_BASE      = 'https://www.hestari.com/models/';
-const OWW_MEL_URL   = 'https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/melspectrogram.onnx';
-const OWW_EMB_URL   = 'https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.onnx';
+const OWW_MEL_URL   = OWW_BASE + 'melspectrogram.onnx';
+const OWW_EMB_URL   = OWW_BASE + 'embedding_model.onnx';
 const OWW_PROCESSOR_SRC = `
 class WakeProcessor extends AudioWorkletProcessor {
 constructor() {
