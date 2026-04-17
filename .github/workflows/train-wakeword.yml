@@ -40,7 +40,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg libsndfile1 sox
+          sudo apt-get install -y ffmpeg libsndfile1 sox espeak-ng
 
       - name: Install Python dependencies
         run: |
