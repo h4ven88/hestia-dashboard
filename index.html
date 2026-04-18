@@ -1698,9 +1698,13 @@ athenaRecog.start();
 } catch(e) { console.warn('[Athena] Wake detection failed to start:', e.message); }
 }
 document.addEventListener('visibilitychange', () => {
-if (!document.hidden && CONFIG.athenaEnabled && athenaState === 'idle' && !isMobile()) {
-if (OWW.running) return;  
+if (!document.hidden && CONFIG.athenaEnabled && athenaState === 'idle' && (!isMobile() || isTablet())) {
+if (OWW.running) return;
+if (window.ort && OWW.mel) {
+owwStart();
+} else {
 try { athenaRecog?.start(); } catch(e){}
+}
 }
 });
 function athenaPlayChime() {
@@ -1780,6 +1784,9 @@ if (overlay) overlay.classList.remove('open');
 document.getElementById('ath-fab')?.classList.remove('ath-active','ath-clarify');
 athenaSetState('idle');
 window.speechSynthesis.cancel();
+if (!OWW.running && (!isMobile() || isTablet()) && CONFIG.athenaEnabled) {
+setTimeout(() => owwStart(), 600);
+}
 }
 function athenaSetState(s) {
 athenaState = s;
@@ -2203,6 +2210,7 @@ return;
 athenaRequestMicPermission().then(granted => {
 if (!granted) { athenaShowMicDenied(); return; }
 try { if (athenaRecog) athenaRecog.stop(); } catch(e){}
+if (OWW.running) owwStop();
 const recog = new SR();
 athenaActiveRecog = recog;
 recog.lang           = CONFIG.athenaLang || 'en-US';
@@ -2217,6 +2225,7 @@ if (lbl) lbl.textContent = 'Listening…';
 athenaSetRecHint(true);
 };
 let finalTranscript = '';
+let interimTranscript = '';
 recog.onresult = (e) => {
 let interim = '';
 finalTranscript = '';
@@ -2227,6 +2236,7 @@ finalTranscript += e.results[i][0].transcript;
 interim += e.results[i][0].transcript;
 }
 }
+interimTranscript = interim;
 const input = document.getElementById('ath-text-input');
 if (input) input.value = finalTranscript || interim;
 if (finalTranscript) {
@@ -2234,9 +2244,18 @@ clearTimeout(recog._submitTimer);
 recog._submitTimer = setTimeout(() => {
 if (athenaListening && finalTranscript.trim()) {
 athenaStopListening();
-athenaSubmitText(finalTranscript.trim());
+athenaSubmitText(athenaStripWakeWord(finalTranscript.trim()));
 }
-}, 1200); 
+}, 1200);
+} else if (interim) {
+clearTimeout(recog._submitTimer);
+recog._submitTimer = setTimeout(() => {
+const txt = document.getElementById('ath-text-input')?.value?.trim();
+if (athenaListening && txt) {
+athenaStopListening();
+athenaSubmitText(athenaStripWakeWord(txt));
+}
+}, 2500);
 }
 };
 recog.onerror = (e) => {
@@ -2264,8 +2283,12 @@ athenaSetRecHint(false);
 const mic = document.getElementById('ath-mic-btn');
 if (mic) { mic.className = 'ath-mic-btn active'; athenaSetMicIcon('amber'); }
 }
-if (athenaState === 'idle' && !isMobile()) {
+if (athenaState === 'idle' && (!isMobile() || isTablet())) {
+if (!OWW.running && window.ort) {
+owwLoadModels().then(ok => { if (ok) owwStart(); });
+} else if (!OWW.running) {
 setTimeout(() => { try { athenaRecog?.start(); } catch(e){} }, 500);
+}
 }
 };
 try {
