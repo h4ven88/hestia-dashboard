@@ -396,7 +396,9 @@ source.onended=()=>{ctx.close();_athenaPreviewCtx=null;if(btn){btn.textContent='
 const stat=document.getElementById('sp-voice-status');if(stat)stat.innerHTML+=`<br><span style="color:var(--conn-err)">⚠ Preview failed: ${e.message}</span>`;}}
 const _GOOGLE_VOICE_MAP={'en-GB':'en-GB-Neural2-C','en-US':'en-US-Neural2-F','es-ES':'es-ES-Neural2-A','es-US':'es-US-Neural2-A',};function athenaStartFollowUp(){if(athenaState!=='responding')return;athenaSetState('listening');if(_athenaSRBroken||!(window.SpeechRecognition||window.webkitSpeechRecognition)){const lbl=document.getElementById('ath-state-lbl');if(lbl)lbl.textContent='Type follow-up or wait…';const input=document.getElementById('ath-text-input');if(input){input.placeholder='Type follow-up command…';input.focus();}
 clearTimeout(athenaFollowUpTimer);athenaFollowUpTimer=setTimeout(()=>{if(athenaState==='listening')athenaClose();},10000);return;}
-athenaStartListening();clearTimeout(athenaFollowUpTimer);athenaFollowUpTimer=setTimeout(()=>{if(athenaState==='listening'&&!athenaListening){athenaClose();}},5000);}
+athenaStartListening();clearTimeout(athenaFollowUpTimer);let _followUpChecks=0;athenaFollowUpTimer=setInterval(()=>{_followUpChecks++;if(athenaState!=='listening'&&athenaState!=='idle'){clearInterval(athenaFollowUpTimer);return;}
+if(_followUpChecks>=5&&!athenaListening){clearInterval(athenaFollowUpTimer);athenaClose();}
+if(_followUpChecks>=10){clearInterval(athenaFollowUpTimer);if(athenaState==='listening')athenaClose();}},1000);}
 async function athenaSpeak(text,onEnd){if(!text){if(onEnd)onEnd();return;}
 if(CONFIG.athenaGoogleTTS&&CONFIG.athenaGoogleApiKey){try{await athenaGoogleSpeak(text,onEnd);return;}catch(e){console.warn('[Athena] Google TTS failed, falling back to Web Speech:',e.message);}}
 athenaWebSpeak(text,onEnd);}
