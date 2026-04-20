@@ -1,154 +1,91 @@
-name: Train Wake Word
+name: Train Wake Word Model
 
 on:
   workflow_dispatch:
     inputs:
       word:
-        description: 'Wake word to train (e.g. Athena, Hestia, Jarvis)'
+        description: 'Wake word to train (e.g., athena, hestia, jarvis)'
         required: true
-        default: 'Athena'
-      clips:
-        description: 'Number of synthetic clips to generate'
+        default: 'athena'
+      positive_count:
+        description: 'Base positive clips (each generates ~18 augmented variants)'
         required: false
-        default: '500'
-  workflow_call:
-    inputs:
-      word:
-        required: true
-        type: string
-      clips:
+        default: '200'
+      negative_count:
+        description: 'Base negative clips (each generates ~5 variants)'
         required: false
-        type: string
+        default: '300'
+      epochs:
+        description: 'Training epochs'
+        required: false
         default: '500'
 
 jobs:
   train:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    permissions:
-      contents: write
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    timeout-minutes: 30
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg libsndfile1 sox espeak-ng libsox-fmt-mp3 libmad0
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y espeak-ng ffmpeg
 
-      - name: Install Python dependencies
-        run: |
-          pip install --upgrade pip
-          pip install edge-tts==6.1.12 numpy==1.26.4 scipy==1.13.0 \
-                      soundfile==0.12.1 pydub==0.25.1 \
-                      onnx==1.16.0 onnxruntime==1.18.0
-          pip install torch==2.3.0 --index-url https://download.pytorch.org/whl/cpu
+    - name: Install Python dependencies
+      run: |
+        pip install edge-tts onnxruntime numpy onnx
 
-      - name: Download OpenWakeWord backbone models
-        run: |
-          mkdir -p $GITHUB_WORKSPACE/.backbone
-          wget -q -O $GITHUB_WORKSPACE/.backbone/melspectrogram.onnx \
-            "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/melspectrogram.onnx"
-          wget -q -O $GITHUB_WORKSPACE/.backbone/embedding_model.onnx \
-            "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.onnx"
-          ls -lh $GITHUB_WORKSPACE/.backbone/
+    - name: Download backbone models (if not present)
+      run: |
+        mkdir -p models
+        if [ ! -f models/melspectrogram.onnx ]; then
+          echo "Downloading melspectrogram.onnx..."
+          curl -L -o models/melspectrogram.onnx \
+            "https://github.com/dscripka/openWakeWord/raw/main/openwakeword/resources/models/melspectrogram.onnx"
+        fi
+        if [ ! -f models/embedding_model.onnx ]; then
+          echo "Downloading embedding_model.onnx..."
+          curl -L -o models/embedding_model.onnx \
+            "https://github.com/dscripka/openWakeWord/raw/main/openwakeword/resources/models/embedding_model.onnx"
+        fi
+        ls -la models/
 
-      - name: Generate synthetic clips (positive + negative)
-        run: |
-          WORD="${{ github.event.inputs.word || inputs.word }}"
-          CLIPS="${{ github.event.inputs.clips || inputs.clips || '500' }}"
-          WORD_LOWER=$(echo "$WORD" | tr '[:upper:]' '[:lower:]')
-          POS_DIR="$GITHUB_WORKSPACE/.clips/${WORD_LOWER}/pos"
-          NEG_DIR="$GITHUB_WORKSPACE/.clips/${WORD_LOWER}/neg"
-          mkdir -p "$POS_DIR" "$NEG_DIR"
-          python3 scripts/generate_clips.py "$WORD" "$CLIPS" "$POS_DIR" "$NEG_DIR"
-          echo "Positive clips: $(ls $POS_DIR | wc -l)"
-          echo "Negative clips: $(ls $NEG_DIR | wc -l)"
+    - name: Generate training clips
+      run: |
+        python scripts/generate_clips.py \
+          --word "${{ github.event.inputs.word }}" \
+          --output-dir clips \
+          --positive-count ${{ github.event.inputs.positive_count }} \
+          --negative-count ${{ github.event.inputs.negative_count }}
 
-      - name: Convert clips to 16kHz WAV
-        run: |
-          WORD="${{ github.event.inputs.word || inputs.word }}"
-          WORD_LOWER=$(echo "$WORD" | tr '[:upper:]' '[:lower:]')
+    - name: Train classifier
+      run: |
+        python scripts/train_classifier.py \
+          --word "${{ github.event.inputs.word }}" \
+          --clips-dir clips \
+          --models-dir models \
+          --epochs ${{ github.event.inputs.epochs }}
 
-          convert_dir() {
-            local IN_DIR="$1"
-            local OUT_DIR="$2"
-            mkdir -p "$OUT_DIR"
-            count=0
-            for f in "$IN_DIR"/*.mp3 "$IN_DIR"/*.wav; do
-              [ -f "$f" ] || continue
-              base=$(basename "${f%.*}")
-              if sox "$f" -r 16000 -c 1 -b 16 "$OUT_DIR/${base}.wav" 2>/dev/null; then
-                count=$((count+1))
-              fi
-            done
-            echo "$count"
-          }
+    - name: Upload trained model as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ github.event.inputs.word }}-model
+        path: models/${{ github.event.inputs.word }}.onnx
+        retention-days: 90
 
-          POS_IN="$GITHUB_WORKSPACE/.clips/${WORD_LOWER}/pos"
-          NEG_IN="$GITHUB_WORKSPACE/.clips/${WORD_LOWER}/neg"
-          POS_WAV="$GITHUB_WORKSPACE/.wav/${WORD_LOWER}/pos"
-          NEG_WAV="$GITHUB_WORKSPACE/.wav/${WORD_LOWER}/neg"
-
-          pos_count=$(convert_dir "$POS_IN" "$POS_WAV")
-          neg_count=$(convert_dir "$NEG_IN" "$NEG_WAV")
-          echo "Converted: ${pos_count} positive, ${neg_count} negative WAV files"
-
-          if [ "$pos_count" -eq 0 ] || [ "$neg_count" -eq 0 ]; then
-            echo "ERROR: Missing converted clips"
-            exit 1
-          fi
-
-      - name: Train classifier and export ONNX
-        run: |
-          WORD="${{ github.event.inputs.word || inputs.word }}"
-          WORD_LOWER=$(echo "$WORD" | tr '[:upper:]' '[:lower:]')
-          python3 scripts/train_classifier.py \
-            "$WORD" \
-            "$GITHUB_WORKSPACE/.wav/${WORD_LOWER}/pos" \
-            "$GITHUB_WORKSPACE/.wav/${WORD_LOWER}/neg" \
-            "$GITHUB_WORKSPACE/.backbone/melspectrogram.onnx" \
-            "$GITHUB_WORKSPACE/.backbone/embedding_model.onnx" \
-            "models"
-
-      - name: Commit model to repository
-        run: |
-          WORD="${{ github.event.inputs.word || inputs.word }}"
-          WORD_LOWER=$(echo "$WORD" | tr '[:upper:]' '[:lower:]')
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Only commit the trained word model — backbone models are manually uploaded once
-          git add "models/${WORD_LOWER}.onnx"
-          # Also commit backbone models if they're new (first-time setup)
-          [ -f models/melspectrogram.onnx ] && git add models/melspectrogram.onnx || true
-          [ -f models/embedding_model.onnx ] && git add models/embedding_model.onnx || true
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "chore: add wake word model '${WORD}' + backbone models [skip ci]"
-            git push
-            echo "Live at: https://www.hestari.com/models/${WORD_LOWER}.onnx"
-          fi
-
-      - name: Summary
-        if: always()
-        run: |
-          WORD="${{ github.event.inputs.word || inputs.word }}"
-          WORD_LOWER=$(echo "$WORD" | tr '[:upper:]' '[:lower:]')
-          echo "=============================="
-          echo "  Word:  ${WORD}"
-          if [ -f "models/${WORD_LOWER}.onnx" ]; then
-            echo "  Size:  $(du -h models/${WORD_LOWER}.onnx | cut -f1)"
-            echo "  URL:   https://www.hestari.com/models/${WORD_LOWER}.onnx"
-          else
-            echo "  Model: not produced"
-          fi
-          echo "=============================="
+    - name: Commit model to repo (if athena)
+      if: github.event.inputs.word == 'athena'
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add models/${{ github.event.inputs.word }}.onnx
+        git diff --cached --quiet || git commit -m "chore: retrain ${{ github.event.inputs.word }}.onnx with augmented data"
+        git push
