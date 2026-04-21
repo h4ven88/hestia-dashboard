@@ -43,9 +43,10 @@ preferences {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
-@Field static final String APP_VERSION     = "1.3.1"
-@Field static final String TOKEN_FILENAME  = "hestia-token.json"
-@Field static final String CONFIG_FILENAME = "hestia-config.json"
+@Field static final String APP_VERSION        = "1.3.1"
+@Field static final String TOKEN_FILENAME      = "hestia-token.json"
+@Field static final String CONFIG_FILENAME     = "hestia-config.json"
+@Field static final String DASHBOARD_FILENAME  = "index.html"
 
 // ── CORS headers ──────────────────────────────────────────────────────────
 // Enabled by default — endpoints require OAuth tokens so there is no
@@ -93,8 +94,9 @@ def mainPage() {
         section("Access") {
             def hubIp = location.hubs[0].localIP
             paragraph "Open your dashboard:\n\n" +
-                "<strong>Hosted:</strong> <a href=\"https://www.hestari.com\" target=\"_blank\">https://www.hestari.com</a> — always up to date\n\n" +
-                "<strong>Local:</strong> <a href=\"http://${hubIp}/local/index.html\" target=\"_blank\">http://${hubIp}/local/index.html</a> — works without internet\n\n" +
+                "<strong>Cloud:</strong> <a href=\"https://www.hestari.com\" target=\"_blank\">https://www.hestari.com</a> — always the latest version, requires internet for initial page load\n\n" +
+                "<strong>Local:</strong> <a href=\"http://${hubIp}/local/${DASHBOARD_FILENAME}\" target=\"_blank\">http://${hubIp}/local/${DASHBOARD_FILENAME}</a> — runs entirely on your LAN, no internet required\n\n" +
+                "Both versions connect to your hub the same way. Keep the local file updated when upgrading.\n\n" +
                 "To use hestari.com, add to <strong>Maker API → Allowed Hosts (for CORS)</strong>:\n" +
                 "<code>https://www.hestari.com, https://hestari.com</code>"
         }
