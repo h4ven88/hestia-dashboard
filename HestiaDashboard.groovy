@@ -1,5 +1,5 @@
 /**
- * Hestia™ Home Dashboard v1.3.0
+ * Hestia™ Home Dashboard v1.3.1
  * ════════════════════════════════════════════════════════════════
  * Lightweight companion app — discovery helper and config store.
  *
@@ -18,10 +18,11 @@
  * https://github.com/h4ven88/hestia-dashboard
  *
  * ── ENDPOINTS ───────────────────────────────────────────────────
- * GET  /config    Returns stored config JSON
- * POST /config    Saves config JSON
- * GET  /version   Returns app version info
- * GET  /ping      Health check
+ * GET     /config    Returns stored config JSON
+ * POST    /config    Saves config JSON
+ * OPTIONS /config    CORS preflight
+ * GET     /version   Returns app version info
+ * GET     /ping      Health check
  */
 
 import groovy.transform.Field
@@ -42,21 +43,36 @@ preferences {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
-@Field static final String APP_VERSION     = "1.3.0"
+@Field static final String APP_VERSION     = "1.3.1"
 @Field static final String TOKEN_FILENAME  = "hestia-token.json"
 @Field static final String CONFIG_FILENAME = "hestia-config.json"
+
+// ── CORS headers ──────────────────────────────────────────────────────────
+// Enabled by default — endpoints require OAuth tokens so there is no
+// security risk. The dashboard at hestari.com needs cross-origin access
+// to sync config and generate wall panel URLs.
+@Field static final Map CORS_HEADERS = [
+    "Access-Control-Allow-Origin":  "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization"
+]
 
 // ── Endpoint mappings ─────────────────────────────────────────────────────
 mappings {
     path("/config") {
-        action: [ GET: "getConfig", POST: "saveConfig" ]
+        action: [ GET: "getConfig", POST: "saveConfig", OPTIONS: "preflight" ]
     }
     path("/version") {
-        action: [ GET: "getVersion" ]
+        action: [ GET: "getVersion", OPTIONS: "preflight" ]
     }
     path("/ping") {
-        action: [ GET: "ping" ]
+        action: [ GET: "ping", OPTIONS: "preflight" ]
     }
+}
+
+// ── CORS preflight handler ────────────────────────────────────────────────
+def preflight() {
+    render contentType: "text/plain", headers: CORS_HEADERS, data: ""
 }
 
 // ── UI Page ───────────────────────────────────────────────────────────────
@@ -128,16 +144,12 @@ def initialize() {
 }
 
 // ── Discovery file ────────────────────────────────────────────────────────
-// Writes Maker API credentials to /local/hestia-token.json so the dashboard
-// can auto-discover hub credentials on new devices on the local network.
-// Updated on every initialize() and every config save.
 def writeDiscovery() {
     if (!state.accessToken) return
     try {
         def hubIp      = location.hubs[0].localIP
         def makerAppId = ""
         def makerToken = ""
-        // Extract Maker API credentials from stored config if available
         if (state.config) {
             try {
                 def cfg = new groovy.json.JsonSlurper().parseText(state.config)
@@ -164,35 +176,36 @@ def writeDiscovery() {
 
 // ── Config endpoints ──────────────────────────────────────────────────────
 def getConfig() {
-    render contentType: "application/json", data: (state.config ?: "null")
+    render contentType: "application/json", headers: CORS_HEADERS,
+           data: (state.config ?: "null")
 }
 
 def saveConfig() {
     try {
         def body = request.body
         if (!body) {
-            render contentType: "application/json",
+            render contentType: "application/json", headers: CORS_HEADERS,
                    data: '{"status":"error","message":"empty body"}'
             return
         }
-        new groovy.json.JsonSlurper().parseText(body) // validate JSON before storing
+        new groovy.json.JsonSlurper().parseText(body)
         state.config     = body
         state.configSize = body.length()
         try { uploadHubFile(CONFIG_FILENAME, body.getBytes("UTF-8")) } catch(e) {}
-        // Refresh discovery file so makerApiToken stays current after every save
         writeDiscovery()
         log.info "Hestia: config saved (${body.length()} bytes)"
-        render contentType: "application/json", data: '{"status":"ok"}'
+        render contentType: "application/json", headers: CORS_HEADERS,
+               data: '{"status":"ok"}'
     } catch(e) {
         log.error "Hestia: config save error: ${e.message}"
-        render contentType: "application/json",
+        render contentType: "application/json", headers: CORS_HEADERS,
                data: """{"status":"error","message":"${e.message.replace('"','\\"')}"}"""
     }
 }
 
 // ── Version + health endpoints ────────────────────────────────────────────
 def getVersion() {
-    render contentType: "application/json",
+    render contentType: "application/json", headers: CORS_HEADERS,
            data: new groovy.json.JsonBuilder([
                appVersion:   APP_VERSION,
                configStored: state.config != null,
@@ -202,7 +215,7 @@ def getVersion() {
 }
 
 def ping() {
-    render contentType: "application/json",
+    render contentType: "application/json", headers: CORS_HEADERS,
            data: new groovy.json.JsonBuilder([
                status:       "ok",
                app:          "Hestia Dashboard",
