@@ -3403,7 +3403,7 @@ const OWW = {
   mel:         null,    // InferenceSession
   emb:         null,    // InferenceSession
   cls:         null,    // InferenceSession (classifier)
-  THRESHOLD:   0.85,    // per-score threshold — high to reject music/typing/ambient noise
+  THRESHOLD:   0.5,     // OWW default — Colab-trained models target this threshold
   CONSEC_HITS: 2,       // strictly consecutive above-threshold scores required (no gaps)
   COOLDOWN_MS: 3000,    // ms between triggers
   _lastFire:   0,
@@ -3514,9 +3514,9 @@ async function owwProcessChunk(float32chunk) {
     const clsOut   = await OWW.cls.run({ 'onnx::Flatten_0': clsInput });
     const score    = clsOut[Object.keys(clsOut)[0]].data[0];
 
-    // Diagnostic: log scores approaching threshold
-    if (score > 0.5) {
-      console.log(`[OWW] Score: ${score.toFixed(3)}`);
+    // Diagnostic: log scores to understand model output range
+    if (score > 0.1 || _owwChunkCount <= 50) {
+      console.log(`[OWW] Score: ${score.toFixed(6)} (buf: ${owwEmbBuf.length}/${OWW_EMB_WINDOW})`);
     }
 
     if (score > OWW.THRESHOLD) {
@@ -4887,7 +4887,7 @@ function athenaSubmitText(text) {
     athenaAddBubble('user', text.trim());
     athenaAddBubble('athena', 'Okay!');
     athenaSetState('responding');
-    athenaSpeak('Okay!', () => athenaClose());
+    athenaSpeak('Okay!', () => setTimeout(athenaClose, 800));
     return;
   }
 
