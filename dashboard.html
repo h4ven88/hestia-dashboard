@@ -3502,6 +3502,13 @@ async function owwProcessChunk(float32chunk) {
     const embOut   = await OWW.emb.run({ input_1: embInput });
     const embData  = embOut[Object.keys(embOut)[0]];   // [1, 1, 1, 96]
 
+    // Diagnostic: check raw embedding values
+    if (_owwChunkCount <= 25) {
+      const raw = embData.data;
+      const mn = Math.min(...raw), mx = Math.max(...raw);
+      console.log(`[OWW] Raw embedding: len=${raw.length} min=${mn.toFixed(2)} max=${mx.toFixed(2)} first3=[${Array.from(raw.slice(0,3)).map(v=>v.toFixed(2))}]`);
+    }
+
     // 3. Classifier — accumulate embeddings, input [1, 16, 96] → score
     const emb96 = embData.data.slice(0, 96);
     owwEmbBuf.push(new Float32Array(emb96));
@@ -3510,6 +3517,16 @@ async function owwProcessChunk(float32chunk) {
 
     const clsArr = new Float32Array(OWW_EMB_WINDOW * 96);
     for (let i = 0; i < OWW_EMB_WINDOW; i++) clsArr.set(owwEmbBuf[i], i * 96);
+
+    // Diagnostic: compare embedding stats with expected Python values
+    // Python shows: range [-45, +65], mean ~2.0
+    if (_owwChunkCount <= 30) {
+      const vals = Array.from(clsArr.slice(0, 10));
+      const mn = Math.min(...clsArr), mx = Math.max(...clsArr);
+      const avg = clsArr.reduce((a,b) => a+b, 0) / clsArr.length;
+      console.log(`[OWW] Classifier input: min=${mn.toFixed(2)} max=${mx.toFixed(2)} mean=${avg.toFixed(4)} first5=[${vals.slice(0,5).map(v=>v.toFixed(2))}]`);
+    }
+
     const clsInput = new ort.Tensor('float32', clsArr, [1, OWW_EMB_WINDOW, 96]);
     const clsOut   = await OWW.cls.run({ 'onnx::Flatten_0': clsInput });
     const score    = clsOut[Object.keys(clsOut)[0]].data[0];
