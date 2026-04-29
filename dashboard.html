@@ -3465,6 +3465,8 @@ async function owwLoadModels() {
 const OWW_FRAMES_NEEDED = 76;
 const OWW_CHUNKS_NEEDED = 16;  // 16 × 5 = 80 ≥ 76
 let   owwFrameBuf = [];        // accumulated [5,32] mel frame arrays
+let   owwEmbBuf   = [];        // accumulated 96-dim embedding vectors for classifier
+const OWW_EMB_WINDOW = 16;     // classifier expects 16 stacked embeddings
 let   _owwChunkCount = 0;      // diagnostic: total chunks processed
 
 async function owwProcessChunk(float32chunk) {
@@ -3500,9 +3502,16 @@ async function owwProcessChunk(float32chunk) {
     const embOut   = await OWW.emb.run({ input_1: embInput });
     const embData  = embOut[Object.keys(embOut)[0]];   // [1, 1, 1, 96]
 
-    // 3. Classifier — input [1, 96] → score
-    const clsInput = new ort.Tensor('float32', embData.data.slice(0, 96), [1, 96]);
-    const clsOut   = await OWW.cls.run({ embedding: clsInput });
+    // 3. Classifier — accumulate embeddings, input [1, 16, 96] → score
+    const emb96 = embData.data.slice(0, 96);
+    owwEmbBuf.push(new Float32Array(emb96));
+    if (owwEmbBuf.length > OWW_EMB_WINDOW) owwEmbBuf.shift();
+    if (owwEmbBuf.length < OWW_EMB_WINDOW) return; // need 16 frames
+
+    const clsArr = new Float32Array(OWW_EMB_WINDOW * 96);
+    for (let i = 0; i < OWW_EMB_WINDOW; i++) clsArr.set(owwEmbBuf[i], i * 96);
+    const clsInput = new ort.Tensor('float32', clsArr, [1, OWW_EMB_WINDOW, 96]);
+    const clsOut   = await OWW.cls.run({ 'onnx::Flatten_0': clsInput });
     const score    = clsOut[Object.keys(clsOut)[0]].data[0];
 
     // Diagnostic: log scores approaching threshold
@@ -3521,6 +3530,7 @@ async function owwProcessChunk(float32chunk) {
         OWW._hitCount = 0;
         OWW._lastFire = now;
         owwFrameBuf   = [];
+        owwEmbBuf     = [];
         console.log(`[OWW] Wake word confirmed — score: ${score.toFixed(3)} (${OWW.CONSEC_HITS} consecutive)`);
         athenaDebounce = true;
         setTimeout(() => { athenaDebounce = false; }, OWW.COOLDOWN_MS);
@@ -3631,6 +3641,7 @@ async function owwStart() {
         OWW.ctx.resume().then(() => {
           if (OWW.ctx?.state === 'running') {
             owwFrameBuf = [];
+            owwEmbBuf   = [];
             _owwChunkCount = 0;
             OWW._errLogged = false;
             console.log('[OWW] AudioContext resumed — wake detection active');
@@ -3671,6 +3682,7 @@ function owwStop() {
   OWW.ctx = null; OWW.stream = null; OWW.worklet = null;
   OWW._firstHitTime = 0; OWW._hitCount = 0; OWW._errLogged = false;
   owwFrameBuf = [];  // clear stale frames so restart begins fresh
+  owwEmbBuf   = [];  // clear stale embeddings
 }
 
 // ── Main wake detection entry point ──────────────────────────────────────
