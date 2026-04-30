@@ -3502,11 +3502,11 @@ async function owwProcessChunk(float32chunk) {
     const embOut   = await OWW.emb.run({ input_1: embInput });
     const embData  = embOut[Object.keys(embOut)[0]];   // [1, 1, 1, 96]
 
-    // Diagnostic: check raw embedding values
-    if (_owwChunkCount <= 25) {
+    // Diagnostic: check raw embedding values (first 5 chunks only)
+    if (_owwChunkCount <= 20) {
       const raw = embData.data;
       const mn = Math.min(...raw), mx = Math.max(...raw);
-      console.log(`[OWW] Raw embedding: len=${raw.length} min=${mn.toFixed(2)} max=${mx.toFixed(2)} first3=[${Array.from(raw.slice(0,3)).map(v=>v.toFixed(2))}]`);
+      console.log(`[OWW] Raw embedding: len=${raw.length} min=${mn.toFixed(2)} max=${mx.toFixed(2)}`);
     }
 
     // 3. Classifier — accumulate embeddings, input [1, 16, 96] → score
@@ -3518,22 +3518,20 @@ async function owwProcessChunk(float32chunk) {
     const clsArr = new Float32Array(OWW_EMB_WINDOW * 96);
     for (let i = 0; i < OWW_EMB_WINDOW; i++) clsArr.set(owwEmbBuf[i], i * 96);
 
-    // Diagnostic: compare embedding stats with expected Python values
-    // Python shows: range [-45, +65], mean ~2.0
-    if (_owwChunkCount <= 30) {
-      const vals = Array.from(clsArr.slice(0, 10));
-      const mn = Math.min(...clsArr), mx = Math.max(...clsArr);
-      const avg = clsArr.reduce((a,b) => a+b, 0) / clsArr.length;
-      console.log(`[OWW] Classifier input: min=${mn.toFixed(2)} max=${mx.toFixed(2)} mean=${avg.toFixed(4)} first5=[${vals.slice(0,5).map(v=>v.toFixed(2))}]`);
+    // Diagnostic: classifier input stats (first 5 only)
+    if (_owwChunkCount <= 20) {
+      let mn = clsArr[0], mx = clsArr[0], sum = 0;
+      for (let j = 0; j < clsArr.length; j++) { if (clsArr[j] < mn) mn = clsArr[j]; if (clsArr[j] > mx) mx = clsArr[j]; sum += clsArr[j]; }
+      console.log(`[OWW] Cls input: min=${mn.toFixed(2)} max=${mx.toFixed(2)} mean=${(sum/clsArr.length).toFixed(4)}`);
     }
 
     const clsInput = new ort.Tensor('float32', clsArr, [1, OWW_EMB_WINDOW, 96]);
     const clsOut   = await OWW.cls.run({ 'onnx::Flatten_0': clsInput });
     const score    = clsOut[Object.keys(clsOut)[0]].data[0];
 
-    // Diagnostic: log scores to understand model output range
-    if (score > 0.1 || _owwChunkCount <= 50) {
-      console.log(`[OWW] Score: ${score.toFixed(6)} (buf: ${owwEmbBuf.length}/${OWW_EMB_WINDOW})`);
+    // Diagnostic: log ALL scores above background to catch wake word spikes
+    if (score > 0.001) {
+      console.log(`[OWW] Score: ${score.toFixed(6)}`);
     }
 
     if (score > OWW.THRESHOLD) {
