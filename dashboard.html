@@ -1258,7 +1258,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
           <line x1="15.7" y1="16.2" x2="20.3" y2="16.2" stroke="#F59E0B" stroke-width="1.38" stroke-linecap="square"/>
         </svg>
         <div class="ath-hdr-info">
-          <div class="ath-hdr-tag">Athena™</div>
+          <div class="ath-hdr-tag">Athena™ <span style="font-size:9px;background:rgba(245,158,11,.18);color:var(--amber);padding:1px 5px;border-radius:3px;margin-left:4px;letter-spacing:.04em;vertical-align:middle">BETA</span></div>
           <div class="ath-hdr-state" id="ath-state-lbl">I'm listening…</div>
         </div>
         <div class="ath-close" onclick="athenaClose()">✕</div>
@@ -9054,7 +9054,7 @@ function spShowSection(id, force) {
       break;
 
     case 'athena':
-      html = `<div class="sp-content-hdr"><span class="sp-content-icon">◈</span>Athena Voice Assistant</div>
+      html = `<div class="sp-content-hdr"><span class="sp-content-icon">◈</span>Athena Voice Assistant <span style="font-size:10px;background:rgba(245,158,11,.18);color:var(--amber);padding:1px 6px;border-radius:3px;margin-left:6px;letter-spacing:.05em;vertical-align:middle">BETA</span></div>
         ${spAthenaBody()}`;
       // Auto-check real browser mic permission state and update dot in-place
       requestAnimationFrame(() => {
