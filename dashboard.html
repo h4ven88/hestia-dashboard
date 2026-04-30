@@ -3468,16 +3468,7 @@ let   owwFrameBuf = [];        // accumulated [5,32] mel frame arrays
 let   _owwChunkCount = 0;      // diagnostic: total chunks processed
 
 async function owwProcessChunk(float32chunk) {
-  if (!OWW.ready || athenaState !== 'idle' || athenaDebounce) {
-    // Log first few blocked chunks to diagnose
-    if (!owwProcessChunk._blockCount) owwProcessChunk._blockCount = 0;
-    owwProcessChunk._blockCount++;
-    if (owwProcessChunk._blockCount <= 5) {
-      console.log(`[OWW] Chunk blocked — ready:${OWW.ready} state:${athenaState} debounce:${athenaDebounce}`);
-    }
-    return;
-  }
-  owwProcessChunk._blockCount = 0;
+  if (!OWW.ready || athenaState !== 'idle' || athenaDebounce) return;
   _owwChunkCount++;
 
   // Grace period: skip first 25 chunks (~2s) after start/restart to let mic settle
@@ -3522,8 +3513,8 @@ async function owwProcessChunk(float32chunk) {
     const clsOut   = await OWW.cls.run({ embedding: clsInput });
     const score    = clsOut[Object.keys(clsOut)[0]].data[0];
 
-    // Log scores — lower threshold for diagnostics during Sprint 6 testing
-    if (score > 0.1) {
+    // Log scores above threshold for diagnostics
+    if (score > OWW.THRESHOLD) {
       console.log(`[OWW] Score: ${score.toFixed(3)}`);
     }
 
