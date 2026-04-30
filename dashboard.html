@@ -3403,8 +3403,8 @@ const OWW = {
   mel:         null,    // InferenceSession
   emb:         null,    // InferenceSession
   cls:         null,    // InferenceSession (classifier)
-  THRESHOLD:   0.5,     // OWW default — Colab-trained models target this threshold
-  CONSEC_HITS: 2,       // strictly consecutive above-threshold scores required (no gaps)
+  THRESHOLD:   0.85,    // Sprint 5 model — high threshold to reject ambient noise
+  CONSEC_HITS: 3,       // 3 consecutive above-threshold scores — reduces false triggers
   COOLDOWN_MS: 3000,    // ms between triggers
   _lastFire:   0,
   _hitCount:   0,       // consecutive above-threshold scores (resets on ANY below-threshold)
@@ -3468,10 +3468,27 @@ let   owwFrameBuf = [];        // accumulated [5,32] mel frame arrays
 let   _owwChunkCount = 0;      // diagnostic: total chunks processed
 
 async function owwProcessChunk(float32chunk) {
-  if (!OWW.ready || athenaState !== 'idle' || athenaDebounce) return;
+  if (!OWW.ready || athenaState !== 'idle' || athenaDebounce) {
+    // Log first few blocked chunks to diagnose
+    if (!owwProcessChunk._blockCount) owwProcessChunk._blockCount = 0;
+    owwProcessChunk._blockCount++;
+    if (owwProcessChunk._blockCount <= 5) {
+      console.log(`[OWW] Chunk blocked — ready:${OWW.ready} state:${athenaState} debounce:${athenaDebounce}`);
+    }
+    return;
+  }
+  owwProcessChunk._blockCount = 0;
   _owwChunkCount++;
+
+  // Grace period: skip first 25 chunks (~2s) after start/restart to let mic settle
+  if (_owwChunkCount <= 25) {
+    if (_owwChunkCount === 1) console.log('[OWW] Chunk #1 — audio flowing (grace period: 2s)');
+    if (_owwChunkCount === 25) console.log('[OWW] Grace period complete — wake detection active');
+    return;
+  }
+
   // Heartbeat: log periodically to confirm audio flow
-  if (_owwChunkCount === 1 || _owwChunkCount % 500 === 0) {
+  if (_owwChunkCount % 500 === 0) {
     console.log(`[OWW] Chunk #${_owwChunkCount} — audio flowing`);
   }
   try {
@@ -3505,8 +3522,8 @@ async function owwProcessChunk(float32chunk) {
     const clsOut   = await OWW.cls.run({ embedding: clsInput });
     const score    = clsOut[Object.keys(clsOut)[0]].data[0];
 
-    // Log scores approaching threshold
-    if (score > 0.3) {
+    // Log scores — lower threshold for diagnostics during Sprint 6 testing
+    if (score > 0.1) {
       console.log(`[OWW] Score: ${score.toFixed(3)}`);
     }
 
