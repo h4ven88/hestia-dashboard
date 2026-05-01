@@ -3454,6 +3454,9 @@ async function owwLoadModels() {
     OWW.mel = mel; OWW.emb = emb; OWW.cls = cls;
     OWW.ready = true;
     console.log('[OWW] Models ready ✓');
+    console.log('[OWW] Classifier inputs:', cls.inputNames, 'outputs:', cls.outputNames);
+    console.log('[OWW] Embedding inputs:', emb.inputNames, 'outputs:', emb.outputNames);
+    console.log('[OWW] Mel inputs:', mel.inputNames, 'outputs:', mel.outputNames);
     return true;
   } catch(e) {
     console.warn('[OWW] Model load failed:', e.message);
@@ -3486,10 +3489,8 @@ async function owwProcessChunk(float32chunk) {
   }
 
   try {
-    // 1. Scale WebAudio [-1,+1] to int16 range [-32768,+32767] then mel model
-    const scaledChunk = new Float32Array(1280);
-    for (let i = 0; i < 1280; i++) scaledChunk[i] = float32chunk[i] * 32768;
-    const melInput = new ort.Tensor('float32', scaledChunk, [1, 1280]);
+    // 1. Mel model — input [1, 1280] -> output [1, 1, 5, 32]
+    const melInput = new ort.Tensor('float32', float32chunk, [1, 1280]);
     const melOut   = await OWW.mel.run({ input: melInput });
     const melData  = melOut[Object.keys(melOut)[0]];
 
@@ -3542,7 +3543,16 @@ async function owwProcessChunk(float32chunk) {
     const clsOut   = await OWW.cls.run({ 'onnx::Flatten_0': clsInput });
     const score    = clsOut[Object.keys(clsOut)[0]].data[0];
 
-    // 8. Diagnostic: log every 25th score so we can see classifier output
+    // 8. Diagnostic logging
+    if (!OWW._diagDone) {
+      OWW._diagDone = true;
+      const melSample = owwMelBuf[owwMelBuf.length - 1];
+      const embSample = owwEmbBuf[owwEmbBuf.length - 1];
+      console.log('[OWW] DIAG mel frame (last):', Array.from(melSample.slice(0, 8)).map(v => v.toFixed(3)));
+      console.log('[OWW] DIAG embedding (last):', Array.from(embSample.slice(0, 8)).map(v => v.toFixed(3)));
+      console.log('[OWW] DIAG classifier input shape: [1,' + OWW_EMB_HISTORY + ',96], name: onnx::Flatten_0');
+      console.log('[OWW] DIAG first score:', score.toFixed(6));
+    }
     if (_owwChunkCount % 25 === 0) {
       console.log(`[OWW] Score: ${score.toFixed(6)} (chunk #${_owwChunkCount})`);
     }
