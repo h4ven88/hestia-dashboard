@@ -3509,12 +3509,10 @@ async function owwProcessChunk(float32chunk) {
       console.log('[OWW] DIAG transformed mel (first 8):', txMel);
     }
 
-    // 2. Extract 5 mel frames, apply mel transform, append to cumulative mel buffer
+    // 2. Extract 5 mel frames and append to cumulative mel buffer
     for (let f = 0; f < 5; f++) {
       const frame = new Float32Array(32);
-      for (let j = 0; j < 32; j++) {
-        frame[j] = melData.data[f * 32 + j] / 10 + 2;
-      }
+      frame.set(melData.data.slice(f * 32, (f + 1) * 32));
       owwMelBuf.push(frame);
     }
 
