@@ -3489,10 +3489,25 @@ async function owwProcessChunk(float32chunk) {
   }
 
   try {
-    // 1. Mel model — input [1, 1280] -> output [1, 1, 5, 32]
-    const melInput = new ort.Tensor('float32', float32chunk, [1, 1280]);
+    // 1. Scale to int16 range + mel model
+    const scaledChunk = new Float32Array(1280);
+    for (let i = 0; i < 1280; i++) scaledChunk[i] = float32chunk[i] * 32768;
+    const melInput = new ort.Tensor('float32', scaledChunk, [1, 1280]);
     const melOut   = await OWW.mel.run({ input: melInput });
     const melData  = melOut[Object.keys(melOut)[0]];
+
+    // Diagnostic: log audio RMS + raw mel + transformed mel on first run
+    if (!OWW._melDiag) {
+      OWW._melDiag = true;
+      let rms = 0;
+      for (let i = 0; i < 1280; i++) rms += float32chunk[i] * float32chunk[i];
+      rms = Math.sqrt(rms / 1280);
+      const rawMel = Array.from(melData.data.slice(0, 8)).map(v => v.toFixed(2));
+      const txMel = rawMel.map(v => (parseFloat(v) / 10 + 2).toFixed(2));
+      console.log(`[OWW] DIAG audio RMS: ${rms.toFixed(6)}, scaled RMS: ${(rms * 32768).toFixed(1)}`);
+      console.log('[OWW] DIAG raw mel (first 8):', rawMel);
+      console.log('[OWW] DIAG transformed mel (first 8):', txMel);
+    }
 
     // 2. Extract 5 mel frames, apply mel transform, append to cumulative mel buffer
     for (let f = 0; f < 5; f++) {
