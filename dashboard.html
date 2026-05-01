@@ -3509,10 +3509,12 @@ async function owwProcessChunk(float32chunk) {
       console.log('[OWW] DIAG transformed mel (first 8):', txMel);
     }
 
-    // 2. Extract 5 mel frames and append to cumulative mel buffer
+    // 2. Extract 5 mel frames, apply mel transform, append to cumulative mel buffer
     for (let f = 0; f < 5; f++) {
       const frame = new Float32Array(32);
-      frame.set(melData.data.slice(f * 32, (f + 1) * 32));
+      for (let j = 0; j < 32; j++) {
+        frame[j] = melData.data[f * 32 + j] / 10 + 2;
+      }
       owwMelBuf.push(frame);
     }
 
@@ -3559,15 +3561,12 @@ async function owwProcessChunk(float32chunk) {
     // 8. Diagnostic logging
     if (!OWW._diagDone) {
       OWW._diagDone = true;
-      const melSample = owwMelBuf[owwMelBuf.length - 1];
-      const embSample = owwEmbBuf[owwEmbBuf.length - 1];
-      console.log('[OWW] DIAG mel frame (last):', Array.from(melSample.slice(0, 8)).map(v => v.toFixed(3)));
-      console.log('[OWW] DIAG embedding (last):', Array.from(embSample.slice(0, 8)).map(v => v.toFixed(3)));
-      console.log('[OWW] DIAG classifier input shape: [1,' + OWW_EMB_HISTORY + ',96], name: onnx::Flatten_0');
-      console.log('[OWW] DIAG first score:', score.toFixed(6));
+      console.log(`[OWW] Classifier active at chunk #${_owwChunkCount} — say "Athena" now`);
     }
-    if (_owwChunkCount % 25 === 0) {
-      console.log(`[OWW] Score: ${score.toFixed(6)} (chunk #${_owwChunkCount})`);
+    if (score > 0.005) {
+      console.log(`[OWW] Score: ${score.toFixed(4)} (chunk #${_owwChunkCount})`);
+    } else if (_owwChunkCount % 50 === 0) {
+      console.log(`[OWW] Score: ${score.toFixed(6)} (chunk #${_owwChunkCount}, silence baseline)`);
     }
 
     if (score > OWW.THRESHOLD) {
