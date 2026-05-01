@@ -3486,8 +3486,10 @@ async function owwProcessChunk(float32chunk) {
   }
 
   try {
-    // 1. Mel model — input [1, 1280] -> output [1, 1, 5, 32]
-    const melInput = new ort.Tensor('float32', float32chunk, [1, 1280]);
+    // 1. Scale WebAudio [-1,+1] to int16 range [-32768,+32767] then mel model
+    const scaledChunk = new Float32Array(1280);
+    for (let i = 0; i < 1280; i++) scaledChunk[i] = float32chunk[i] * 32768;
+    const melInput = new ort.Tensor('float32', scaledChunk, [1, 1280]);
     const melOut   = await OWW.mel.run({ input: melInput });
     const melData  = melOut[Object.keys(melOut)[0]];
 
