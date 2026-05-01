@@ -1,17 +1,17 @@
 /**
- * Hestia™ Home Dashboard v1.3.1
+ * Hestia™ Home Dashboard v1.4.0
  * ════════════════════════════════════════════════════════════════
  * Lightweight companion app — discovery helper and config store.
  *
- * The dashboard is served from https://www.hestari.com (Cloudflare)
+ * The dashboard is served from https://hestari.com (Cloudflare)
  * or directly from the hub at http://[hub-ip]/local/index.html.
- * This app no longer fetches or hosts the dashboard HTML — Cloudflare
- * handles that. Its sole responsibilities are:
+ * This companion app handles:
  *
- *   1. Write hestia-token.json  — Maker API credentials for local
+ *   1. Download index.html      — fetch from GitHub on install/upgrade
+ *   2. Write hestia-token.json  — Maker API credentials for local
  *      network auto-discovery by the dashboard on new devices
- *   2. Store and serve config   — cross-device settings sync
- *   3. Health check + version   — status endpoints
+ *   3. Store and serve config   — cross-device settings sync
+ *   4. Health check + version   — status endpoints
  *
  * Copyright © 2026 Haven. All rights reserved.
  * License: CC BY-NC 4.0 — personal use only.
@@ -43,10 +43,11 @@ preferences {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
-@Field static final String APP_VERSION        = "1.3.1"
+@Field static final String APP_VERSION        = "1.4.0"
 @Field static final String TOKEN_FILENAME      = "hestia-token.json"
 @Field static final String CONFIG_FILENAME     = "hestia-config.json"
 @Field static final String DASHBOARD_FILENAME  = "index.html"
+@Field static final String DASHBOARD_URL       = "https://raw.githubusercontent.com/h4ven88/hestia-dashboard/main/index.html"
 
 // ── CORS headers ──────────────────────────────────────────────────────────
 // Enabled by default — endpoints require OAuth tokens so there is no
@@ -94,23 +95,25 @@ def mainPage() {
         section("Access") {
             def hubIp = location.hubs[0].localIP
             paragraph "Open your dashboard:\n\n" +
-                "<strong>Cloud:</strong> <a href=\"https://www.hestari.com\" target=\"_blank\">https://www.hestari.com</a> — always the latest version, requires internet for initial page load\n\n" +
+                "<strong>Cloud:</strong> <a href=\"https://hestari.com\" target=\"_blank\">https://hestari.com</a> — always the latest version, requires internet for initial page load\n\n" +
                 "<strong>Local:</strong> <a href=\"http://${hubIp}/local/${DASHBOARD_FILENAME}\" target=\"_blank\">http://${hubIp}/local/${DASHBOARD_FILENAME}</a> — runs entirely on your LAN, no internet required\n\n" +
-                "Both versions connect to your hub the same way. Keep the local file updated when upgrading.\n\n" +
+                "Both versions connect to your hub the same way. The local file is updated automatically when the app is installed or upgraded.\n\n" +
                 "To use hestari.com, add to <strong>Maker API → Allowed Hosts (for CORS)</strong>:\n" +
-                "<code>https://www.hestari.com, https://hestari.com</code>"
+                "<code>https://hestari.com, https://www.hestari.com</code>"
         }
 
         section("Status") {
             def hubIp = location.hubs[0].localIP
             paragraph "App version: ${APP_VERSION}\n" +
-                "Config stored: ${state.configSize ? state.configSize + ' bytes' : 'none'}\n" +
+                "Dashboard file: ${state.dashboardInstalled ? '✓ /local/' + DASHBOARD_FILENAME + ' (v' + (state.dashboardVersion ?: '?') + ')' : '⚠ not installed — click Done to download'}\n" +
                 "Discovery file: ${state.discoveryWritten ? '✓ /local/' + TOKEN_FILENAME : '⚠ not written — click Done to refresh'}\n" +
+                "Config stored: ${state.configSize ? state.configSize + ' bytes' : 'none'}\n" +
                 "App ID: ${app.id}\n" +
                 "Hub IP: ${hubIp}"
         }
 
         section("Actions") {
+            input "updateDashboard", "button", title: "⬇ Update Dashboard File"
             input "resetConfig", "button", title: "🗑 Clear Stored Config"
         }
 
@@ -122,7 +125,9 @@ def mainPage() {
 }
 
 def appButtonHandler(btn) {
-    if (btn == "resetConfig") {
+    if (btn == "updateDashboard") {
+        downloadDashboard(true)
+    } else if (btn == "resetConfig") {
         state.config     = null
         state.configSize = null
         try { uploadHubFile(CONFIG_FILENAME, "null".getBytes("UTF-8")) } catch(e) {}
@@ -141,6 +146,7 @@ def initialize() {
         }
     }
     unschedule()
+    downloadDashboard(false)
     writeDiscovery()
     log.info "Hestia: initialized v${APP_VERSION} — app ID: ${app.id}"
 }
@@ -173,6 +179,26 @@ def writeDiscovery() {
     } catch(e) {
         state.discoveryWritten = false
         log.warn "Hestia: could not write discovery file: ${e.message}"
+    }
+}
+
+// ── Dashboard file download ───────────────────────────────────────────────
+def downloadDashboard(Boolean force) {
+    if (!force && state.dashboardVersion == APP_VERSION) return
+    try {
+        httpGet([uri: DASHBOARD_URL, textParser: true, timeout: 30]) { response ->
+            if (response.status == 200) {
+                def content = response.data.text
+                uploadHubFile(DASHBOARD_FILENAME, content.getBytes("UTF-8"))
+                state.dashboardVersion  = APP_VERSION
+                state.dashboardInstalled = true
+                log.info "Hestia: dashboard v${APP_VERSION} installed → /local/${DASHBOARD_FILENAME} (${content.length()} bytes)"
+            } else {
+                log.warn "Hestia: dashboard download failed — HTTP ${response.status}"
+            }
+        }
+    } catch(e) {
+        log.warn "Hestia: could not download dashboard: ${e.message}"
     }
 }
 
