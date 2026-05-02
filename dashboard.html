@@ -1745,49 +1745,22 @@ function getLowBatteryDevices() {
    Poll interval is in milliseconds (5000 = 5 seconds).
 ═══════════════════════════════════════════════════════ */
 const CONFIG = {
-  hub:           'http://192.168.50.18',
-  appId:         '219',
-  token:         '42569660-0bd8-455d-a3cc-33c80bc6a3c1',
+  hub:           '',
+  appId:         '',
+  token:         '',
   poll:          1000,
-  // Default room — overridden by ?room= URL parameter.
-  // Each panel bookmarks its own URL, e.g.:
-  //   http://192.168.50.18/local/dashboard.html?room=home    ← landing page
-  //   http://192.168.50.18/local/dashboard.html?room=lower   ← kitchen
-  //   http://192.168.50.18/local/dashboard.html?room=common  ← loft
-  //   http://192.168.50.18/local/dashboard.html?room=master  ← bedroom
-  // Valid values: home, master, office, guest1, guest2, common, lower,
-  //               lights, fans, blinds, climate
   defaultRoom:   'home',
-  // Return to defaultRoom after this many ms of inactivity (0 = disabled)
   returnTimeout: 60000,
-  // Front door lock — August Pro Z-Wave (device ID 13)
-  lock: { id: '13', label: 'Front Door' },
-  settingsPin: '',     // up to 6-digit PIN to protect settings (empty = no PIN)
-  // Artemis Security Module (v1.1)
+  lock: { id: '', label: '' },
+  settingsPin: '',
   artemisEnabled: false,
-  artemisPin:     '',   // separate PIN for arming/disarming
-  artemisSensors: {     // device IDs assigned to each sensor type
-    contacts: [
-      {id:'208',name:'Bedroom 1 Window'},{id:'209',name:'Master Bedroom Left Window'},
-      {id:'210',name:'Loft Window'},{id:'212',name:'Bedroom 2 Window'},
-      {id:'213',name:'Attic Door'},{id:'214',name:'Entrance Window'},
-      {id:'216',name:'Garage Door'},{id:'218',name:'Living Room Left Window'},
-      {id:'219',name:'Garage Entrance Door'},{id:'221',name:'Living Room Right Window'},
-      {id:'223',name:'Master Bedroom Right Window'},{id:'224',name:'Back Door'},
-      {id:'226',name:'Master Closet'},{id:'229',name:'Garage Tilt Sensor'}
-    ],
-    motions: [
-      {id:'205',name:'Motion Detector Living Room'},{id:'207',name:'Motion Detector Loft'},
-      {id:'211',name:'Motion Detector Front Door'},{id:'217',name:'Motion Detector Attic'}
-    ],
-    smokes: [
-      {id:'234',name:'Smoke & CO Alarm Kitchen'},{id:'235',name:'CO Alarm Kitchen'},
-      {id:'236',name:'Smoke & CO Alarm Loft'},{id:'237',name:'CO Alarm Loft'}
-    ],
-    waters: [
-      {id:'228',name:'Garage Freeze Sensor'}
-    ],
-    glass: []           // glass break sensors
+  artemisPin:     '',
+  artemisSensors: {
+    contacts: [],
+    motions: [],
+    smokes: [],
+    waters: [],
+    glass: []
   },
   // Athena™ Voice Assistant Module (v1.0)
   athenaEnabled:    false,
@@ -1817,24 +1790,23 @@ const ARTEMIS_SENSOR_DEFAULTS = JSON.parse(JSON.stringify(CONFIG.artemisSensors)
 ═══════════════════════════════════════════════════════ */
 const DEFAULTS = {
   config: {
-    hub:           'http://192.168.50.18',
-    appId:         '219',
-    token:         '42569660-0bd8-455d-a3cc-33c80bc6a3c1',
+    hub:           '',
+    appId:         '',
+    token:         '',
     poll:          1000,
     defaultRoom:   'home',
     returnTimeout: 60000,
-    lock:          { id: '13', label: 'Front Door' },
+    lock:          { id: '', label: '' },
     artemisEnabled: false,
     artemisPin:     '',
     artemisSensors: {
-      contacts: [{id:'206',name:'Home Office'},{id:'208',name:'Bedroom 1 Window'},{id:'209',name:'Master Bedroom Left Window'},{id:'210',name:'Loft Window'},{id:'212',name:'Bedroom 2 Window'},{id:'213',name:'Attick Door'},{id:'214',name:'Entrance Window'},{id:'215',name:'Living Room Backyard Right'},{id:'216',name:'Garage Door'},{id:'218',name:'Living Room Left Window'},{id:'219',name:'Garage Entrance Door'},{id:'221',name:'Living Room Right Window'},{id:'223',name:'Master Bedroom Right Window'},{id:'224',name:'Back Door'},{id:'225',name:'Living Room Backyard Left'},{id:'226',name:'Master Closet'},{id:'229',name:'Garage Tilt Sensor'}],
-      motions:  [{id:'205',name:'Motion Detector Living Room'},{id:'207',name:'Motion Detector Loft'},{id:'211',name:'Motion Detector Front Door'},{id:'217',name:'Motion Detector Attick'}],
-      smokes:   [{id:'234',name:'Smoke & CO Alarm Kitchen'},{id:'235',name:'CO Alarm Kitchen'},{id:'236',name:'Smoke & CO Alarm Loft'},{id:'237',name:'CO Alarm Loft'}],
-      waters:   [{id:'227',name:'Kitchen Flood Freeze Sensor'},{id:'228',name:'Garage Freeze Sensor'}],
-      glass:    [{id:'222',name:'Living Room Glass Break Sensor'}]
+      contacts: [],
+      motions:  [],
+      smokes:   [],
+      waters:   [],
+      glass:    []
     },
-    weather: { lat: 36.52, lon: -82.56, zip: '', city: 'Kingsport, TN', refresh: 600000 },
-    // Athena defaults
+    weather: { lat: '', lon: '', zip: '', city: '', refresh: 600000 },
     athenaEnabled:  false,
     athenaApiKey:   '',
     athenaModel:    'claude-haiku-4-5-20251001',
@@ -1847,18 +1819,8 @@ const DEFAULTS = {
     athenaGoogleApiKey: '',
     athenaGoogleVoice: ''
   },
-  thermostats: [
-    { id: '7', name: 'Upstairs',   zone: 'Master Bedroom · Office · Guest Rooms' },
-    { id: '4', name: 'Downstairs', zone: 'Foyer · Kitchen · Living · Dining'     }
-  ],
-  rooms: [
-    { id:'master', name:'Master Bedroom',         short:'Master',  switches:[{id:'8',name:'Ceiling'}],                                               dimmers:[{id:'90',name:'Left Lamp'},{id:'91',name:'Right Lamp'}], fans:[{id:'175',name:'Ceiling Fan'}], therms:[], shades:[{id:'166',name:'Left Window'},{id:'167',name:'Right Window'},{id:'169',name:'Closet'}] },
-    { id:'office', name:'Office',                 short:'Office',  switches:[{id:'10',name:'Lights'}],                                               dimmers:[], fans:[{id:'174',name:'Desk Fan'}], therms:[], shades:[{id:'178',name:'Window'}], placeholders:['dimmers'] },
-    { id:'guest1', name:'Guest Bedroom 1',        short:'Guest 1', switches:[{id:'11',name:'Ceiling'}],                                              dimmers:[{id:'86',name:'Left Lamp'},{id:'87',name:'Right Lamp'}], fans:[{id:'176',name:'Ceiling Fan'}], therms:[], shades:[{id:'164',name:'Window'}] },
-    { id:'guest2', name:'Guest Bedroom 2',        short:'Guest 2', switches:[{id:'12',name:'Ceiling'}],                                              dimmers:[{id:'88',name:'Left Lamp'},{id:'89',name:'Right Lamp'}], fans:[{id:'177',name:'Ceiling Fan'}], therms:[], shades:[{id:'165',name:'Window'}] },
-    { id:'common', name:'Foyer & Loft',           short:'Common',  switches:[{id:'6',name:'Foyer'},{id:'9',name:'Loft'},{id:'5',name:'Front Porch'}], dimmers:[], fans:[], therms:[], shades:[{id:'160',name:'Entrance'},{id:'162',name:'Loft'}], placeholders:['dimmers','fans'] },
-    { id:'lower',  name:'Kitchen · Living · Dining', short:'Lower', switches:[{id:'1',name:'Kitchen'},{id:'2',name:'Dining'},{id:'3',name:'Living Room'}], dimmers:[], fans:[{id:'171',name:'Ceiling Fan'}], therms:[], shades:[{id:'157',name:'Backyard'},{id:'159',name:'Left Window'},{id:'161',name:'Right Window'}], placeholders:['dimmers'] }
-  ]
+  thermostats: [],
+  rooms: []
 };
 
 function deepClone(obj) { return JSON.parse(JSON.stringify(obj)); }
@@ -2006,7 +1968,7 @@ function applyParsedConfig(parsed) {
       // Deep-merge nested objects so missing fields fall back to defaults
       // rather than the whole sub-object being replaced with an incomplete version
       CONFIG.weather = Object.assign(
-        { lat: 36.52, lon: -82.56, zip: '', city: '', refresh: 600000 },
+        { lat: '', lon: '', zip: '', city: '', refresh: 600000 },
         CONFIG.weather || {}
       );
       if (!CONFIG.lock) CONFIG.lock = {};
@@ -6321,7 +6283,7 @@ function spWallPanelBody() {
         <div style="font-size:11px;color:var(--t2);line-height:1.6;margin-bottom:10px">
           Open <span style="color:var(--t1);user-select:all">${h(CONFIG.hub || 'http://YOUR_HUB_IP')}/local/index.html</span> in a new tab, then come back to Settings → Wall Panel.
         </div>
-        <button class="ob-trigger-btn" onclick="window.open('${CONFIG.hub || 'http://192.168.50.139'}/local/index.html','_blank')" style="width:auto;padding:0 16px;border-style:solid">
+        <button class="ob-trigger-btn" onclick="window.open('${CONFIG.hub || 'http://YOUR_HUB_IP'}/local/index.html','_blank')" style="width:auto;padding:0 16px;border-style:solid">
           Open hub dashboard ↗
         </button>
         ` : `
@@ -8989,7 +8951,7 @@ function spShowSection(id, force) {
         <div class="sp-group">
           <div class="sp-group-lbl">Hubitat Hub</div>
           <div class="sp-field"><label class="sp-label">Hub URL</label>
-            <input class="sp-input" id="sp-hub" value="${CONFIG.hub}" placeholder="http://192.168.50.18">${httpsHint}</div>
+            <input class="sp-input" id="sp-hub" value="${CONFIG.hub}" placeholder="http://192.168.1.100">${httpsHint}</div>
           <div class="sp-input-row">
             <div class="sp-field" style="flex:1"><label class="sp-label">Maker API App ID</label>
               <input class="sp-input" id="sp-appid" value="${CONFIG.appId}"></div>
@@ -10923,10 +10885,10 @@ function obFinish() {
   // Guard: ensure CONFIG.weather is a valid object — can be clobbered by a
   // malformed localStorage config or failed JSON parse during boot.
   if (!CONFIG.weather || typeof CONFIG.weather !== 'object') {
-    CONFIG.weather = { lat: 36.52, lon: -82.56, zip: '', city: '', refresh: 600000 };
+    CONFIG.weather = { lat: '', lon: '', zip: '', city: '', refresh: 600000 };
   }
-  CONFIG.weather.lat = parseFloat(OB.weather.lat) || 36.52;
-  CONFIG.weather.lon = parseFloat(OB.weather.lon) || -82.56;
+  CONFIG.weather.lat = parseFloat(OB.weather.lat) || '';
+  CONFIG.weather.lon = parseFloat(OB.weather.lon) || '';
   if (OB.lock.id) CONFIG.lock = { id: OB.lock.id, label: OB.lock.label || 'Front Door' };
 
   // Build rooms from assignments
@@ -11004,16 +10966,16 @@ function launchOnboarding() {
   // cross-origin (CORS blocked). Instead, pass companion app credentials
   // directly in the URL so we can call the CORS-enabled config API.
   //
-  // Wall panel setup:  https://hestari.com?hub=192.168.50.139&hid=222&htk=TOKEN
+  // Wall panel setup:  https://hestari.com?hub=192.168.1.100&hid=APP_ID&htk=TOKEN
   //   hub = hub local IP (bare IP or full http:// URL)
   //   hid = Hestia companion app ID
   //   htk = Hestia companion app access token
   //
-  // Maker API shortcut: https://hestari.com?hub=192.168.50.139&mid=219&mtk=TOKEN
+  // Maker API shortcut: https://hestari.com?hub=192.168.1.100&mid=APP_ID&mtk=TOKEN
   //   mid = Maker API app ID, mtk = Maker API access token
   //   Auto-fills and tests the wizard — no manual entry needed
   //
-  // Minimal (pre-fills wizard): https://hestari.com?hub=192.168.50.139
+  // Minimal (pre-fills wizard): https://hestari.com?hub=192.168.1.100
   const _urlParams = new URLSearchParams(window.location.search);
   const _urlHub = _urlParams.get('hub');
   const _urlHid = _urlParams.get('hid');
