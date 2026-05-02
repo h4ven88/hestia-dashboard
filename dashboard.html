@@ -1450,7 +1450,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2025-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.4.0';
-const HESTIA_BUILD_DATE = '2026-05-01';
+const HESTIA_BUILD_DATE = '2026-05-02';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 
 /* ═══════════════════════════════════════════════════════
@@ -9869,8 +9869,9 @@ let wsRetryTimer  = null;
 const _motionClearTimers = {};
 
 function wsUrl() {
-  // Hubitat Maker API WebSocket endpoint — no separate server needed
-  return `ws://${CONFIG.hub.replace('http://','')}/apps/api/${CONFIG.appId}/ws?access_token=${CONFIG.token}`;
+  const secure = CONFIG.hub.startsWith('https://');
+  const host = CONFIG.hub.replace(/^https?:\/\//, '');
+  return `${secure ? 'wss' : 'ws'}://${host}/apps/api/${CONFIG.appId}/ws?access_token=${CONFIG.token}`;
 }
 
 function connectWebSocket() {
@@ -10022,6 +10023,7 @@ let pollTimer   = null;
 let lastConnOk  = null;
 let _pollFailCount  = 0;
 let _hsmSyncCounter = 0; // counts poll cycles for periodic HSM sync
+let _mixedContentMode = false; // true when HTTPS page talks to HTTP hub
 
 
 /* ═══════════════════════════════════════════════════════
@@ -10299,6 +10301,7 @@ function detectRemovedDevices(devices) {
   });
 }
 function scheduleNextPoll() {
+  if (_mixedContentMode) return;
   clearTimeout(pollTimer);
   pollTimer = setTimeout(async function runPoll() {
     if (document.activeElement && document.activeElement.type === 'range') {
@@ -10326,10 +10329,19 @@ function scheduleNextPoll() {
       if (lastConnOk !== false) console.warn('[POLL] Hub unreachable:', e.message);
       lastConnOk = false;
       pollDelay  = Math.min(pollDelay * 2, 60000);
-      // Only show offline banner after 3 consecutive failures — avoids flashing
-      // on a single transient hub hiccup (e.g. hub processing an HSM command)
       _pollFailCount = (_pollFailCount || 0) + 1;
       if (_pollFailCount >= 3 && !wsConnected) setConn('err');
+      // Stop polling if mixed content is the cause — no point retrying
+      if (_pollFailCount >= 3 && window.location.protocol === 'https:' && CONFIG.hub && CONFIG.hub.startsWith('http://')) {
+        _mixedContentMode = true;
+        const hubHost = CONFIG.hub.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+        const banner = document.getElementById('offline-banner');
+        if (banner) banner.innerHTML =
+          'Can\'t reach hub over HTTP from this HTTPS page — ' +
+          '<a href="http://' + hubHost + '/local/index.html" style="color:inherit;text-decoration:underline">open the local dashboard</a>' +
+          ' or switch hub URL to HTTPS in Settings';
+        return;
+      }
     }
     scheduleNextPoll();
   }, pollDelay);
@@ -11148,6 +11160,18 @@ function launchOnboarding() {
     setConn('ok'); // Mark online immediately after devices load — before any secondary tasks
   } catch (e) {
     lastConnOk = false;
+    // Mixed content: HTTPS page can't reach HTTP hub. Show actionable guidance
+    // instead of the generic "Hub unreachable" banner.
+    if (window.location.protocol === 'https:' && CONFIG.hub && CONFIG.hub.startsWith('http://')) {
+      _mixedContentMode = true;
+      const hubHost = CONFIG.hub.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+      const banner = document.getElementById('offline-banner');
+      if (banner) banner.innerHTML =
+        'Can’t reach hub over HTTP from this HTTPS page — ' +
+        '<a href="http://' + hubHost + '/local/index.html" style="color:inherit;text-decoration:underline">open the local dashboard</a>' +
+        ' or switch hub URL to HTTPS in Settings';
+      console.warn('[Boot] Mixed content blocked — HTTPS page cannot fetch from HTTP hub. Use the local URL for full functionality.');
+    }
     setConn('err');
   }
 
