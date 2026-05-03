@@ -1450,7 +1450,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2025-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.4.0';
-const HESTIA_BUILD_DATE = '2026-05-02';
+const HESTIA_BUILD_DATE = '2026-05-03';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 
 /* ═══════════════════════════════════════════════════════
@@ -3345,6 +3345,10 @@ function athenaInit() {
   // cloud dependency. Falls back to SpeechRecognition if ONNX RT unavailable.
   // Mobile phones use tap-to-activate only (battery + Silk browser limitations).
   if (!isMobile() || isTablet()) {
+    if (isTablet()) {
+      OWW.CONSEC_HITS = 2;
+      console.log('[OWW] Tablet mode — 2 consecutive hits (vs 3 on desktop)');
+    }
     athenaStartWakeDetection();  // async — non-blocking
   } else {
     console.log('[Athena] Mobile detected — wake word disabled (tap-to-activate only)');
@@ -3570,7 +3574,10 @@ async function owwStart() {
   OWW._starting = true;
   try {
     OWW.ctx    = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-    OWW.stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    OWW.stream = await navigator.mediaDevices.getUserMedia({
+      audio: { autoGainControl: true, noiseSuppression: false, echoCancellation: false },
+      video: false
+    });
     athenaMicPermission = true;
 
     const source = OWW.ctx.createMediaStreamSource(OWW.stream);
