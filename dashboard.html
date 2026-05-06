@@ -1450,7 +1450,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2025-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.4.0';
-const HESTIA_BUILD_DATE = '2026-05-03';
+const HESTIA_BUILD_DATE = '2026-05-06';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 
 /* ═══════════════════════════════════════════════════════
@@ -3702,6 +3702,40 @@ function owwStop() {
   OWW._firstHitTime = 0; OWW._hitCount = 0; OWW._errLogged = false;
   owwMelBuf = [];  // clear stale frames so restart begins fresh
   owwEmbBuf = [];
+}
+
+const _WAKE_WORDS = ['Athena','Artemis','Hestia','Apollo','Achilles','Andromeda','Hermes','Odin','Osiris','Anubis'];
+
+function athenaChangeWakeWord(name) {
+  CONFIG.athenaWakeWord = name || 'Athena';
+  saveConfig();
+  owwStop();
+  OWW.ready = false;
+  OWW.mel = null; OWW.emb = null; OWW.cls = null;
+  console.log('[OWW] Wake word changed to "' + CONFIG.athenaWakeWord + '" — reloading model');
+  if (!isMobile() || isTablet()) athenaStartWakeDetection();
+}
+
+function athenaProbeWakeModels() {
+  var sel = document.getElementById('sp-wakeword-sel');
+  if (!sel) return;
+  _WAKE_WORDS.forEach(function(w) {
+    var opt = sel.querySelector('option[value="' + w + '"]');
+    if (!opt) return;
+    var url = OWW_BASE + w.toLowerCase() + '.onnx';
+    fetch(url, { method: 'HEAD' }).then(function(r) {
+      if (r.ok) {
+        opt.disabled = false;
+        opt.textContent = w;
+      } else {
+        opt.disabled = true;
+        opt.textContent = w + ' — coming soon';
+      }
+    }).catch(function() {
+      opt.disabled = true;
+      opt.textContent = w + ' — coming soon';
+    });
+  });
 }
 
 // ── Main wake detection entry point ──────────────────────────────────────
@@ -6475,13 +6509,12 @@ function spAthenaBody() {
       <div class="sp-group">
         <div class="sp-group-lbl">Wake Word &amp; Room</div>
         <div class="sp-input-row" style="flex-wrap:wrap">
-          <div class="sp-field" style="min-width:130px">
-            <label class="sp-label">Name &amp; Wake Word</label>
-            <input type="text" class="sp-input" placeholder="Athena"
-              value="${CONFIG.athenaWakeWord||'Athena'}"
-              oninput="CONFIG.athenaWakeWord=this.value.trim()||'Athena'"
-              onblur="saveConfig()">
-            <span class="sp-hint">This is both what activates the assistant hands-free <em>and</em> the name it uses when referring to itself. "Hey ${CONFIG.athenaWakeWord||'Athena'}, turn off the lights." If you change this, the assistant will introduce itself by the new name immediately.</span>
+          <div class="sp-field" style="min-width:160px">
+            <label class="sp-label">Wake Word</label>
+            <select class="sp-select" id="sp-wakeword-sel" onchange="athenaChangeWakeWord(this.value)">
+              ${_WAKE_WORDS.map(w => '<option value="'+w+'"'+(((CONFIG.athenaWakeWord||'Athena')===w)?' selected':'')+' disabled>'+w+' — checking…</option>').join('')}
+            </select>
+            <span class="sp-hint">Say this word to activate hands-free on desktop. The assistant will also use this name when referring to itself.</span>
           </div>
           <div class="sp-field" style="min-width:140px">
             <label class="sp-label">This Device's Room</label>
@@ -6491,7 +6524,7 @@ function spAthenaBody() {
             </select>
           </div>
         </div>
-        <span class="sp-hint">The name doubles as the wake word on desktop — say it to activate hands-free. Mobile uses tap. Room sets the context for ambiguous commands.</span>
+        <span class="sp-hint">Room sets the context for ambiguous commands like "turn off the lights." Mobile uses tap instead of wake word.</span>
       </div>
 
       <div class="sp-sep"></div>
@@ -9083,6 +9116,7 @@ function spShowSection(id, force) {
       requestAnimationFrame(() => {
         athenaCheckMicPermission().then(() => athenaUpdateMicStatusDot());
         if (CONFIG.athenaGoogleTTS && CONFIG.athenaGoogleApiKey) athenaVoicePickerRefresh();
+        athenaProbeWakeModels();
       });
       break;
 
