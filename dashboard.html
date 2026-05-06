@@ -927,14 +927,6 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 .sp-select{background:var(--bg-card);border:1px solid var(--border);border-radius:7px;padding:8px 12px;font-size:13px;color:var(--t1);font-family:inherit;outline:none;width:100%;cursor:pointer;transition:border-color .15s;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23444' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
 .sp-select:focus{border-color:var(--amber-bdr)}
 .sp-select option{background:#111;color:var(--t1)}
-.sp-select option:disabled{color:var(--t4);font-style:italic}
-.sp-wake-list{display:flex;flex-direction:column;gap:2px;border:1px solid var(--border);border-radius:7px;overflow:hidden;margin-top:2px}
-.sp-wake-item{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;background:var(--bg-card);cursor:pointer;transition:background .15s;font-size:13px;color:var(--t1)}
-.sp-wake-item:hover:not(.disabled){background:var(--bg-hover)}
-.sp-wake-item.selected{background:var(--amber-dim);border-left:2px solid var(--amber);color:var(--amber)}
-.sp-wake-item.disabled{cursor:default;color:var(--t4)}
-.sp-wake-item.disabled .sp-wake-name{opacity:.45}
-.sp-wake-badge{font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--t3);background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;font-weight:400}
 /* Input / field */
 .sp-field{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
 .sp-field:last-child{margin-bottom:0}
@@ -3737,51 +3729,13 @@ function athenaProbeWakeModels() {
         opt.textContent = w;
       } else {
         opt.disabled = true;
-        opt.textContent = w + ' — coming soon';
+        opt.textContent = w + ' (Coming Soon)';
       }
     }).catch(function() {
       opt.disabled = true;
-      opt.textContent = w + ' — coming soon';
+      opt.textContent = w + ' (Coming Soon)';
     });
   });
-  // Re-render as a custom list for better disabled styling
-  setTimeout(function() { athenaRenderWakeList(sel); }, 800);
-}
-
-function athenaRenderWakeList(sel) {
-  var container = sel.parentElement;
-  var existing = container.querySelector('.sp-wake-list');
-  if (existing) existing.remove();
-
-  var current = CONFIG.athenaWakeWord || 'Athena';
-  var items = [];
-  for (var i = 0; i < sel.options.length; i++) {
-    var o = sel.options[i];
-    items.push({ value: o.value, label: o.value, disabled: o.disabled, selected: o.value === current });
-  }
-
-  sel.style.display = 'none';
-
-  var wrap = document.createElement('div');
-  wrap.className = 'sp-wake-list';
-
-  items.forEach(function(item) {
-    var row = document.createElement('div');
-    row.className = 'sp-wake-item' + (item.selected ? ' selected' : '') + (item.disabled ? ' disabled' : '');
-    row.innerHTML = '<span class="sp-wake-name">' + item.label + '</span>' +
-      (item.disabled ? '<span class="sp-wake-badge">coming soon</span>' : '');
-    if (!item.disabled) {
-      row.onclick = function() {
-        wrap.querySelectorAll('.sp-wake-item').forEach(function(el) { el.classList.remove('selected'); });
-        row.classList.add('selected');
-        sel.value = item.value;
-        athenaChangeWakeWord(item.value);
-      };
-    }
-    wrap.appendChild(row);
-  });
-
-  container.insertBefore(wrap, sel.nextSibling);
 }
 
 // ── Main wake detection entry point ──────────────────────────────────────
