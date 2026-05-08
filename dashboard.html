@@ -1272,7 +1272,9 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
       <div id="ath-chip-area"></div>
       <div class="ath-input-row">
         <input class="ath-input" id="ath-text-input" type="text" placeholder="Say something or type…"
-               onkeydown="if(event.key==='Enter')athenaSubmitText(this.value)">
+               onkeydown="if(event.key==='Enter')athenaSubmitText(this.value)"
+               oninput="athenaResetFollowUp()"
+               onfocus="athenaResetFollowUp()">
         <div class="ath-mic-btn active" id="ath-mic-btn" onclick="athenaMicTap()">
           <svg width="11" height="14" viewBox="0 0 12 16" fill="none">
             <rect x="3.5" y=".5" width="5" height="9" rx="2.5" stroke="#F59E0B" stroke-width="1.2"/>
@@ -4611,7 +4613,10 @@ function athenaSystemPrompt() {
   // Thermostat states
   const thermLines = thermostats.map(t => {
     const st = S[t.id] || {};
-    return `- ${t.name}: ${st.cur||'--'}°F, ${st.state||'idle'}, setpoint ${st.heat||'--'}°F`;
+    let line = `- ${t.name} [id:${t.id}]: ${st.cur||'--'}°F, mode: ${st.mode||'heat'}, state: ${st.state||'idle'}`;
+    if (st.heat != null) line += `, heat setpoint: ${st.heat}°F`;
+    if (st.cool != null) line += `, cool setpoint: ${st.cool}°F`;
+    return line;
   }).join('\n');
 
   // Lock state
@@ -5378,6 +5383,11 @@ const _GOOGLE_VOICE_MAP = {
   'es-US': 'es-US-Neural2-A',
 };
 
+function athenaResetFollowUp() {
+  _athenaLastInput = Date.now();
+}
+let _athenaLastInput = 0;
+
 // ── Follow-up listening — re-open mic after TTS, auto-close after timeout ──
 function athenaStartFollowUp() {
   if (athenaState !== 'responding') return;
@@ -5393,10 +5403,18 @@ function athenaStartFollowUp() {
     if (lbl) lbl.textContent = convoMode ? 'Listening…' : 'Type follow-up or wait…';
     const input = document.getElementById('ath-text-input');
     if (input) { input.placeholder = convoMode ? 'Say something or type…' : 'Type follow-up command…'; input.focus(); }
-    clearTimeout(athenaFollowUpTimer);
-    athenaFollowUpTimer = setTimeout(() => {
-      if (athenaState === 'listening') athenaClose();
-    }, textTimeout);
+    clearInterval(athenaFollowUpTimer);
+    let _textChecks = 0;
+    athenaFollowUpTimer = setInterval(() => {
+      _textChecks++;
+      const typing = (Date.now() - _athenaLastInput) < 2000;
+      const hasText = (document.getElementById('ath-text-input')?.value || '').trim().length > 0;
+      if (typing || hasText) { _textChecks = 0; return; }
+      if (_textChecks >= Math.round(textTimeout / 1000)) {
+        clearInterval(athenaFollowUpTimer);
+        if (athenaState === 'listening') athenaClose();
+      }
+    }, 1000);
     return;
   }
 
@@ -5405,6 +5423,9 @@ function athenaStartFollowUp() {
   let _followUpChecks = 0;
   athenaFollowUpTimer = setInterval(() => {
     _followUpChecks++;
+    const typing = (Date.now() - _athenaLastInput) < 2000;
+    const hasText = (document.getElementById('ath-text-input')?.value || '').trim().length > 0;
+    if (typing || hasText) { _followUpChecks = 0; return; }
     if (athenaState !== 'listening' && athenaState !== 'idle') {
       clearInterval(athenaFollowUpTimer);
       return;
