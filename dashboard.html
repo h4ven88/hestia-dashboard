@@ -1450,7 +1450,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2025-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.4.0';
-const HESTIA_BUILD_DATE = '2026-05-06';
+const HESTIA_BUILD_DATE = '2026-05-08';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 
 /* ═══════════════════════════════════════════════════════
@@ -1770,6 +1770,8 @@ const CONFIG = {
   athenaLang:       'en-US',    // en-US | en-GB | es-ES | es-US
   athenaVoice:      'female',   // female | male
   athenaVolume:     1.0,        // 0–1
+  athenaPersonality: 'balanced', // balanced | professional | playful | concise
+  athenaConvoMode:  true,       // keep mic open for multi-turn conversation
   athenaGoogleTTS:  false,      // use Google Cloud TTS for premium voices
   athenaGoogleApiKey: '',       // Google Cloud API key
   athenaGoogleVoice: '',        // specific Google voice name e.g. en-GB-Neural2-C
@@ -1815,6 +1817,8 @@ const DEFAULTS = {
     athenaLang:     'en-US',
     athenaVoice:    'female',
     athenaVolume:   1.0,
+    athenaPersonality: 'balanced',
+    athenaConvoMode:  true,
     athenaGoogleTTS: false,
     athenaGoogleApiKey: '',
     athenaGoogleVoice: ''
@@ -2009,6 +2013,7 @@ function buildConfigPayload() {
                    athenaWakeWord: CONFIG.athenaWakeWord, athenaRoom: CONFIG.athenaRoom,
                    athenaLang: CONFIG.athenaLang, athenaVoice: CONFIG.athenaVoice,
                    athenaVolume: CONFIG.athenaVolume,
+                   athenaPersonality: CONFIG.athenaPersonality, athenaConvoMode: CONFIG.athenaConvoMode,
                    athenaGoogleTTS: CONFIG.athenaGoogleTTS, athenaGoogleApiKey: CONFIG.athenaGoogleApiKey,
                    athenaGoogleVoice: CONFIG.athenaGoogleVoice,
                    hestiaAppId: CONFIG.hestiaAppId, hestiaAppToken: CONFIG.hestiaAppToken },
@@ -3324,6 +3329,8 @@ let artemisHsmReady   = null;      // null=unknown, true=HSM present, false=not 
 let athenaState       = 'idle';    // idle|wake|listening|processing|responding|clarifying
 let athenaHistory     = [];        // sliding window message history [{role,content}]
 let athenaSessionDate = null;      // for daily window reset
+let _athenaTimers     = [];        // active timers [{id,label,endTime,timeout}]
+let _athenaTimerNext  = 0;         // auto-increment timer ID
 let athenaRecog       = null;      // SpeechRecognition instance
 let athenaDebounce    = false;     // prevents double wake-word firing
 let athenaListening   = false;     // mic currently open
@@ -3334,6 +3341,7 @@ let _athenaSessionId    = 0;       // increments on panel open; stale responses 
 // ── Athena System 1 — Wake Word Detection ─────────────────────────────
 function athenaInit() {
   if (!CONFIG.athenaEnabled || !CONFIG.athenaApiKey) return;
+  athenaLoadHistory();
   const fab = document.getElementById('ath-fab');
   if (fab) fab.style.display = 'flex';
 
@@ -4495,12 +4503,13 @@ function _athenaStartSilenceDetection(analyser, recorder) {
       speechHeard = true; // user is speaking
       silentSince = 0;    // reset silence timer
     } else if (speechHeard) {
-      // Only count silence AFTER we've heard speech
       if (!silentSince) silentSince = Date.now();
       else if (Date.now() - silentSince > SILENCE_MS) {
-        console.log('[Athena] Silence detected — stopping recording');
-        clearTimeout(recorder._maxTimer);
-        recorder.stop();
+        if (recorder.state === 'recording') {
+          console.log('[Athena] Silence detected — stopping recording');
+          clearTimeout(recorder._maxTimer);
+          recorder.stop();
+        }
         return;
       }
     }
@@ -4621,20 +4630,48 @@ function athenaSystemPrompt() {
     ? `Security: ${artemisModeName()}`
     : 'Security: Artemis disabled';
   const lang = (CONFIG.athenaLang || 'en-US').startsWith('es') ? 'Spanish' : 'English';
-
   const assistantName = (CONFIG.athenaWakeWord || 'Athena').trim();
+  const personality = _ATHENA_PERSONALITIES[CONFIG.athenaPersonality] || _ATHENA_PERSONALITIES.balanced;
 
-  return `You are ${assistantName}, a voice assistant built into the Hestia smart home dashboard for Hubitat Elevation. You control smart home devices and can hold natural conversations on any topic.
+  // Weather context
+  let weatherCtx = '';
+  if (wxData && !wxData.error && wxData.current) {
+    const c = wxData.current;
+    weatherCtx = `\nWEATHER:\n- Current: ${c.temperature}°${c.temperatureUnit}, ${c.shortForecast}`;
+    if (c.relativeHumidity?.value != null) weatherCtx += `, ${c.relativeHumidity.value}% humidity`;
+    if (wxData.forecast?.length) weatherCtx += `\n- Next: ${wxData.forecast[0].name} — ${wxData.forecast[0].shortForecast}, ${wxData.forecast[0].temperature}°${wxData.forecast[0].temperatureUnit}`;
+  }
+
+  // Proactive hints based on time + device state
+  let proactiveHints = '';
+  const hour = new Date().getHours();
+  const hints = [];
+  if (hour >= 23 || hour < 5) {
+    const onLights = Object.entries(S).filter(([id,s]) => s.switch === 'on' && s._type === 'light');
+    if (onLights.length > 3) hints.push(`It's late and ${onLights.length} lights are still on.`);
+    const unlocked = CONFIG.lock?.id && S[CONFIG.lock.id]?.locked === 'unlocked';
+    if (unlocked) hints.push('The door is unlocked and it\'s late at night.');
+  }
+  if (hints.length) proactiveHints = '\n\nPROACTIVE AWARENESS (mention naturally if relevant to the user\'s request, don\'t volunteer unprompted):\n- ' + hints.join('\n- ');
+
+  // Active timers
+  const timerCtx = athenaActiveTimersSummary();
+
+  return `You are ${assistantName}, a voice assistant built into the Hestia smart home dashboard for Hubitat Elevation. You control smart home devices, set timers and reminders, and can hold natural conversations on any topic.
 
 LANGUAGE: Respond only in ${lang}.
 
+PERSONALITY:
+${personality}
+
 SPEECH TONE & LENGTH GUIDELINES:
-- Device commands (type:action): Warm but brief. 8–14 words maximum. Natural, not robotic. 
-  Good: "Done, the office lights are on." / "Got it — front door is locked." / "All set, living room fan is running."
-  Avoid: Single-word grunts ("Done.") AND verbose filler ("Sure thing! I've gone ahead and turned on all the lights in your office for you!")
-  The confirmation field is separate — keep speech focused on the outcome, not restating the command.
-- Clarifications (type:clarify): One natural question, under 12 words. "Which room did you mean?" not "I'm sorry, I didn't quite catch which room you were referring to."
-- Conversations (type:conversation): No length restriction — be as thorough as the topic warrants. Full sentences, natural prose.
+- Device commands (type:action): Warm but brief. 8–14 words maximum. Natural, not robotic.
+  Good: "Done, the office lights are on." / "Got it — front door is locked."
+  Avoid: Single-word grunts ("Done.") AND verbose filler ("Sure thing! I've gone ahead and turned on…")
+  The confirmation field is separate — keep speech focused on the outcome.
+- Clarifications (type:clarify): One natural question, under 12 words.
+- Conversations (type:conversation): Answer in 1–3 sentences unless the topic genuinely needs more. Be helpful, not verbose.
+- Timers (type:timer): Confirm the timer naturally. "Got it, 12 minutes starting now."
 
 HOME LAYOUT:
 ${roomLayout}
@@ -4644,15 +4681,17 @@ ${stateLines}
 
 THERMOSTATS:
 ${thermLines}
+${weatherCtx}
+${lockLine ? '\nLOCK:\n'+lockLine : ''}${timerCtx}
 
-${lockLine ? 'LOCK:\n'+lockLine+'\n' : ''}CONTEXT:
+CONTEXT:
 - Time: ${timeStr}
 - This dashboard's assigned room: ${athenaRoom}
 - Active sidebar room: ${sidebarRoom}
 - ${secLine}
-- Room resolution priority: 1) Explicit room in request, 2) Assigned room (${athenaRoom}), 3) Active sidebar room (${sidebarRoom}), 4) Ask for clarification
+- Room resolution priority: 1) Explicit room in request, 2) Assigned room (${athenaRoom}), 3) Active sidebar room (${sidebarRoom}), 4) Ask for clarification${proactiveHints}
 
-RESPONSE FORMAT — you MUST reply with a single valid JSON object and absolutely nothing else. No markdown, no backticks, no preamble, no self-correction, no explanation before or after the JSON. If your first attempt at a JSON object is wrong, do not show it — only output the correct final JSON.
+RESPONSE FORMAT — reply with a single valid JSON object. No markdown, no backticks, no preamble.
 
 For device commands:
 {"type":"action","speech":"Done, the office lights are on.","commands":[{"deviceId":"10","command":"on"}],"confirmation":"Office lights on"}
@@ -4663,7 +4702,15 @@ For conversation (no device action):
 For clarification needed:
 {"type":"clarify","speech":"Which room did you mean?","missing":"room"}
 
-Available commands: on, off, setLevel (value 0-100), setColorTemperature (value 2700-6500), setSpeed (off/low/medium/high), open, close, lock, unlock, armHome, armAway, disarm
+For setting a timer or reminder:
+{"type":"timer","speech":"Got it, 12 minutes starting now.","timer":{"label":"pasta","seconds":720}}
+
+For cancelling a timer:
+{"type":"cancel_timer","speech":"Pasta timer cancelled.","timer":{"label":"pasta"}}
+
+Available commands: on, off, setLevel (value 0-100), setColorTemperature (value 2700-6500), setColor (JSON: {"hue":0-100,"saturation":0-100,"level":0-100}), setSpeed (off/low/medium-low/medium/medium-high/high), open, close, setPosition (value 0-100 for shades), lock, unlock, armHome, armAway, setHeatingSetpoint (value in °F), setCoolingSetpoint (value in °F), setThermostatMode (heat/cool/auto/off), setThermostatFanMode (auto/on/circulate)
+
+SECURITY RESTRICTION: You CANNOT disarm the security system — disarming requires a PIN entered manually. If asked to disarm, explain that it must be done on the panel directly.
 
 CRITICAL DEVICE ID RULES:
 - Device IDs are the numeric strings shown in [id:X] in the room layout above
@@ -4758,15 +4805,100 @@ async function athenaCallClaude(userText) {
 
 function athenaPushHistory(role, content) {
   athenaHistory.push({ role, content });
-  // Keep last 20 messages (10 exchanges)
   if (athenaHistory.length > 20) athenaHistory.splice(0, 2);
+  try { localStorage.setItem('athena_history', JSON.stringify({ date: new Date().toDateString(), messages: athenaHistory })); } catch(e){}
+}
+
+function athenaLoadHistory() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('athena_history'));
+    if (saved && saved.date === new Date().toDateString() && Array.isArray(saved.messages)) {
+      athenaHistory = saved.messages;
+    }
+  } catch(e){}
 }
 
 function athenaCheckDayReset() {
   const today = new Date().toDateString();
-  if (athenaSessionDate && athenaSessionDate !== today) athenaHistory = [];
+  if (athenaSessionDate && athenaSessionDate !== today) {
+    athenaHistory = [];
+    try { localStorage.removeItem('athena_history'); } catch(e){}
+  }
   athenaSessionDate = today;
 }
+
+// ── Athena Timers & Reminders ─────────────────────────────────────────
+function athenaSetTimer(label, seconds) {
+  const id = ++_athenaTimerNext;
+  const endTime = Date.now() + seconds * 1000;
+  const timeout = setTimeout(() => {
+    athenaTimerFired(id, label);
+  }, seconds * 1000);
+  _athenaTimers.push({ id, label, endTime, timeout });
+  athenaUpdateTimerBadge();
+  return id;
+}
+
+function athenaTimerFired(id, label) {
+  _athenaTimers = _athenaTimers.filter(t => t.id !== id);
+  athenaUpdateTimerBadge();
+  const msg = label ? `Your ${label} timer is done.` : 'Your timer is done.';
+  athenaAddBubble('athena', msg);
+  athenaSpeak(msg);
+  const overlay = document.getElementById('ath-overlay');
+  if (!overlay?.classList.contains('open')) {
+    const fab = document.getElementById('ath-fab');
+    if (fab) fab.classList.add('ath-timer-alert');
+    setTimeout(() => fab?.classList.remove('ath-timer-alert'), 4000);
+  }
+}
+
+function athenaCancelTimer(label) {
+  const idx = label
+    ? _athenaTimers.findIndex(t => t.label.toLowerCase() === label.toLowerCase())
+    : _athenaTimers.length - 1;
+  if (idx >= 0) {
+    clearTimeout(_athenaTimers[idx].timeout);
+    const removed = _athenaTimers.splice(idx, 1)[0];
+    athenaUpdateTimerBadge();
+    return removed.label || 'timer';
+  }
+  return null;
+}
+
+function athenaUpdateTimerBadge() {
+  let badge = document.getElementById('ath-timer-badge');
+  if (_athenaTimers.length > 0) {
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.id = 'ath-timer-badge';
+      badge.style.cssText = 'position:absolute;top:-4px;right:-4px;background:var(--amber);color:#000;font-size:10px;font-weight:700;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:10';
+      const fab = document.getElementById('ath-fab');
+      if (fab) { fab.style.position = 'relative'; fab.appendChild(badge); }
+    }
+    badge.textContent = _athenaTimers.length;
+  } else if (badge) {
+    badge.remove();
+  }
+}
+
+function athenaActiveTimersSummary() {
+  if (_athenaTimers.length === 0) return '';
+  return '\nACTIVE TIMERS:\n' + _athenaTimers.map(t => {
+    const remaining = Math.max(0, Math.round((t.endTime - Date.now()) / 1000));
+    const mins = Math.floor(remaining / 60);
+    const secs = remaining % 60;
+    return `- ${t.label || 'Timer'}: ${mins}m ${secs}s remaining`;
+  }).join('\n');
+}
+
+// ── Athena Personality Definitions ───────────────────────────────────
+const _ATHENA_PERSONALITIES = {
+  balanced: 'You are warm and friendly but efficient. Be conversational and natural — not robotic, not verbose. For conversations, answer in 1–3 sentences unless the topic genuinely warrants more. No filler phrases ("Sure thing!", "Absolutely!", "Great question!").',
+  professional: 'You are polished and efficient. Formal tone, no humor, no filler. Get to the point. For conversations, give precise answers — prefer clarity over warmth.',
+  playful: 'You are upbeat and witty. Light humor is welcome. You can be expressive but stay concise — one good quip beats three mediocre sentences.',
+  concise: 'You are minimal. Shortest possible responses. No pleasantries, no filler, no elaboration unless explicitly asked. For conversations, answer in one sentence when possible.'
+};
 
 // ── Athena System 4 — Response Parser ─────────────────────────────────
 async function athenaHandleResponse(rawText) {
@@ -4844,6 +4976,31 @@ async function athenaHandleResponse(rawText) {
           athenaStartListening();
         }
       });
+      break;
+    }
+    case 'timer': {
+      athenaAddBubble('user', lastUserMsg);
+      const t = parsed.timer;
+      if (t && t.seconds > 0) {
+        athenaSetTimer(t.label || '', t.seconds);
+        athenaAddBubble('athena', parsed.speech || 'Timer set.');
+        athenaShowChip('green', `Timer: ${t.label || ''} ${Math.round(t.seconds/60)}m`);
+      } else {
+        athenaAddBubble('athena', parsed.speech || 'Timer set.');
+      }
+      athenaSetState('responding');
+      athenaSpeak(parsed.speech || 'Timer set.');
+      break;
+    }
+    case 'cancel_timer': {
+      athenaAddBubble('user', lastUserMsg);
+      const label = parsed.timer?.label || '';
+      const cancelled = athenaCancelTimer(label);
+      const speech = parsed.speech || (cancelled ? `${cancelled} timer cancelled.` : 'No matching timer found.');
+      athenaAddBubble('athena', speech);
+      athenaSetState('responding');
+      athenaShowChip('green', cancelled ? `Cancelled: ${cancelled}` : 'No timer found');
+      athenaSpeak(speech);
       break;
     }
     default: {
@@ -5223,40 +5380,40 @@ const _GOOGLE_VOICE_MAP = {
 
 // ── Follow-up listening — re-open mic after TTS, auto-close after timeout ──
 function athenaStartFollowUp() {
-  if (athenaState !== 'responding') return;  // only after a response
+  if (athenaState !== 'responding') return;
   athenaSetState('listening');
 
-  // If no Google API key, stay in text-only mode with a longer window
+  const convoMode = CONFIG.athenaConvoMode !== false;
+  const textTimeout = convoMode ? 15000 : 10000;
+  const micIdleMax  = convoMode ? 8 : 5;
+  const micHardCap  = convoMode ? 15 : 10;
+
   if (!CONFIG.athenaGoogleApiKey) {
     const lbl = document.getElementById('ath-state-lbl');
-    if (lbl) lbl.textContent = 'Type follow-up or wait…';
+    if (lbl) lbl.textContent = convoMode ? 'Listening…' : 'Type follow-up or wait…';
     const input = document.getElementById('ath-text-input');
-    if (input) { input.placeholder = 'Type follow-up command…'; input.focus(); }
+    if (input) { input.placeholder = convoMode ? 'Say something or type…' : 'Type follow-up command…'; input.focus(); }
     clearTimeout(athenaFollowUpTimer);
     athenaFollowUpTimer = setTimeout(() => {
       if (athenaState === 'listening') athenaClose();
-    }, 10000);  // 10s for text-only follow-up
+    }, textTimeout);
     return;
   }
 
   athenaStartListening();
-  // Auto-close panel after 5s of silence — check periodically since recording
-  // may still be active when the first check fires
   clearInterval(athenaFollowUpTimer);
   let _followUpChecks = 0;
   athenaFollowUpTimer = setInterval(() => {
     _followUpChecks++;
     if (athenaState !== 'listening' && athenaState !== 'idle') {
-      clearInterval(athenaFollowUpTimer);  // user submitted — stop checking
+      clearInterval(athenaFollowUpTimer);
       return;
     }
-    // After 5s (5 checks), close if not actively listening
-    if (_followUpChecks >= 5 && !athenaListening) {
+    if (_followUpChecks >= micIdleMax && !athenaListening) {
       clearInterval(athenaFollowUpTimer);
       athenaClose();
     }
-    // Hard cap at 10s regardless
-    if (_followUpChecks >= 10) {
+    if (_followUpChecks >= micHardCap) {
       clearInterval(athenaFollowUpTimer);
       if (athenaState === 'listening') athenaClose();
     }
@@ -6505,6 +6662,34 @@ function spAthenaBody() {
           </div>
         </div>
         <span class="sp-hint">Room sets the context for ambiguous commands like "turn off the lights." Mobile uses tap instead of wake word.</span>
+      </div>
+
+      <div class="sp-sep"></div>
+      <div class="sp-group">
+        <div class="sp-group-lbl">Personality &amp; Behavior</div>
+        <div class="sp-input-row" style="flex-wrap:wrap">
+          <div class="sp-field" style="min-width:160px">
+            <label class="sp-label">Personality</label>
+            <select class="sp-select" onchange="CONFIG.athenaPersonality=this.value;saveConfig()">
+              <option value="balanced"${(CONFIG.athenaPersonality||'balanced')==='balanced'?' selected':''}>Balanced — warm &amp; efficient</option>
+              <option value="professional"${CONFIG.athenaPersonality==='professional'?' selected':''}>Professional — formal &amp; precise</option>
+              <option value="playful"${CONFIG.athenaPersonality==='playful'?' selected':''}>Playful — witty &amp; expressive</option>
+              <option value="concise"${CONFIG.athenaPersonality==='concise'?' selected':''}>Concise — minimal &amp; direct</option>
+            </select>
+            <span class="sp-hint">Controls tone for conversations. Device commands are always brief regardless of personality.</span>
+          </div>
+        </div>
+        <div class="sp-toggle-row" style="padding:8px 0 0">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name" style="font-size:12px">Conversation Mode</div>
+            <div class="sp-toggle-desc">Keep listening for follow-ups after each response — say "thanks" or "goodbye" to dismiss</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${CONFIG.athenaConvoMode!==false?'checked':''}
+              onchange="CONFIG.athenaConvoMode=this.checked;saveConfig()">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
       </div>
 
       <div class="sp-sep"></div>
