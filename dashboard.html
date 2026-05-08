@@ -586,6 +586,26 @@ html[data-display-mobile] .ath-panel-handle{display:block}
 .ath-mic-btn.clarify{background:rgba(248,113,113,.08);border-color:rgba(248,113,113,.3)}
 .ath-rec-hint{font-size:9px;color:rgba(248,113,113,.65);letter-spacing:.05em;text-align:center;height:12px;transition:opacity .2s;opacity:0}
 .ath-rec-hint.show{opacity:1}
+/* Timer floating pills — desktop/tablet only */
+.ath-timer-float{position:fixed;bottom:74px;right:20px;display:flex;flex-direction:column;gap:5px;z-index:89;pointer-events:auto}
+.ath-timer-pill{display:flex;align-items:center;gap:7px;background:rgba(13,13,13,.94);border:1px solid rgba(245,158,11,.18);border-radius:16px;padding:5px 12px 5px 9px;cursor:pointer;transition:border-color .2s;backdrop-filter:blur(6px)}
+.ath-timer-pill:hover{border-color:rgba(245,158,11,.35)}
+.ath-timer-pill-dot{width:6px;height:6px;border-radius:50%;background:var(--amber);flex-shrink:0;animation:athTimerPulse 2s ease-in-out infinite}
+@keyframes athTimerPulse{0%,100%{opacity:.4}50%{opacity:1}}
+.ath-timer-pill-lbl{font-size:11px;color:var(--t2);white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis}
+.ath-timer-pill-time{font-size:12px;font-weight:600;color:var(--amber);font-variant-numeric:tabular-nums;font-family:var(--mono,monospace)}
+html[data-display-mobile] .ath-timer-float{display:none}
+/* Timer section inside panel */
+.ath-timer-section{border-top:1px solid var(--border);padding:8px 12px}
+.ath-timer-section:empty{display:none}
+.ath-timer-hdr{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:var(--t3);margin-bottom:6px;display:flex;align-items:center;gap:5px}
+.ath-timer-row{display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(42,42,42,.4)}
+.ath-timer-row:last-child{border-bottom:none}
+.ath-timer-name{font-size:11px;color:var(--t2);display:flex;align-items:center;gap:6px}
+.ath-timer-name .ath-timer-pill-dot{width:5px;height:5px}
+.ath-timer-cd{font-size:12px;font-weight:600;color:var(--amber);font-variant-numeric:tabular-nums;font-family:var(--mono,monospace)}
+.ath-timer-x{font-size:9px;color:var(--t3);cursor:pointer;margin-left:7px;opacity:.5;transition:opacity .15s}
+.ath-timer-x:hover{opacity:1;color:#F87171}
 /* Error state */
 .ath-error{padding:10px 13px 12px;font-size:11px;color:rgba(248,113,113,.7);line-height:1.5}
 .a-pin-sheet{display:none;position:fixed;bottom:0;left:0;right:0;z-index:300;background:var(--bg-panel);border-top:1px solid var(--border);border-radius:16px 16px 0 0;padding:20px 20px calc(20px + env(safe-area-inset-bottom));flex-direction:column;gap:12px;box-shadow:0 -4px 24px rgba(0,0,0,.3)}
@@ -1218,6 +1238,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 
   <!-- ── ATHENA™ VOICE ASSISTANT ── -->
   <!-- FAB button — visible when Athena is enabled -->
+  <div class="ath-timer-float" id="ath-timer-float"></div>
   <div class="athena-fab-btn" id="ath-fab" style="display:none" onclick="athenaFabTap()" title="Athena — tap or say wake word">
     <svg viewBox="0 0 36 36" width="28" height="28" xmlns="http://www.w3.org/2000/svg" id="ath-fab-aegis" class="ath-aegis-idle">
       <circle cx="18" cy="18" r="16" style="fill:var(--bg)" stroke="rgba(245,158,11,.85)" stroke-width=".95"/>
@@ -1270,6 +1291,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
       </div>
       <div class="ath-transcript" id="ath-transcript"></div>
       <div id="ath-chip-area"></div>
+      <div class="ath-timer-section" id="ath-timer-panel"></div>
       <div class="ath-input-row">
         <input class="ath-input" id="ath-text-input" type="text" placeholder="Say something or type…"
                onkeydown="if(event.key==='Enter')athenaSubmitText(this.value)"
@@ -4840,13 +4862,13 @@ function athenaSetTimer(label, seconds) {
     athenaTimerFired(id, label);
   }, seconds * 1000);
   _athenaTimers.push({ id, label, endTime, timeout });
-  athenaUpdateTimerBadge();
+  athenaUpdateTimerUI(); athenaStartTimerTick();
   return id;
 }
 
 function athenaTimerFired(id, label) {
   _athenaTimers = _athenaTimers.filter(t => t.id !== id);
-  athenaUpdateTimerBadge();
+  athenaUpdateTimerUI(); athenaStartTimerTick();
   const msg = label ? `Your ${label} timer is done.` : 'Your timer is done.';
   athenaAddBubble('athena', msg);
   athenaSpeak(msg);
@@ -4865,25 +4887,88 @@ function athenaCancelTimer(label) {
   if (idx >= 0) {
     clearTimeout(_athenaTimers[idx].timeout);
     const removed = _athenaTimers.splice(idx, 1)[0];
-    athenaUpdateTimerBadge();
+    athenaUpdateTimerUI(); athenaStartTimerTick();
     return removed.label || 'timer';
   }
   return null;
 }
 
-function athenaUpdateTimerBadge() {
+let _athenaTimerRAF = null;
+
+function athenaUpdateTimerUI() {
+  // Badge on FAB
   let badge = document.getElementById('ath-timer-badge');
   if (_athenaTimers.length > 0) {
     if (!badge) {
       badge = document.createElement('div');
       badge.id = 'ath-timer-badge';
-      badge.style.cssText = 'position:absolute;top:-4px;right:-4px;background:var(--amber);color:#000;font-size:10px;font-weight:700;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:10';
+      badge.style.cssText = 'position:absolute;top:-4px;right:-4px;background:var(--amber);color:#000;font-size:10px;font-weight:700;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:91';
       const fab = document.getElementById('ath-fab');
-      if (fab) { fab.style.position = 'relative'; fab.appendChild(badge); }
+      if (fab) fab.appendChild(badge);
     }
     badge.textContent = _athenaTimers.length;
   } else if (badge) {
     badge.remove();
+  }
+
+  // Floating pills (desktop/tablet only, max 3)
+  const floatEl = document.getElementById('ath-timer-float');
+  if (floatEl) {
+    if (_athenaTimers.length === 0) {
+      floatEl.innerHTML = '';
+    } else {
+      const pills = _athenaTimers.slice(0, 3);
+      floatEl.innerHTML = pills.map(t => {
+        const rem = Math.max(0, Math.round((t.endTime - Date.now()) / 1000));
+        const m = Math.floor(rem / 60);
+        const s = rem % 60;
+        return '<div class="ath-timer-pill" onclick="athenaFabTap()" title="' + (t.label || 'Timer') + '">' +
+          '<div class="ath-timer-pill-dot"></div>' +
+          '<span class="ath-timer-pill-lbl">' + (t.label || 'Timer') + '</span>' +
+          '<span class="ath-timer-pill-time">' + m + ':' + String(s).padStart(2,'0') + '</span></div>';
+      }).join('');
+    }
+  }
+
+  // Panel section
+  const panelEl = document.getElementById('ath-timer-panel');
+  if (panelEl) {
+    if (_athenaTimers.length === 0) {
+      panelEl.innerHTML = '';
+    } else {
+      let html = '<div class="ath-timer-hdr"><svg width="9" height="9" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="9" r="5" stroke="#666" stroke-width="1.2"/><line x1="8" y1="6" x2="8" y2="9" stroke="#666" stroke-width="1.1" stroke-linecap="round"/><line x1="8" y1="9" x2="10" y2="9" stroke="#666" stroke-width="1.1" stroke-linecap="round"/></svg>Scheduled</div>';
+      _athenaTimers.forEach(t => {
+        const rem = Math.max(0, Math.round((t.endTime - Date.now()) / 1000));
+        const m = Math.floor(rem / 60);
+        const s = rem % 60;
+        html += '<div class="ath-timer-row"><div class="ath-timer-name"><div class="ath-timer-pill-dot"></div>' +
+          (t.label || 'Timer') + '</div><div><span class="ath-timer-cd">' + m + ':' + String(s).padStart(2,'0') +
+          '</span><span class="ath-timer-x" onclick="athenaCancelTimerById(' + t.id + ')" title="Cancel">&#10005;</span></div></div>';
+      });
+      panelEl.innerHTML = html;
+    }
+  }
+
+}
+
+function athenaStartTimerTick() {
+  if (!_athenaTimerRAF && _athenaTimers.length > 0) {
+    _athenaTimerRAF = setInterval(() => {
+      athenaUpdateTimerUI();
+      if (_athenaTimers.length === 0) {
+        clearInterval(_athenaTimerRAF);
+        _athenaTimerRAF = null;
+      }
+    }, 1000);
+  }
+}
+
+function athenaCancelTimerById(id) {
+  const idx = _athenaTimers.findIndex(t => t.id === id);
+  if (idx >= 0) {
+    clearTimeout(_athenaTimers[idx].timeout);
+    _athenaTimers.splice(idx, 1);
+    athenaUpdateTimerUI();
   }
 }
 
