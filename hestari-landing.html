@@ -387,10 +387,10 @@ footer{border-top:1px solid var(--border);padding:40px 0}
       <li><a href="#about" class="nhm">About</a></li>
       <li><a href="#roadmap" class="nhm">Roadmap</a></li>
       <li><a href="https://github.com/h4ven88/hestia-dashboard" target="_blank" class="nhm">GitHub</a></li>
-      <li><a href="/app.html" class="nav-cta">Open Dashboard</a></li>
+      <li><a href="/app" class="nav-cta">Open Dashboard</a></li>
     </ul>
     <div style="display:flex;align-items:center;gap:4px">
-      <a href="/app.html" class="nav-mobile-cta">Open Dashboard</a>
+      <a href="/app" class="nav-mobile-cta">Open Dashboard</a>
       <button class="nav-hamburger" onclick="document.querySelector('nav').classList.toggle('nav-open')" aria-label="Menu">
         <span></span><span></span><span></span>
       </button>
@@ -455,7 +455,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
       <div class="preview-inner">
         <img src="hestari-preview-desktop.png" alt="Hestia dashboard — desktop view with rooms, climate, weather, and Artemis security" loading="eager" class="preview-img"
           onerror="this.style.display='none';this.nextElementSibling.style.display='block'"
-        ><div class="preview-placeholder" style="display:none">Dashboard preview — <a href="/app.html" style="color:var(--amber)">open the live dashboard</a> to see it in action.</div>
+        ><div class="preview-placeholder" style="display:none">Dashboard preview — <a href="/app" style="color:var(--amber)">open the live dashboard</a> to see it in action.</div>
       </div>
     </div>
   </div>
@@ -471,7 +471,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
         <div class="preview-inner">
           <img src="hestari-preview-mobile.jpg" alt="Hestia dashboard — mobile view with bottom navigation and room controls" loading="eager" class="preview-img"
             onerror="this.style.display='none';this.nextElementSibling.style.display='block'"
-          ><div class="preview-placeholder" style="display:none">Mobile preview — <a href="/app.html" style="color:var(--amber)">open the live dashboard</a> on your phone.</div>
+          ><div class="preview-placeholder" style="display:none">Mobile preview — <a href="/app" style="color:var(--amber)">open the live dashboard</a> on your phone.</div>
         </div>
       </div>
     </div>
@@ -1004,7 +1004,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
   <div class="wrap footer-inner">
     <div class="footer-brand">Hestia</div>
     <ul class="footer-links">
-      <li><a href="/app.html">Open Dashboard</a></li>
+      <li><a href="/app">Open Dashboard</a></li>
       <li><a href="#setup">Setup Guide</a></li>
       <li><a href="https://github.com/h4ven88/hestia-dashboard" target="_blank">GitHub</a></li>
       <li><a href="https://github.com/h4ven88/hestia-dashboard/issues" target="_blank">Report a Bug</a></li>
@@ -1019,7 +1019,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
 <script>
 // Wall Panel / config redirect — if URL has dashboard params, skip landing page
 if (location.search && /[?&](hub|appId|token)=/.test(location.search)) {
-  location.replace('/app.html' + location.search);
+  location.replace('/app' + location.search);
 }
 
 // Preview toggle

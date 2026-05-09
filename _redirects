@@ -1,4 +1,5 @@
 # Cloudflare Pages redirects
-# Root serves the landing page; dashboard is at /index.html directly
+# /app serves the dashboard; root serves the landing page
 
+/app /app.html 200
 / /hestari-landing.html 200
