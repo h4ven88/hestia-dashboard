@@ -1,6 +1,6 @@
 # Cloudflare Pages redirects
-# Serve landing page at root for visitors without query params
-# Dashboard remains at /index.html (direct access, Wall Panels, Groovy app)
+# /app rewrites to the dashboard; root serves the landing page
+# /index.html still works directly (Wall Panels, Groovy app)
 
-/ /hestari-landing.html 200
 /app /index.html 200
+/ /hestari-landing.html 200
