@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hestari | Hestia Smart Home Dashboard for Hubitat</title>
+<meta name="theme-color" content="#0A0A0A">
+<meta name="description" content="Hestia is a free, open-source smart home dashboard for Hubitat Elevation. Voice control, home security, and beautiful device management in any browser.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Hestia — Smart Home Dashboard for Hubitat">
+<meta property="og:description" content="Free, open-source dashboard with voice control and home security. Works in any browser.">
+<meta property="og:url" content="https://hestari.com">
+<meta property="og:site_name" content="Hestari">
+<meta property="og:image" content="https://hestari.com/hestari-preview-desktop.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Hestia — Smart Home Dashboard for Hubitat">
+<meta name="twitter:description" content="Free, open-source dashboard with voice control and home security. Works in any browser.">
+<meta name="twitter:image" content="https://hestari.com/hestari-preview-desktop.png">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg viewBox='0 0 80 90' xmlns='http://www.w3.org/2000/svg'%3E%3Cpolygon points='40,5 68,21 68,57 40,73 12,57 12,21' fill='none' stroke='%23F59E0B' stroke-width='2' stroke-linejoin='miter'/%3E%3Cpolygon points='40,5 68,21 54,33 26,33 12,21' fill='%23F0EEE8'/%3E%3Cline x1='26' y1='33' x2='54' y2='33' stroke='%23F59E0B' stroke-width='3' stroke-linecap='square'/%3E%3Cpolygon points='26,33 54,33 68,57 40,73 12,57' fill='%23141C26'/%3E%3Cline x1='40' y1='33' x2='40' y2='73' stroke='%2394A3B8' stroke-width='1.1' opacity='.3'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@100;200;300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:        #0A0A0A;
+  --bg-panel:  #111111;
+  --bg-card:   #181818;
+  --bg-hover:  #212121;
+  --border:    #272727;
+  --border-s:  #1C1C1C;
+  --amber:     #F59E0B;
+  --amber-dim: #1A1200;
+  --amber-bdr: #6B4A08;
+  --t1:        #F2F2F2;
+  --t2:        #999999;
+  --t3:        #555555;
+  --t4:        #333333;
+  --a-ok:      #4ADE80;
+  --a-blue:    #60A5FA;
+  --artemis-green: #3A8A55;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  font-family:'Outfit',system-ui,sans-serif;
+  background:var(--bg);color:var(--t1);
+  overflow-x:hidden;-webkit-font-smoothing:antialiased;
+  font-weight:300;font-size:14px;line-height:1.7;
+}
+a{color:inherit;text-decoration:none}
+:focus-visible{outline:2px solid var(--amber);outline-offset:3px;border-radius:4px}
+.skip-link{position:absolute;top:-100%;left:16px;padding:10px 18px;background:var(--amber);color:var(--bg);font-size:13px;font-weight:400;border-radius:6px;z-index:200;transition:top .2s}
+.skip-link:focus{top:12px}
+
+/* Ambient */
+.ambient{position:fixed;inset:0;z-index:0;pointer-events:none}
+.ambient::before{content:'';position:absolute;width:900px;height:900px;top:-300px;right:-200px;background:radial-gradient(circle,rgba(245,158,11,.035) 0%,transparent 65%);animation:drift 28s ease-in-out infinite}
+.ambient::after{content:'';position:absolute;width:600px;height:600px;bottom:15%;left:-100px;background:radial-gradient(circle,rgba(58,138,85,.02) 0%,transparent 65%);animation:drift 32s ease-in-out infinite reverse}
+@keyframes drift{0%,100%{transform:translate(0,0)}50%{transform:translate(25px,18px)}}
+
+.content{position:relative;z-index:2}
+.wrap{max-width:1240px;margin:0 auto;padding:0 40px}
+
+/* ── Nav ── */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(10,10,10,.7);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border-bottom:1px solid var(--border)}
+.nav-inner{max-width:1240px;margin:0 auto;padding:0 40px;height:56px;display:flex;align-items:center;justify-content:space-between}
+.nav-brand{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:200;letter-spacing:.22em;text-transform:uppercase;color:var(--t1)}
+.nav-links{display:flex;gap:6px;list-style:none;align-items:center}
+.nav-links a{color:var(--t2);font-size:13px;font-weight:300;padding:7px 16px;border-radius:6px;transition:all .2s;letter-spacing:.03em}
+.nav-links a:hover{color:var(--t1);background:var(--bg-card)}
+.nav-cta{color:var(--bg)!important;background:var(--amber)!important;font-weight:400!important}
+.nav-cta:hover{background:#D4891A!important}
+.nav-mobile-cta{display:none}
+.nav-hamburger{display:none;background:none;border:none;cursor:pointer;padding:8px;margin-right:-8px}
+.nav-hamburger span{display:block;width:18px;height:1.5px;background:var(--t2);margin:4px 0;transition:all .25s}
+.nav-open .nav-hamburger span:nth-child(1){transform:rotate(45deg) translate(3px,3px)}
+.nav-open .nav-hamburger span:nth-child(2){opacity:0}
+.nav-open .nav-hamburger span:nth-child(3){transform:rotate(-45deg) translate(4px,-4px)}
+
+/* ── Hero ── */
+.hero{min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding-top:56px}
+.hero-inner{padding:100px 0 80px}
+.hero-gem{margin-bottom:36px;opacity:0;animation:fadeUp .7s ease .1s forwards}
+.hero h1{font-size:clamp(32px,5.5vw,64px);font-weight:200;letter-spacing:.02em;line-height:1.15;margin-bottom:14px;max-width:740px;opacity:0;animation:fadeUp .7s ease .2s forwards}
+.hero-tagline{font-size:clamp(11px,1.2vw,14px);font-weight:300;letter-spacing:.24em;text-transform:uppercase;color:var(--amber);margin-bottom:32px;opacity:0;animation:fadeUp .7s ease .32s forwards}
+.hero-sub{font-size:clamp(14px,1.3vw,17px);line-height:1.8;color:var(--t2);max-width:560px;margin-bottom:20px;opacity:0;animation:fadeUp .7s ease .42s forwards}
+.hero-highlights{display:flex;gap:24px;flex-wrap:wrap;margin-bottom:42px;opacity:0;animation:fadeUp .7s ease .5s forwards}
+.hero-hl{font-size:clamp(12px,1.1vw,14px);font-weight:400;color:var(--t2);display:flex;align-items:center;gap:8px;letter-spacing:.02em}
+.hero-hl-dot{width:6px;height:6px;border-radius:50%;background:var(--amber);flex-shrink:0}
+.hero-actions{display:flex;gap:14px;flex-wrap:wrap;opacity:0;animation:fadeUp .7s ease .58s forwards}
+@keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;gap:8px;padding:13px 28px;border-radius:8px;font-size:14px;font-weight:400;letter-spacing:.04em;transition:all .2s;cursor:pointer;border:none;font-family:inherit}
+.btn-amber{background:var(--amber);color:var(--bg)}
+.btn-amber:hover{background:#D4891A;box-shadow:0 4px 18px rgba(245,158,11,.18)}
+.btn-ghost{background:transparent;color:var(--t2);border:1px solid var(--border)}
+.btn-ghost:hover{border-color:var(--t3);color:var(--t1)}
+
+/* ── Preview ── */
+.preview{padding:0 0 100px;max-width:1440px;margin:0 auto}
+.preview-frame{border-radius:12px;border:1px solid var(--border);background:var(--bg-panel);padding:3px;box-shadow:0 28px 70px rgba(0,0,0,.5);position:relative;overflow:hidden}
+.preview-frame::before{content:'';position:absolute;top:0;left:15%;right:15%;height:1px;background:linear-gradient(90deg,transparent,rgba(245,158,11,.18),transparent)}
+.preview-chrome{display:flex;align-items:center;gap:6px;padding:10px 14px;background:var(--bg-card);border-bottom:1px solid var(--border);border-radius:10px 10px 0 0}
+.preview-dot{width:8px;height:8px;border-radius:50%;background:var(--t4)}
+.preview-url{flex:1;margin-left:8px;height:22px;border-radius:5px;background:var(--bg);border:1px solid var(--border);display:flex;align-items:center;padding:0 10px;font-size:11px;color:var(--t3);letter-spacing:.02em}
+.preview-inner{overflow:hidden;background:var(--bg-card);display:flex;align-items:center;justify-content:center;border-radius:0 0 10px 10px}
+.preview-img{width:100%;height:auto;display:block}
+.preview-caption{text-align:center;margin-top:16px;font-size:clamp(11px,1vw,13px);color:var(--t3);font-weight:300;letter-spacing:.04em}
+.preview-placeholder{text-align:center;padding:40px;color:var(--t3);font-size:12px;font-weight:300}
+.preview-toggle{display:flex;justify-content:center;gap:2px;margin-bottom:18px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:3px;width:fit-content;margin-left:auto;margin-right:auto}
+.preview-toggle button{padding:8px 20px;border:none;border-radius:6px;background:transparent;color:var(--t3);font-size:13px;font-weight:400;font-family:inherit;cursor:pointer;letter-spacing:.02em;transition:all .2s}
+.preview-toggle button.active{background:var(--amber-dim);color:var(--amber);border:1px solid var(--amber-bdr)}
+.preview-toggle button:not(.active){border:1px solid transparent}
+.preview-mobile-frame{max-width:380px;margin:0 auto}
+.preview-mobile-frame .preview-frame{border-radius:24px;padding:4px}
+.preview-mobile-frame .preview-chrome{border-radius:20px 20px 0 0;padding:8px 14px}
+.preview-mobile-frame .preview-inner{border-radius:0 0 20px 20px}
+
+/* ── Section styles ── */
+.s-label{font-size:clamp(10px,1vw,13px);font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--amber);margin-bottom:14px}
+.s-title{font-size:clamp(26px,3.5vw,42px);font-weight:300;letter-spacing:.06em;line-height:1.2;margin-bottom:16px}
+.s-desc{font-size:clamp(13px,1.2vw,16px);line-height:1.75;color:var(--t2);max-width:560px;font-weight:300}
+.section-gap{padding:0 0 140px}
+.section-band{background:var(--bg-panel);border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:100px 0;margin-bottom:140px}
+.section-band .wrap.section-gap{padding:0}
+.section-band-alt{background:linear-gradient(180deg,var(--bg-panel) 0%,var(--bg) 100%);border-top:1px solid var(--border);padding:100px 0;margin-bottom:140px}
+.section-band-alt .wrap.section-gap{padding:0}
+
+/* ── Modules ── */
+.modules-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;border-radius:14px;overflow:hidden;border:1px solid var(--border);margin-top:48px}
+.mod-card{background:var(--bg-panel);padding:48px 36px 42px;transition:background .3s}
+.mod-card:hover{background:var(--bg-card)}
+.mod-gem{margin-bottom:24px}
+.mod-name{font-size:22px;font-weight:400;letter-spacing:.12em;text-transform:uppercase;margin-bottom:3px}
+.mod-tm{font-size:8px;color:var(--amber);vertical-align:super;letter-spacing:0;font-weight:400}
+.mod-role{font-size:11px;font-weight:400;letter-spacing:.12em;text-transform:uppercase;color:var(--amber);margin-bottom:16px}
+.mod-desc{font-size:14px;line-height:1.7;color:var(--t2);margin-bottom:22px;font-weight:300}
+.mod-feat{font-size:13px;color:var(--t2);display:flex;align-items:flex-start;gap:8px;line-height:1.55;margin-bottom:9px;font-weight:300}
+.mfd{width:4px;height:4px;border-radius:50%;flex-shrink:0;margin-top:5px}
+
+/* ── Feature cards ── */
+.feat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:56px}
+.feat-card{padding:40px 32px;border-radius:14px;background:var(--bg-card);border:1px solid var(--border);transition:border-color .2s}
+.feat-card:hover{border-color:var(--t4)}
+.feat-num{font-size:36px;font-weight:100;color:var(--amber);opacity:.2;line-height:1;margin-bottom:16px;letter-spacing:.05em}
+.feat-card h3{font-size:15px;font-weight:400;margin-bottom:8px;letter-spacing:.02em}
+.feat-card p{font-size:14px;line-height:1.7;color:var(--t2);font-weight:300}
+
+/* ── Devices ── */
+.devices-row{display:flex;gap:32px;justify-content:center;margin-top:56px;flex-wrap:wrap}
+.device-item{text-align:center}
+.device-frame{border-radius:12px;border:1.5px solid var(--border);margin:0 auto 12px;display:flex;align-items:center;justify-content:center}
+.device-frame.wall{border-color:var(--amber-bdr);background:var(--amber-dim)}
+.device-screen{border-radius:5px;background:var(--bg-card);border:1px solid var(--t4);background-image:url('hestari-preview-desktop.png');background-size:cover;background-position:center}
+.device-frame.phone .device-screen,.device-frame.tablet .device-screen{background-image:url('hestari-preview-mobile.jpg')}
+.device-label{font-size:12px;color:var(--t3);letter-spacing:.06em;font-weight:300}
+.device-label.wall{color:var(--amber)}
+.device-frame.phone{width:72px;height:120px}
+.device-frame.phone .device-screen{width:44px;height:84px}
+.device-frame.tablet{width:104px;height:120px}
+.device-frame.tablet .device-screen{width:72px;height:92px}
+.device-frame.desktop{width:156px;height:108px;align-items:flex-end;padding-bottom:8px}
+.device-frame.desktop .device-screen{width:124px;height:76px;border-radius:4px}
+.device-frame.panel{width:130px;height:120px}
+.device-frame.panel .device-screen{width:100px;height:92px}
+
+/* ── Themes ── */
+.themes-row{display:flex;gap:18px;justify-content:center;margin-top:40px}
+.theme-swatch{display:flex;flex-direction:column;align-items:center;gap:6px}
+.theme-preview{width:88px;height:64px;border-radius:8px;border:1.5px solid var(--border);overflow:hidden;display:flex;flex-direction:column}
+.theme-preview .sw-top{height:20px;flex-shrink:0}
+.theme-preview .sw-body{flex:1}
+.theme-lbl{font-size:11px;color:var(--t3);font-weight:300;letter-spacing:.04em}
+
+/* ── Voice ── */
+.voice-layout{display:grid;grid-template-columns:1fr 1fr;gap:80px;align-items:center;margin-top:56px}
+.voice-visual{display:flex;align-items:center;justify-content:center;position:relative;height:320px}
+.v-ring-outer{width:260px;height:260px;border-radius:50%;border:1px solid rgba(245,158,11,.06);position:absolute;animation:vb 4.5s ease-in-out infinite}
+.v-ring-mid{width:170px;height:170px;border-radius:50%;border:1px solid rgba(245,158,11,.1);position:absolute;animation:vb 3.5s ease-in-out infinite .4s}
+.v-core{width:72px;height:72px;border-radius:50%;background:radial-gradient(circle at 38% 38%,var(--amber) 0%,#B8862E 100%);box-shadow:0 0 40px rgba(245,158,11,.2),0 0 80px rgba(245,158,11,.08);animation:vb 3s ease-in-out infinite .7s;z-index:1}
+@keyframes vb{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+.voice-text h3{font-size:clamp(22px,2.5vw,30px);font-weight:200;letter-spacing:.04em;margin-bottom:18px;line-height:1.3}
+.voice-text h3 em{color:var(--amber);font-style:normal;font-weight:300}
+.voice-text p{font-size:15px;line-height:1.75;color:var(--t2);margin-bottom:18px;font-weight:300}
+.voice-ex{display:inline-flex;align-items:center;gap:10px;padding:12px 20px;border-radius:8px;background:var(--amber-dim);border:1px solid var(--amber-bdr);font-size:14px;color:var(--amber);font-weight:300}
+.voice-ex .vdot{width:6px;height:6px;border-radius:50%;background:var(--amber);animation:vb 2s ease-in-out infinite;flex-shrink:0}
+.voice-flow{display:flex;align-items:center;gap:14px;margin-top:24px;flex-wrap:wrap}
+.voice-step{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--t3);font-weight:300;letter-spacing:.02em}
+.voice-step-num{width:22px;height:22px;border-radius:50%;border:1px solid var(--amber-bdr);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--amber);font-weight:400}
+.voice-step-arrow{color:var(--t4);font-size:10px}
+
+/* ── Walkthrough accordion ── */
+.walk-grid{display:grid;grid-template-columns:1fr;gap:2px;border-radius:14px;overflow:hidden;border:1px solid var(--border);margin-top:56px}
+.walk-step{background:var(--bg-panel)}
+.walk-hdr{display:grid;grid-template-columns:56px 1fr 24px;gap:18px;align-items:center;padding:24px 36px;cursor:pointer;transition:background .2s;user-select:none;-webkit-tap-highlight-color:transparent}
+.walk-hdr:hover{background:var(--bg-card)}
+.walk-num{font-size:28px;font-weight:100;color:var(--amber);opacity:.3;line-height:1}
+.walk-hdr h3{font-size:15px;font-weight:400;letter-spacing:.02em}
+.walk-hdr .walk-arrow{font-size:12px;color:var(--t3);transition:transform .25s;font-weight:300}
+.walk-step.open .walk-arrow{transform:rotate(90deg)}
+.walk-body{max-height:0;overflow:hidden;transition:max-height .35s ease}
+.walk-step.open .walk-body{max-height:800px}
+.walk-detail{padding:0 36px 28px;padding-left:110px}
+.walk-detail p{font-size:14px;line-height:1.75;color:var(--t2);font-weight:300;margin-bottom:12px}
+.walk-detail p:last-child{margin-bottom:0}
+.walk-detail code{color:var(--amber);font-size:13px;background:var(--amber-dim);padding:3px 8px;border-radius:5px;border:1px solid var(--amber-bdr);font-family:'Outfit',monospace;word-break:break-all}
+.walk-detail ul{list-style:none;margin:10px 0}
+.walk-detail li{font-size:14px;line-height:1.7;color:var(--t2);font-weight:300;padding-left:14px;position:relative;margin-bottom:5px}
+.walk-detail li::before{content:'';position:absolute;left:0;top:7px;width:4px;height:4px;border-radius:50%;background:var(--t3)}
+.walk-img{margin-top:12px;border-radius:8px;border:1px solid var(--border);overflow:hidden;display:none}
+.walk-img.has-img{display:block}
+.walk-img img{width:100%;display:block}
+
+/* ── Roadmap timeline ── */
+.timeline{position:relative;margin-top:56px;padding-left:40px}
+.timeline::before{content:'';position:absolute;left:8px;top:8px;bottom:8px;width:1px;background:var(--border)}
+.tl-phase{margin-bottom:56px;position:relative}
+.tl-phase:last-child{margin-bottom:0}
+.tl-dot{position:absolute;left:-40px;top:2px;width:17px;height:17px;border-radius:50%;border:1.5px solid var(--border);background:var(--bg);display:flex;align-items:center;justify-content:center}
+.tl-dot::after{content:'';width:6px;height:6px;border-radius:50%}
+.tl-dot.now::after{background:var(--amber)}
+.tl-dot.now{border-color:var(--amber-bdr)}
+.tl-dot.next::after{background:var(--a-blue)}
+.tl-dot.next{border-color:rgba(96,165,250,.3)}
+.tl-dot.later::after{background:var(--t3)}
+.tl-dot.later{border-color:var(--t4)}
+.tl-phase-label{font-size:12px;font-weight:400;letter-spacing:.14em;text-transform:uppercase;margin-bottom:18px}
+.tl-phase-label.now{color:var(--amber)}
+.tl-phase-label.next{color:var(--a-blue)}
+.tl-phase-label.later{color:var(--t3)}
+.tl-items{display:flex;flex-direction:column;gap:12px}
+.tl-item{padding:24px 32px;border-radius:14px;background:var(--bg-panel);border:1px solid var(--border)}
+.tl-item h3{font-size:15px;font-weight:400;margin-bottom:6px}
+.tl-item p{font-size:14px;line-height:1.7;color:var(--t2);font-weight:300}
+
+/* ── About ── */
+.about-content{max-width:680px;margin-top:40px}
+.about-content p{font-size:15px;line-height:1.85;color:var(--t2);margin-bottom:18px;font-weight:300}
+
+/* ── Feedback ── */
+.feedback-cards{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;margin-top:48px}
+.fb-card{padding:36px 32px;border-radius:14px;background:var(--bg-card);border:1px solid var(--border);text-align:center}
+.fb-icon{font-size:24px;margin-bottom:14px;opacity:.6}
+.fb-card h3{font-size:15px;font-weight:400;margin-bottom:8px}
+.fb-card p{font-size:14px;line-height:1.7;color:var(--t2);font-weight:300}
+.fb-card a{color:var(--amber);font-weight:400;font-size:14px}
+.fb-card a:hover{text-decoration:underline}
+
+/* ── CTA ── */
+.cta{padding:0 0 100px;text-align:center}
+.cta .s-title{max-width:480px;margin:0 auto 12px}
+.cta .s-desc{max-width:400px;margin:0 auto 32px}
+.cta-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+
+/* ── Footer ── */
+footer{border-top:1px solid var(--border);padding:40px 0}
+.footer-inner{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px}
+.footer-brand{font-size:13px;font-weight:200;letter-spacing:.18em;text-transform:uppercase;color:var(--t3)}
+.footer-links{display:flex;gap:20px;list-style:none;flex-wrap:wrap}
+.footer-links a{color:var(--t3);font-size:12px;font-weight:300;transition:color .2s;letter-spacing:.03em}
+.footer-links a:hover{color:var(--t2)}
+.footer-copy{font-size:11px;color:var(--t4);letter-spacing:.03em}
+
+/* ── Responsive ── */
+@media(max-width:820px){
+  .wrap{padding:0 20px}
+  .nav-hamburger{display:block}
+  .nav-mobile-cta{display:inline-flex;align-items:center;padding:8px 16px;border-radius:7px;background:var(--amber);color:var(--bg);font-size:12px;font-weight:400;letter-spacing:.03em;margin-right:10px}
+  .nav-inner{padding:0 20px;height:52px}
+  .nav-links{
+    display:none;flex-direction:column;
+    position:fixed;top:52px;left:0;right:0;bottom:0;
+    background:var(--bg);
+    padding:32px 20px;gap:4px;align-items:stretch;
+    border-top:1px solid var(--border);
+    overflow-y:auto;-webkit-overflow-scrolling:touch
+  }
+  .nav-open .nav-links{display:flex}
+  .nav-open{background:var(--bg)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+  .nav-links a{font-size:15px;padding:14px 16px;border-radius:8px}
+  .nav-links .nhm{display:list-item}
+  .nav-cta{text-align:center;margin-top:12px;padding:14px 16px!important;border-radius:8px!important}
+  .hero-inner{padding:60px 0 40px}
+  .s-label{font-size:10px;letter-spacing:.14em}
+  .s-title{font-size:clamp(22px,5vw,28px)}
+  .s-desc{font-size:13px}
+  .section-gap{padding:0 0 80px}
+  .section-band,.section-band-alt{padding:60px 0;margin-bottom:80px}
+  .section-band .wrap,.section-band-alt .wrap{padding:0 20px}
+  .modules-grid,.feat-grid,.feedback-cards{grid-template-columns:1fr}
+  .mod-card{padding:32px 24px 28px}
+  .mod-name{font-size:18px}
+  .mod-desc,.mod-feat{font-size:13px}
+  .feat-card{padding:28px 24px}
+  .feat-card h3{font-size:14px}
+  .feat-card p{font-size:13px}
+  .voice-layout{grid-template-columns:1fr;gap:36px}
+  .voice-visual{height:200px}
+  .v-ring-outer{width:200px;height:200px}
+  .v-ring-mid{width:130px;height:130px}
+  .v-core{width:56px;height:56px}
+  .voice-text h3{font-size:20px}
+  .voice-text p{font-size:14px}
+  .voice-ex{font-size:13px;padding:10px 16px}
+  .voice-flow{gap:8px;margin-top:16px}
+  .voice-step{font-size:11px}
+  .voice-step-num{width:18px;height:18px;font-size:9px}
+  .preview{padding:0 20px 60px}
+  .preview-frame{border-radius:10px}
+  .preview-chrome{padding:8px 12px}
+  .preview-dot{width:6px;height:6px}
+  .preview-url{font-size:10px;height:20px}
+  .preview-img{border-radius:0 0 8px 8px}
+  .preview-caption{font-size:11px;padding:0 4px}
+  .themes-row{flex-wrap:wrap;gap:12px}
+  .footer-inner{flex-direction:column;gap:14px;text-align:center}
+  .footer-links{justify-content:center}
+  .hero-highlights{flex-direction:column;gap:8px}
+  .walk-hdr{grid-template-columns:40px 1fr 18px;gap:12px;padding:18px 20px}
+  .walk-hdr h3{font-size:14px}
+  .walk-detail{padding-left:74px;padding-right:20px}
+  .walk-detail p,.walk-detail li{font-size:13px}
+  .walk-num{font-size:22px}
+  .tl-item{padding:20px 22px}
+  .tl-item h3{font-size:14px}
+  .tl-item p{font-size:13px}
+  .about-content p{font-size:14px}
+  .fb-card{padding:28px 22px}
+  .fb-card h3{font-size:14px}
+  .fb-card p{font-size:13px}
+  .btn{padding:12px 24px;font-size:13px}
+  .device-frame.phone{width:56px;height:96px}
+  .device-frame.phone .device-screen{width:34px;height:66px}
+  .device-frame.tablet{width:82px;height:96px}
+  .device-frame.tablet .device-screen{width:56px;height:72px}
+  .device-frame.desktop{width:120px;height:84px}
+  .device-frame.desktop .device-screen{width:96px;height:58px}
+  .device-frame.panel{width:100px;height:96px}
+  .device-frame.panel .device-screen{width:76px;height:72px}
+  .devices-row{gap:20px;margin-top:36px}
+  .device-label{font-size:11px}
+  .theme-preview{width:64px;height:46px}
+  .theme-lbl{font-size:9px}
+  .timeline{padding-left:32px}
+  .tl-dot{left:-32px}
+}
+@media(max-width:480px){
+  .walk-hdr{grid-template-columns:28px 1fr 18px;gap:8px;padding:16px 16px}
+  .walk-detail{padding-left:52px;padding-right:16px}
+  .walk-num{font-size:18px}
+  .hero h1{font-size:26px}
+  .hero-sub{font-size:13px}
+  .nav-mobile-cta{font-size:11px;padding:7px 12px}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:0.01ms!important;animation-iteration-count:1!important;transition-duration:0.01ms!important;scroll-behavior:auto!important}
+}
+</style>
+</head>
+<body>
+<a href="#modules" class="skip-link">Skip to content</a>
+<div class="ambient"></div>
+<div class="content">
+
+<!-- ════ NAV ════ -->
+<nav>
+  <div class="nav-inner">
+    <a href="/" class="nav-brand">
+      <svg viewBox="0 0 80 90" width="20" height="22" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="40,5 68,21 68,57 40,73 12,57 12,21" fill="none" stroke="#F59E0B" stroke-width="2" stroke-linejoin="miter"/>
+        <polygon points="40,5 68,21 54,33 26,33 12,21" fill="#F0EEE8"/>
+        <polygon points="40,5 12,21 26,33" fill="#E4E2DA"/>
+        <polygon points="40,5 68,21 54,33" fill="#D0CEC6"/>
+        <line x1="26" y1="33" x2="54" y2="33" stroke="#F59E0B" stroke-width="3" stroke-linecap="square"/>
+        <polygon points="26,33 54,33 68,57 40,73 12,57" fill="#141C26"/>
+        <polygon points="26,33 12,57 40,73" fill="#0C1218"/>
+        <polygon points="54,33 68,57 40,73" fill="#1A2332"/>
+        <line x1="40" y1="33" x2="40" y2="73" stroke="#94A3B8" stroke-width="1.1" opacity=".3"/>
+      </svg>
+      Hestia
+    </a>
+    <ul class="nav-links">
+      <li><a href="#modules" class="nhm">Modules</a></li>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#setup">Setup</a></li>
+      <li><a href="#about" class="nhm">About</a></li>
+      <li><a href="#roadmap" class="nhm">Roadmap</a></li>
+      <li><a href="https://github.com/h4ven88/hestia-dashboard" target="_blank" class="nhm">GitHub</a></li>
+      <li><a href="/app" class="nav-cta">Open Dashboard</a></li>
+    </ul>
+    <div style="display:flex;align-items:center;gap:4px">
+      <a href="/app" class="nav-mobile-cta">Open Dashboard</a>
+      <button class="nav-hamburger" onclick="document.querySelector('nav').classList.toggle('nav-open')" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<!-- ════ HERO ════ -->
+<section class="hero">
+  <div class="wrap hero-inner">
+    <div class="hero-gem">
+      <!-- Hestia brand gem (48px) -->
+      <svg viewBox="0 0 80 90" width="48" height="54" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="40,5 68,21 68,57 40,73 12,57 12,21" fill="none" stroke="#F59E0B" stroke-width="1.5" stroke-linejoin="miter"/>
+        <polygon points="40,5 68,21 54,33 26,33 12,21" fill="#F0EEE8"/>
+        <polygon points="40,5 12,21 26,33" fill="#E4E2DA"/>
+        <polygon points="40,5 68,21 54,33" fill="#D0CEC6"/>
+        <polygon points="40,5 54,14 52,22 40,26 28,22 26,14" fill="none" stroke="#C8C6BE" stroke-width=".85" stroke-linejoin="miter" opacity=".65"/>
+        <line x1="40" y1="5" x2="40" y2="26" stroke="#C8C6BE" stroke-width=".75" opacity=".55"/>
+        <line x1="26" y1="33" x2="54" y2="33" stroke="#F59E0B" stroke-width="2.5" opacity=".96" stroke-linecap="square"/>
+        <polygon points="26,33 54,33 68,57 40,73 12,57" fill="#141C26"/>
+        <polygon points="26,33 12,57 40,73" fill="#0C1218"/>
+        <polygon points="54,33 68,57 40,73" fill="#1A2332"/>
+        <line x1="40" y1="33" x2="40" y2="73" stroke="#94A3B8" stroke-width=".9" opacity=".33"/>
+        <line x1="26" y1="33" x2="40" y2="73" stroke="#64748B" stroke-width=".75" opacity=".25"/>
+        <line x1="54" y1="33" x2="40" y2="73" stroke="#64748B" stroke-width=".75" opacity=".25"/>
+        <circle cx="40" cy="73" r="2.5" fill="#94A3B8" opacity=".3"/>
+      </svg>
+    </div>
+    <h1>Your smart home,<br>one open dashboard.</h1>
+    <div class="hero-tagline">Hestia for Hubitat Elevation</div>
+    <p class="hero-sub">
+      Voice control, home security, and beautiful device management.
+      Free, open source, and runs entirely in your browser.
+    </p>
+    <div class="hero-highlights">
+      <span class="hero-hl"><span class="hero-hl-dot"></span>Free &amp; open source</span>
+      <span class="hero-hl"><span class="hero-hl-dot"></span>No extra hardware</span>
+      <span class="hero-hl"><span class="hero-hl-dot"></span>AI voice assistant built in</span>
+      <span class="hero-hl"><span class="hero-hl-dot"></span>Home security built in</span>
+    </div>
+    <div class="hero-actions">
+      <a href="#modules" class="btn btn-amber">See what it does</a>
+      <a href="#setup" class="btn btn-ghost">Get started</a>
+    </div>
+  </div>
+</section>
+
+<div class="wrap preview">
+  <div class="preview-toggle">
+    <button class="active" onclick="switchPreview('desktop')">Desktop View</button>
+    <button onclick="switchPreview('mobile')">Mobile View</button>
+  </div>
+  <div id="preview-desktop">
+    <div class="preview-frame">
+      <div class="preview-chrome">
+        <span class="preview-dot"></span>
+        <span class="preview-dot"></span>
+        <span class="preview-dot"></span>
+        <span class="preview-url">hestari.com</span>
+      </div>
+      <div class="preview-inner">
+        <img src="hestari-preview-desktop.png" alt="Hestia dashboard — desktop view with rooms, climate, weather, and Artemis security" loading="eager" class="preview-img"
+          onerror="this.style.display='none';this.nextElementSibling.style.display='block'"
+        ><div class="preview-placeholder" style="display:none">Dashboard preview — <a href="/app" style="color:var(--amber)">open the live dashboard</a> to see it in action.</div>
+      </div>
+    </div>
+  </div>
+  <div id="preview-mobile" style="display:none">
+    <div class="preview-mobile-frame">
+      <div class="preview-frame">
+        <div class="preview-chrome">
+          <span class="preview-dot"></span>
+          <span class="preview-dot"></span>
+          <span class="preview-dot"></span>
+          <span class="preview-url">hestari.com</span>
+        </div>
+        <div class="preview-inner">
+          <img src="hestari-preview-mobile.jpg" alt="Hestia dashboard — mobile view with bottom navigation and room controls" loading="eager" class="preview-img"
+            onerror="this.style.display='none';this.nextElementSibling.style.display='block'"
+          ><div class="preview-placeholder" style="display:none">Mobile preview — <a href="/app" style="color:var(--amber)">open the live dashboard</a> on your phone.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="preview-caption">Hestia running in Dark theme — rooms, climate, weather, and Artemis security at a glance.</p>
+</div>
+
+<!-- ════ MODULES ════ -->
+<div class="wrap section-gap" id="modules">
+  <div class="s-label">Three Modules, One Dashboard</div>
+  <h2 class="s-title">Hestia. Athena. Artemis.</h2>
+  <p class="s-desc">Three modules, three roles. Each handles a distinct part of your smart home. Together, they cover everything.</p>
+
+  <div class="modules-grid">
+    <!-- Hestia -->
+    <div class="mod-card">
+      <div class="mod-gem">
+        <svg viewBox="0 0 80 90" width="34" height="38" xmlns="http://www.w3.org/2000/svg">
+          <polygon points="40,5 68,21 68,57 40,73 12,57 12,21" fill="none" stroke="#F59E0B" stroke-width="1.6" stroke-linejoin="miter"/>
+          <polygon points="40,5 68,21 54,33 26,33 12,21" fill="#F0EEE8"/>
+          <polygon points="40,5 12,21 26,33" fill="#E4E2DA"/>
+          <polygon points="40,5 68,21 54,33" fill="#D0CEC6"/>
+          <line x1="26" y1="33" x2="54" y2="33" stroke="#F59E0B" stroke-width="2.8" stroke-linecap="square"/>
+          <polygon points="26,33 54,33 68,57 40,73 12,57" fill="#141C26"/>
+          <polygon points="26,33 12,57 40,73" fill="#0C1218"/>
+          <polygon points="54,33 68,57 40,73" fill="#1A2332"/>
+          <line x1="40" y1="33" x2="40" y2="73" stroke="#94A3B8" stroke-width="1" opacity=".3"/>
+          <circle cx="40" cy="73" r="2.5" fill="#94A3B8" opacity=".28"/>
+        </svg>
+      </div>
+      <div class="mod-name">Hestia<span class="mod-tm">&#8482;</span></div>
+      <div class="mod-role">The Dashboard</div>
+      <p class="mod-desc">Your home at a glance. Lights, thermostats, fans, shades, locks, and sensors organized the way you want them.</p>
+      <div class="mod-feat"><span class="mfd" style="background:var(--amber)"></span>Rooms with drag-and-drop arrangement</div>
+      <div class="mod-feat"><span class="mfd" style="background:var(--amber)"></span>Color pickers, dimmer sliders, fan speed controls</div>
+      <div class="mod-feat"><span class="mfd" style="background:var(--amber)"></span>Five visual themes to match your space</div>
+      <div class="mod-feat"><span class="mfd" style="background:var(--amber)"></span>Real-time device state updates</div>
+    </div>
+
+    <!-- Athena -->
+    <div class="mod-card">
+      <div class="mod-gem">
+        <svg viewBox="0 0 36 36" width="36" height="36" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="18" cy="18" r="16" fill="var(--bg)" stroke="rgba(245,158,11,.85)" stroke-width=".95"/>
+          <circle cx="18" cy="18" r="13.6" fill="none" stroke="rgba(245,158,11,.28)" stroke-width=".7"/>
+          <circle cx="18" cy="18" r="11.3" fill="none" stroke="rgba(245,158,11,.15)" stroke-width=".48" stroke-dasharray="2.5 1.8"/>
+          <circle cx="18" cy="4.2" r=".95" fill="rgba(245,158,11,.38)"/>
+          <circle cx="29.7" cy="11" r=".95" fill="rgba(245,158,11,.38)"/>
+          <circle cx="29.7" cy="25" r=".95" fill="rgba(245,158,11,.38)"/>
+          <circle cx="18" cy="31.8" r=".95" fill="rgba(245,158,11,.38)"/>
+          <circle cx="6.3" cy="25" r=".95" fill="rgba(245,158,11,.38)"/>
+          <circle cx="6.3" cy="11" r=".95" fill="rgba(245,158,11,.38)"/>
+          <polygon points="18,11.5 22.5,14 20.3,16.2 15.7,16.2 13.5,14" fill="#F0EEE8"/>
+          <polygon points="18,11.5 13.5,14 15.7,16.2" fill="#D8D6CE"/>
+          <polygon points="18,11.5 22.5,14 20.3,16.2" fill="#C8C6BE"/>
+          <polygon points="15.7,16.2 20.3,16.2 22.5,21.5 18,24.8 13.5,21.5" fill="#141C26"/>
+          <polygon points="15.7,16.2 13.5,21.5 18,24.8" fill="#0C1218"/>
+          <polygon points="20.3,16.2 22.5,21.5 18,24.8" fill="#1A2332"/>
+          <polygon points="18,11.5 22.5,14 22.5,21.5 18,24.8 13.5,21.5 13.5,14" fill="none" stroke="#F59E0B" stroke-width="1.08" stroke-linejoin="miter"/>
+          <line x1="15.7" y1="16.2" x2="20.3" y2="16.2" stroke="#F59E0B" stroke-width="1.38" stroke-linecap="square"/>
+        </svg>
+      </div>
+      <div class="mod-name">Athena<span class="mod-tm">&#8482;</span></div>
+      <div class="mod-role">The Voice</div>
+      <p class="mod-desc">Speak naturally and Athena understands. Powered by Claude AI, she controls every device, sets timers, holds conversations, and remembers context.</p>
+      <div class="mod-feat"><span class="mfd" style="background:var(--amber)"></span>"Athena, set the heat to 72 and lock up"</div>
+      <div class="mod-feat"><span class="mfd" style="background:var(--amber)"></span>Timers, follow-up conversations, memory</div>
+      <div class="mod-feat"><span class="mfd" style="background:var(--amber)"></span>Choose your wake word: Athena, Artemis, or Hestia</div>
+      <div class="mod-feat"><span class="mfd" style="background:var(--amber)"></span>Configurable personality and tone</div>
+    </div>
+
+    <!-- Artemis -->
+    <div class="mod-card">
+      <div class="mod-gem">
+        <svg viewBox="0 0 28 32" width="34" height="39" xmlns="http://www.w3.org/2000/svg">
+          <polygon points="14,1.5 24,7 24,20 14,25.5 4,20 4,7" fill="none" stroke="#F59E0B" stroke-width="1.1" stroke-linejoin="miter"/>
+          <polygon points="14,1.5 24,7 19,11.5 9,11.5 4,7" fill="#F0EEE8"/>
+          <polygon points="14,1.5 4,7 9,11.5" fill="#E4E2DA"/>
+          <polygon points="14,1.5 24,7 19,11.5" fill="#D0CEC6"/>
+          <line x1="9" y1="11.5" x2="19" y2="11.5" stroke="#F59E0B" stroke-width="1.8" stroke-linecap="square"/>
+          <polygon points="9,11.5 19,11.5 24,20 14,25.5 4,20" fill="#141C26"/>
+          <polygon points="9,11.5 4,20 14,25.5" fill="#0C1218"/>
+          <polygon points="19,11.5 24,20 14,25.5" fill="#1A2332"/>
+          <line x1="14" y1="11.5" x2="14" y2="25.5" stroke="#94A3B8" stroke-width=".7" opacity=".5"/>
+          <circle cx="14" cy="25.5" r="1.8" fill="#94A3B8" opacity=".4"/>
+          <polygon points="14,1.5 12.4,4.4 15.6,4.4" fill="#3A8A55" opacity=".82"/>
+          <rect x="13.7" y="4.4" width=".6" height="19.2" fill="#3A8A55" opacity=".62" rx=".2"/>
+          <line x1="14" y1="23" x2="11.7" y2="24.4" stroke="#3A8A55" stroke-width=".85" stroke-linecap="round" opacity=".68"/>
+          <line x1="14" y1="23" x2="16.3" y2="24.4" stroke="#3A8A55" stroke-width=".85" stroke-linecap="round" opacity=".68"/>
+        </svg>
+      </div>
+      <div class="mod-name">Artemis<span class="mod-tm">&#8482;</span></div>
+      <div class="mod-role">The Guardian</div>
+      <p class="mod-desc">Home security built in. Arm, disarm, and monitor your entire home, integrated with Hubitat Safety Monitor.</p>
+      <div class="mod-feat"><span class="mfd" style="background:var(--artemis-green)"></span>Home, Away, and Disarmed modes with PIN</div>
+      <div class="mod-feat"><span class="mfd" style="background:var(--artemis-green)"></span>Real-time alerts for doors, windows, motion</div>
+      <div class="mod-feat"><span class="mfd" style="background:var(--artemis-green)"></span>Intrusion alerts with sensor identification</div>
+      <div class="mod-feat"><span class="mfd" style="background:var(--artemis-green)"></span>Smoke, CO, and water leak monitoring</div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ VOICE ════ -->
+<div class="wrap section-gap">
+  <div class="s-label">Voice Control</div>
+  <h2 class="s-title">Just say what you need.</h2>
+  <p class="s-desc">Athena listens, understands, and acts. Like having a conversation with your home.</p>
+  <div class="voice-layout">
+    <div class="voice-visual">
+      <div class="v-ring-outer"></div>
+      <div class="v-ring-mid"></div>
+      <div class="v-core"></div>
+    </div>
+    <div class="voice-text">
+      <h3>Talk to your home like you would talk to <em>anyone.</em></h3>
+      <p>"Make it warmer upstairs." "Set a timer for 12 minutes." "Lock everything and turn off the lights." Athena controls every device — lights, thermostats, shades, locks, fans — and holds natural conversations on any topic.</p>
+      <p>She remembers what you said earlier, sets timers with live countdowns, follows up without re-waking, and adapts her tone to your preference. More assistant than command parser.</p>
+      <div class="voice-ex">
+        <span class="vdot"></span>
+        "Athena, set the heat to 72, dim the lights, and start a 20-minute timer."
+      </div>
+      <div class="voice-flow">
+        <span class="voice-step"><span class="voice-step-num">1</span>Wake</span>
+        <span class="voice-step-arrow">→</span>
+        <span class="voice-step"><span class="voice-step-num">2</span>Listen</span>
+        <span class="voice-step-arrow">→</span>
+        <span class="voice-step"><span class="voice-step-num">3</span>Understand</span>
+        <span class="voice-step-arrow">→</span>
+        <span class="voice-step"><span class="voice-step-num">4</span>Act</span>
+        <span class="voice-step-arrow">→</span>
+        <span class="voice-step"><span class="voice-step-num">5</span>Respond</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ FEATURES ════ -->
+<div class="section-band" id="features">
+  <div class="wrap">
+    <div class="s-label">Why Hestia</div>
+    <h2 class="s-title">What makes it different.</h2>
+    <p class="s-desc">Other dashboards show you buttons. Hestia gives you a voice assistant, a security system, and a single-file architecture that just works.</p>
+
+    <div class="feat-grid">
+      <div class="feat-card">
+        <div class="feat-num">01</div>
+        <h3>Natural language voice control</h3>
+        <p>Athena uses Claude AI to understand what you mean, not just what you say. Multi-device commands, thermostat modes, timers, follow-up conversations, and persistent memory across sessions.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-num">02</div>
+        <h3>Security system built in</h3>
+        <p>Artemis integrates directly with Hubitat Safety Monitor. Arm, disarm, monitor sensors, and receive intrusion alerts — no separate security app needed.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-num">03</div>
+        <h3>Hands-free wake word</h3>
+        <p>Say "Athena" from across the room. On-device wake word detection runs entirely in your browser — no cloud, no always-listening server.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-num">04</div>
+        <h3>Single file, zero dependencies</h3>
+        <p>The entire dashboard is one HTML file served from your hub. No Docker, no database, no Node server. Update by replacing one file.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-num">05</div>
+        <h3>Private by default</h3>
+        <p>Device control stays on your local network. Voice features use encrypted cloud APIs only when you speak. No telemetry, no accounts, no data collection.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-num">06</div>
+        <h3>Wall panel ready</h3>
+        <p>Designed for always-on wall-mounted displays. Auto-boots, stays connected, and listens for wake words continuously. Like a smart speaker with a screen.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- One dashboard, every screen -->
+<div class="section-band-alt" id="devices">
+  <div class="wrap">
+    <div style="text-align:center">
+      <div class="s-label">One Dashboard, Every Screen</div>
+      <h2 class="s-title">Phone. Tablet. Desktop. Wall panel.</h2>
+      <p class="s-desc" style="margin:0 auto">Hestia adapts to the screen it is on. The same dashboard works on your phone in your pocket, a tablet on the nightstand, your desktop at work, or a wall-mounted panel by the front door. No separate apps, no syncing, no duplicate setup.</p>
+    </div>
+    <div class="devices-row">
+      <div class="device-item">
+        <div class="device-frame phone"><div class="device-screen"></div></div>
+        <span class="device-label">Mobile</span>
+      </div>
+      <div class="device-item">
+        <div class="device-frame tablet"><div class="device-screen"></div></div>
+        <span class="device-label">Tablet</span>
+      </div>
+      <div class="device-item">
+        <div class="device-frame desktop"><div class="device-screen"></div></div>
+        <span class="device-label">Desktop</span>
+      </div>
+      <div class="device-item">
+        <div class="device-frame panel wall"><div class="device-screen"></div></div>
+        <span class="device-label wall">Wall Panel</span>
+      </div>
+    </div>
+
+    <div style="text-align:center;margin-top:80px">
+      <div class="s-label">Themes</div>
+      <h2 class="s-title">Five ways to make it yours.</h2>
+    </div>
+    <div class="themes-row">
+      <div class="theme-swatch"><div class="theme-preview"><div class="sw-top" style="background:#111111"></div><div class="sw-body" style="background:#0A0A0A"></div></div><span class="theme-lbl">Dark</span></div>
+      <div class="theme-swatch"><div class="theme-preview"><div class="sw-top" style="background:#FFFFFF"></div><div class="sw-body" style="background:#F5F5F3"></div></div><span class="theme-lbl">Light</span></div>
+      <div class="theme-swatch"><div class="theme-preview"><div class="sw-top" style="background:#242833"></div><div class="sw-body" style="background:#1C2028"></div></div><span class="theme-lbl">Slate</span></div>
+      <div class="theme-swatch"><div class="theme-preview"><div class="sw-top" style="background:#252219"></div><div class="sw-body" style="background:#1C1A17"></div></div><span class="theme-lbl">Warm</span></div>
+      <div class="theme-swatch"><div class="theme-preview"><div class="sw-top" style="background:#EDE6D4"></div><div class="sw-body" style="background:#F5F0E8"></div></div><span class="theme-lbl">Cream</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ SETUP WALKTHROUGH ════ -->
+<div class="wrap section-gap" id="setup">
+  <div class="s-label">Setup Guide</div>
+  <h2 class="s-title">Getting started, step by step.</h2>
+  <p class="s-desc">The full walkthrough from install to first voice command. Most steps take under a minute.</p>
+
+  <div class="walk-grid">
+
+    <!-- Step 1: HPM -->
+    <div class="walk-step">
+      <div class="walk-hdr" role="button" aria-expanded="false" onclick="toggleStep(this)">
+        <div class="walk-num">1</div>
+        <h3>Install via Hubitat Package Manager</h3>
+        <span class="walk-arrow">▸</span>
+      </div>
+      <div class="walk-body">
+        <div class="walk-detail">
+          <p>Open your Hubitat hub in a browser and navigate to <strong style="color:var(--t1);font-weight:400">Apps → Hubitat Package Manager</strong>.</p>
+          <p>Select <strong style="color:var(--t1);font-weight:400">Install</strong>, then search for <strong style="color:var(--t1);font-weight:400">"Hestia"</strong>.</p>
+          <p>HPM will install the Hestia companion app on your hub. Once complete, you will see it listed under Apps.</p>
+          <div class="walk-img" data-img="setup-hpm"><!-- <img src="img/setup-hpm.png" alt="HPM install screen"> --></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2: Maker API -->
+    <div class="walk-step">
+      <div class="walk-hdr" role="button" aria-expanded="false" onclick="toggleStep(this)">
+        <div class="walk-num">2</div>
+        <h3>Set up Maker API</h3>
+        <span class="walk-arrow">▸</span>
+      </div>
+      <div class="walk-body">
+        <div class="walk-detail">
+          <p>Hestia communicates with your devices through Maker API. If you do not already have it installed:</p>
+          <ul>
+            <li>Go to <strong style="color:var(--t1);font-weight:400">Apps → Add Built-in App → Maker API</strong></li>
+            <li>Select the devices you want Hestia to control</li>
+            <li>Enable <strong style="color:var(--t1);font-weight:400">"Allow Access via Local IP Address"</strong></li>
+          </ul>
+          <p>If Maker API is already installed, open it and make sure your devices are selected.</p>
+          <p>Take note of your <strong style="color:var(--t1);font-weight:400">App ID</strong> and <strong style="color:var(--t1);font-weight:400">Access Token</strong> from the Maker API page. You will need these when connecting the dashboard.</p>
+          <div class="walk-img" data-img="setup-maker"><!-- <img src="img/setup-maker.png" alt="Maker API settings"> --></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3: CORS -->
+    <div class="walk-step">
+      <div class="walk-hdr" role="button" aria-expanded="false" onclick="toggleStep(this)">
+        <div class="walk-num">3</div>
+        <h3>Configure CORS permissions</h3>
+        <span class="walk-arrow">▸</span>
+      </div>
+      <div class="walk-body">
+        <div class="walk-detail">
+          <p>If you plan to use the dashboard from hestari.com (rather than your hub's local address), you need to allow it to communicate with your hub.</p>
+          <p>Open the <strong style="color:var(--t1);font-weight:400">Hestia companion app</strong> on your hub (Apps → Hestia Dashboard). It handles CORS headers automatically for hestari.com.</p>
+          <p>If you also use Maker API directly, add the following to its <strong style="color:var(--t1);font-weight:400">"Allowed Hosts (for CORS)"</strong> field:</p>
+          <p><code>https://hestari.com, https://www.hestari.com</code></p>
+          <p>If you only plan to use the dashboard from your hub's local address, you can skip this step.</p>
+          <div class="walk-img" data-img="setup-cors"><!-- <img src="img/setup-cors.png" alt="CORS configuration"> --></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 4: Open dashboard -->
+    <div class="walk-step">
+      <div class="walk-hdr" role="button" aria-expanded="false" onclick="toggleStep(this)">
+        <div class="walk-num">4</div>
+        <h3>Open and connect the dashboard</h3>
+        <span class="walk-arrow">▸</span>
+      </div>
+      <div class="walk-body">
+        <div class="walk-detail">
+          <p>Open the dashboard at <strong style="color:var(--t1);font-weight:400">hestari.com</strong> or your hub's local address.</p>
+          <p>The onboarding wizard will appear on first launch. Enter your hub's IP address, Maker API App ID, and Access Token when prompted.</p>
+          <p>Hestia will connect to your hub and discover your devices automatically.</p>
+          <div class="walk-img" data-img="setup-onboard"><!-- <img src="img/setup-onboard.png" alt="Onboarding wizard"> --></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 5: Rooms and devices -->
+    <div class="walk-step">
+      <div class="walk-hdr" role="button" aria-expanded="false" onclick="toggleStep(this)">
+        <div class="walk-num">5</div>
+        <h3>Set up rooms and devices</h3>
+        <span class="walk-arrow">▸</span>
+      </div>
+      <div class="walk-body">
+        <div class="walk-detail">
+          <p>Open <strong style="color:var(--t1);font-weight:400">Settings → Devices</strong> to organize your home.</p>
+          <ul>
+            <li>Create rooms and assign devices to them using the dropdown next to each device</li>
+            <li>Drag and drop to reorder devices within a room</li>
+            <li>If Hestia detected a device type incorrectly, use the type dropdown to change it (for example, switching a dimmer that was detected as a switch)</li>
+          </ul>
+          <p>Devices that are not assigned to a room will appear in an "Unassigned" group in settings but will not show on the main dashboard.</p>
+          <div class="walk-img" data-img="setup-devices"><!-- <img src="img/setup-devices.png" alt="Device management"> --></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 6: Climate -->
+    <div class="walk-step">
+      <div class="walk-hdr" role="button" aria-expanded="false" onclick="toggleStep(this)">
+        <div class="walk-num">6</div>
+        <h3>Configure climate controls</h3>
+        <span class="walk-arrow">▸</span>
+      </div>
+      <div class="walk-body">
+        <div class="walk-detail">
+          <p>If you have thermostats, go to <strong style="color:var(--t1);font-weight:400">Settings → Climate</strong>.</p>
+          <p>Set your location coordinates so Hestia can display current weather conditions alongside your thermostat controls. You can enter your city or allow the browser to detect your location.</p>
+          <p>If you do not have any thermostats, you can skip this step.</p>
+          <div class="walk-img" data-img="setup-climate"><!-- <img src="img/setup-climate.png" alt="Climate settings"> --></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 7: Artemis -->
+    <div class="walk-step">
+      <div class="walk-hdr" role="button" aria-expanded="false" onclick="toggleStep(this)">
+        <div class="walk-num">7</div>
+        <h3>Set up Artemis security</h3>
+        <span class="walk-arrow">▸</span>
+      </div>
+      <div class="walk-body">
+        <div class="walk-detail">
+          <p>Artemis integrates with Hubitat Safety Monitor (HSM). If HSM is active on your hub, Artemis will detect it automatically.</p>
+          <ul>
+            <li>Set a PIN code for arming and disarming</li>
+            <li>Configure which sensors are monitored in each mode (Home, Away, Disarmed)</li>
+            <li>Artemis will display real-time alerts for open doors, windows, motion events, and intrusions</li>
+          </ul>
+          <p>If you do not use Hubitat Safety Monitor, the Artemis panel will show setup instructions for enabling it.</p>
+          <div class="walk-img" data-img="setup-artemis"><!-- <img src="img/setup-artemis.png" alt="Artemis security setup"> --></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 8: Athena -->
+    <div class="walk-step">
+      <div class="walk-hdr" role="button" aria-expanded="false" onclick="toggleStep(this)">
+        <div class="walk-num">8</div>
+        <h3>Enable Athena voice (optional)</h3>
+        <span class="walk-arrow">▸</span>
+      </div>
+      <div class="walk-body">
+        <div class="walk-detail">
+          <p>Athena requires two API keys to work. Both services offer free tiers that are more than enough for home use.</p>
+          <p><strong style="color:var(--t1);font-weight:400">AI Provider (for understanding commands):</strong></p>
+          <ul>
+            <li><strong style="color:var(--t1);font-weight:400">Claude AI</strong> by Anthropic (supported now): Create an API key at console.anthropic.com</li>
+            <li><strong style="color:var(--t1);font-weight:400">ChatGPT</strong> by OpenAI and <strong style="color:var(--t1);font-weight:400">Gemini</strong> by Google: Coming soon as additional provider options</li>
+          </ul>
+          <p><strong style="color:var(--t1);font-weight:400">Google Cloud (for voice input and output):</strong></p>
+          <ul>
+            <li>Create a Google Cloud project and enable the Speech-to-Text API and Text-to-Speech API</li>
+            <li>Generate an API key restricted to these two APIs</li>
+            <li>Free tier includes 60 minutes of speech recognition and 1 million characters of text-to-speech per month</li>
+          </ul>
+          <p>Enter both keys in <strong style="color:var(--t1);font-weight:400">Settings → Athena Voice</strong>. Once configured, tap the Athena button or say "Athena" to start a voice command. You can also customize your wake word, personality, and conversation behavior in the same settings panel.</p>
+          <div class="walk-img" data-img="setup-athena"><!-- <img src="img/setup-athena.png" alt="Athena voice setup"> --></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════ ABOUT ════ -->
+<div class="wrap section-gap" id="about">
+  <div class="s-label">About</div>
+  <h2 class="s-title">Built by a Hubitat user.</h2>
+  <div class="about-content">
+    <p>Hestia started as a personal project by Haven. A single HTML file on a Hubitat hub, built to control a few lights and a thermostat. It grew into something bigger: a dashboard that handles every device in the house, a voice assistant that understands natural language, and a security panel that ties into Hubitat Safety Monitor.</p>
+    <p>The name comes from Greek mythology. Hestia is the goddess of the hearth and home. Athena, goddess of wisdom, powers the voice assistant. Artemis, the huntress and protector, guards the house. Three goddesses, three modules, one dashboard.</p>
+    <p>Hestia is free, open source (Apache 2.0), and built in public. Contributions, feedback, and feature ideas are always welcome.</p>
+  </div>
+</div>
+
+<!-- ════ ROADMAP ════ -->
+<div class="wrap section-gap" id="roadmap">
+  <div class="s-label">Roadmap</div>
+  <h2 class="s-title">What is coming next.</h2>
+  <p class="s-desc">Hestia is actively developed. Here is what we just shipped and what is planned.</p>
+
+  <div class="timeline">
+    <!-- Phase: Shipped -->
+    <div class="tl-phase">
+      <div class="tl-dot now"></div>
+      <div class="tl-phase-label now">Just Shipped</div>
+      <div class="tl-items">
+        <div class="tl-item">
+          <h3>Timers, memory, and conversation mode</h3>
+          <p>Set timers by voice with live countdowns. Athena remembers your conversation across page refreshes and keeps listening for follow-ups without re-waking.</p>
+        </div>
+        <div class="tl-item">
+          <h3>Full device control and personality</h3>
+          <p>Thermostats, color bulbs, shades, and every device type now controllable by voice. Choose from four personality presets to match your style.</p>
+        </div>
+        <div class="tl-item">
+          <h3>Selectable wake words</h3>
+          <p>Choose between Athena, Artemis, and Hestia — each with a custom-trained detection model. Seven more mythology-inspired options coming soon.</p>
+        </div>
+        <div class="tl-item">
+          <h3>Artemis security system</h3>
+          <p>Hubitat Safety Monitor integration with arm/disarm modes, PIN protection, real-time sensor alerts, and intrusion detection.</p>
+        </div>
+        <div class="tl-item">
+          <h3>Companion app for Hubitat</h3>
+          <p>One-click install via HPM. Auto-downloads the dashboard, handles CORS, and keeps you on the latest version.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase: Now -->
+    <div class="tl-phase">
+      <div class="tl-dot next"></div>
+      <div class="tl-phase-label next">In Progress</div>
+      <div class="tl-items">
+        <div class="tl-item">
+          <h3>Wake word accuracy improvements</h3>
+          <p>Training all wake word models with diverse real-world audio to achieve single-attempt reliability across accents and environments.</p>
+        </div>
+        <div class="tl-item">
+          <h3>More wake word models</h3>
+          <p>Apollo, Achilles, Andromeda, Hermes, Odin, Osiris, and Anubis. Each requires individual training and validation.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase: Next -->
+    <div class="tl-phase">
+      <div class="tl-dot later"></div>
+      <div class="tl-phase-label later">Planned</div>
+      <div class="tl-items">
+        <div class="tl-item">
+          <h3>Multi-provider AI support</h3>
+          <p>Choose your preferred AI provider. ChatGPT by OpenAI and Gemini by Google will join Claude as options — use whichever you prefer or already have an API key for.</p>
+        </div>
+        <div class="tl-item">
+          <h3>Reminders and routines</h3>
+          <p>Persistent reminders that survive page refreshes and named routines — "run movie mode" to execute a sequence of commands with one phrase.</p>
+        </div>
+        <div class="tl-item">
+          <h3>Calendar integration</h3>
+          <p>Google Calendar events shown in the dashboard. Athena can announce upcoming events and answer questions about your schedule.</p>
+        </div>
+        <div class="tl-item">
+          <h3>Native apps</h3>
+          <p>Dedicated apps for Windows, macOS, Android, and iOS. Background wake word listening, seamless local connectivity, and push notifications.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ FEEDBACK ════ -->
+<div class="section-band" id="feedback">
+  <div class="wrap">
+    <div style="text-align:center">
+      <div class="s-label">Feedback</div>
+      <h2 class="s-title">Help shape what comes next.</h2>
+      <p class="s-desc" style="margin:0 auto 0">Hestia gets better with every conversation. Here is how to share your ideas.</p>
+    </div>
+
+    <div class="feedback-cards">
+      <div class="fb-card">
+        <div class="fb-icon">💬</div>
+        <h3>Community Forum</h3>
+        <p>Feature requests, bug reports, and general discussion. The most active place for feedback.</p>
+        <a href="https://community.hubitat.com/t/hestia-a-new-smart-home-dashboard-for-hubitat/162853" target="_blank">Join the thread</a>
+      </div>
+      <div class="fb-card">
+        <div class="fb-icon">🐛</div>
+        <h3>GitHub Issues</h3>
+        <p>Found a bug? Open an issue with steps to reproduce and your browser/device info.</p>
+        <a href="https://github.com/h4ven88/hestia-dashboard/issues" target="_blank">Report an issue</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ CTA ════ -->
+<div class="wrap cta">
+  <svg viewBox="0 0 80 90" width="36" height="40" xmlns="http://www.w3.org/2000/svg" style="margin-bottom:20px;opacity:.25">
+    <polygon points="40,5 68,21 68,57 40,73 12,57 12,21" fill="none" stroke="#F59E0B" stroke-width="1.6" stroke-linejoin="miter"/>
+    <polygon points="40,5 68,21 54,33 26,33 12,21" fill="#F0EEE8"/>
+    <polygon points="40,5 12,21 26,33" fill="#E4E2DA"/>
+    <polygon points="40,5 68,21 54,33" fill="#D0CEC6"/>
+    <line x1="26" y1="33" x2="54" y2="33" stroke="#F59E0B" stroke-width="2.8" stroke-linecap="square"/>
+    <polygon points="26,33 54,33 68,57 40,73 12,57" fill="#141C26"/>
+    <polygon points="26,33 12,57 40,73" fill="#0C1218"/>
+    <polygon points="54,33 68,57 40,73" fill="#1A2332"/>
+    <line x1="40" y1="33" x2="40" y2="73" stroke="#94A3B8" stroke-width="1" opacity=".3"/>
+    <circle cx="40" cy="73" r="2.5" fill="#94A3B8" opacity=".28"/>
+  </svg>
+  <h2 class="s-title">Your smart home deserves better.</h2>
+  <p class="s-desc">Free, open source, and getting better every week.</p>
+  <div class="cta-actions">
+    <a href="#setup" class="btn btn-amber">Get Started</a>
+    <a href="https://community.hubitat.com/t/hestia-a-new-smart-home-dashboard-for-hubitat/162853" class="btn btn-ghost" target="_blank">Join the Community</a>
+  </div>
+</div>
+
+<!-- ════ FOOTER ════ -->
+<footer>
+  <div class="wrap footer-inner">
+    <div class="footer-brand">Hestia</div>
+    <ul class="footer-links">
+      <li><a href="/app">Open Dashboard</a></li>
+      <li><a href="#setup">Setup Guide</a></li>
+      <li><a href="https://github.com/h4ven88/hestia-dashboard" target="_blank">GitHub</a></li>
+      <li><a href="https://github.com/h4ven88/hestia-dashboard/issues" target="_blank">Report a Bug</a></li>
+      <li><a href="https://community.hubitat.com/t/hestia-a-new-smart-home-dashboard-for-hubitat/162853" target="_blank">Community Forum</a></li>
+    </ul>
+    <div class="footer-copy">© 2026 Hestari. Apache 2.0 License.</div>
+  </div>
+</footer>
+
+</div>
+
+<script>
+// Wall Panel / config redirect — if URL has dashboard params, skip landing page
+if (location.search && /[?&](hub|appId|token)=/.test(location.search)) {
+  location.replace('/index.html' + location.search);
+}
+
+// Preview toggle
+function switchPreview(mode){
+  var d=document.getElementById('preview-desktop');
+  var m=document.getElementById('preview-mobile');
+  var btns=document.querySelectorAll('.preview-toggle button');
+  if(mode==='mobile'){
+    d.style.display='none';m.style.display='block';
+    btns[0].classList.remove('active');btns[1].classList.add('active');
+  }else{
+    d.style.display='block';m.style.display='none';
+    btns[0].classList.add('active');btns[1].classList.remove('active');
+  }
+}
+
+// Accordion toggle
+function toggleStep(hdr){
+  const step = hdr.closest('.walk-step');
+  const wasOpen = step.classList.contains('open');
+  document.querySelectorAll('.walk-step').forEach(s => {
+    s.classList.remove('open');
+    s.querySelector('.walk-hdr').setAttribute('aria-expanded','false');
+  });
+  if(!wasOpen){
+    step.classList.add('open');
+    hdr.setAttribute('aria-expanded','true');
+  }
+}
+
+// Conditional image display: show .walk-img only if it contains an <img>
+document.querySelectorAll('.walk-img').forEach(div => {
+  const img = div.querySelector('img');
+  if(img && img.src){
+    div.classList.add('has-img');
+    // Handle load errors gracefully
+    img.onerror = () => div.classList.remove('has-img');
+  }
+});
+
+// Mobile nav: close menu on link click
+document.querySelectorAll('.nav-links a').forEach(a => {
+  a.addEventListener('click', () => {
+    document.querySelector('nav').classList.remove('nav-open');
+  });
+});
+
+// Scroll fade-in
+const obs=new IntersectionObserver(e=>{e.forEach(el=>{if(el.isIntersecting){el.target.style.opacity='1';el.target.style.transform='translateY(0)'}})},{threshold:.06,rootMargin:'0px 0px -30px 0px'});
+document.querySelectorAll('.preview-frame,.mod-card,.feat-card,.walk-step,.tl-phase,.fb-card,.voice-layout,.themes-row,.devices-row,.about-content').forEach(el=>{
+  el.style.opacity='0';el.style.transform='translateY(16px)';
+  el.style.transition='opacity .45s ease, transform .45s ease';
+  obs.observe(el);
+});
+</script>
+</body>
+</html>
