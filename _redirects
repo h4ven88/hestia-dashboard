@@ -1,5 +1,3 @@
 # Cloudflare Pages redirects
-# /app serves the dashboard; root serves the landing page
-
-/app /app.html 200
-/ /hestari-landing.html 200
+# Pretty URLs is enabled — avoid 200 rewrites that loop.
+# Routing handled by JS in dashboard.html instead.

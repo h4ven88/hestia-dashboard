@@ -16,6 +16,7 @@
 -->
 <html lang="en">
 <head>
+<script>if(location.hostname==='hestari.com'&&location.pathname==='/'&&!location.search)location.replace('/hestari-landing');</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -586,6 +587,26 @@ html[data-display-mobile] .ath-panel-handle{display:block}
 .ath-mic-btn.clarify{background:rgba(248,113,113,.08);border-color:rgba(248,113,113,.3)}
 .ath-rec-hint{font-size:9px;color:rgba(248,113,113,.65);letter-spacing:.05em;text-align:center;height:12px;transition:opacity .2s;opacity:0}
 .ath-rec-hint.show{opacity:1}
+/* Timer floating pills — desktop/tablet only */
+.ath-timer-float{position:fixed;bottom:74px;right:20px;display:flex;flex-direction:column;gap:5px;z-index:89;pointer-events:auto}
+.ath-timer-pill{display:flex;align-items:center;gap:7px;background:rgba(13,13,13,.94);border:1px solid rgba(245,158,11,.18);border-radius:16px;padding:5px 12px 5px 9px;cursor:pointer;transition:border-color .2s;backdrop-filter:blur(6px)}
+.ath-timer-pill:hover{border-color:rgba(245,158,11,.35)}
+.ath-timer-pill-dot{width:6px;height:6px;border-radius:50%;background:var(--amber);flex-shrink:0;animation:athTimerPulse 2s ease-in-out infinite}
+@keyframes athTimerPulse{0%,100%{opacity:.4}50%{opacity:1}}
+.ath-timer-pill-lbl{font-size:11px;color:var(--t2);white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis}
+.ath-timer-pill-time{font-size:12px;font-weight:600;color:var(--amber);font-variant-numeric:tabular-nums;font-family:var(--mono,monospace)}
+html[data-display-mobile] .ath-timer-float{display:none}
+/* Timer section inside panel */
+.ath-timer-section{border-top:1px solid var(--border);padding:8px 12px}
+.ath-timer-section:empty{display:none}
+.ath-timer-hdr{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:var(--t3);margin-bottom:6px;display:flex;align-items:center;gap:5px}
+.ath-timer-row{display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(42,42,42,.4)}
+.ath-timer-row:last-child{border-bottom:none}
+.ath-timer-name{font-size:11px;color:var(--t2);display:flex;align-items:center;gap:6px}
+.ath-timer-name .ath-timer-pill-dot{width:5px;height:5px}
+.ath-timer-cd{font-size:12px;font-weight:600;color:var(--amber);font-variant-numeric:tabular-nums;font-family:var(--mono,monospace)}
+.ath-timer-x{font-size:9px;color:var(--t3);cursor:pointer;margin-left:7px;opacity:.5;transition:opacity .15s}
+.ath-timer-x:hover{opacity:1;color:#F87171}
 /* Error state */
 .ath-error{padding:10px 13px 12px;font-size:11px;color:rgba(248,113,113,.7);line-height:1.5}
 .a-pin-sheet{display:none;position:fixed;bottom:0;left:0;right:0;z-index:300;background:var(--bg-panel);border-top:1px solid var(--border);border-radius:16px 16px 0 0;padding:20px 20px calc(20px + env(safe-area-inset-bottom));flex-direction:column;gap:12px;box-shadow:0 -4px 24px rgba(0,0,0,.3)}
@@ -1218,6 +1239,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 
   <!-- ── ATHENA™ VOICE ASSISTANT ── -->
   <!-- FAB button — visible when Athena is enabled -->
+  <div class="ath-timer-float" id="ath-timer-float"></div>
   <div class="athena-fab-btn" id="ath-fab" style="display:none" onclick="athenaFabTap()" title="Athena — tap or say wake word">
     <svg viewBox="0 0 36 36" width="28" height="28" xmlns="http://www.w3.org/2000/svg" id="ath-fab-aegis" class="ath-aegis-idle">
       <circle cx="18" cy="18" r="16" style="fill:var(--bg)" stroke="rgba(245,158,11,.85)" stroke-width=".95"/>
@@ -1270,9 +1292,12 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
       </div>
       <div class="ath-transcript" id="ath-transcript"></div>
       <div id="ath-chip-area"></div>
+      <div class="ath-timer-section" id="ath-timer-panel"></div>
       <div class="ath-input-row">
         <input class="ath-input" id="ath-text-input" type="text" placeholder="Say something or type…"
-               onkeydown="if(event.key==='Enter')athenaSubmitText(this.value)">
+               onkeydown="if(event.key==='Enter')athenaSubmitText(this.value)"
+               oninput="athenaResetFollowUp()"
+               onfocus="athenaResetFollowUp()">
         <div class="ath-mic-btn active" id="ath-mic-btn" onclick="athenaMicTap()">
           <svg width="11" height="14" viewBox="0 0 12 16" fill="none">
             <rect x="3.5" y=".5" width="5" height="9" rx="2.5" stroke="#F59E0B" stroke-width="1.2"/>
@@ -1449,9 +1474,9 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    Copyright © 2025 Haven. CC BY-NC 4.0.
    First published: 2025-03-27
 ═══════════════════════════════════════════════════════ */
-const HESTIA_VERSION    = '1.4.0';
-const HESTIA_BUILD_DATE = '2026-04-24';
-const HESTIA_COPYRIGHT  = '© 2025 Haven';
+const HESTIA_VERSION    = '1.4.1';
+const HESTIA_BUILD_DATE = '2026-05-09';
+const HESTIA_COPYRIGHT  = '© 2026 Haven';
 
 /* ═══════════════════════════════════════════════════════
    THEME
@@ -1745,49 +1770,22 @@ function getLowBatteryDevices() {
    Poll interval is in milliseconds (5000 = 5 seconds).
 ═══════════════════════════════════════════════════════ */
 const CONFIG = {
-  hub:           'http://192.168.50.18',
-  appId:         '219',
-  token:         '42569660-0bd8-455d-a3cc-33c80bc6a3c1',
+  hub:           '',
+  appId:         '',
+  token:         '',
   poll:          1000,
-  // Default room — overridden by ?room= URL parameter.
-  // Each panel bookmarks its own URL, e.g.:
-  //   http://192.168.50.18/local/dashboard.html?room=home    ← landing page
-  //   http://192.168.50.18/local/dashboard.html?room=lower   ← kitchen
-  //   http://192.168.50.18/local/dashboard.html?room=common  ← loft
-  //   http://192.168.50.18/local/dashboard.html?room=master  ← bedroom
-  // Valid values: home, master, office, guest1, guest2, common, lower,
-  //               lights, fans, blinds, climate
   defaultRoom:   'home',
-  // Return to defaultRoom after this many ms of inactivity (0 = disabled)
   returnTimeout: 60000,
-  // Front door lock — August Pro Z-Wave (device ID 13)
-  lock: { id: '13', label: 'Front Door' },
-  settingsPin: '',     // up to 6-digit PIN to protect settings (empty = no PIN)
-  // Artemis Security Module (v1.1)
+  lock: { id: '', label: '' },
+  settingsPin: '',
   artemisEnabled: false,
-  artemisPin:     '',   // separate PIN for arming/disarming
-  artemisSensors: {     // device IDs assigned to each sensor type
-    contacts: [
-      {id:'208',name:'Bedroom 1 Window'},{id:'209',name:'Master Bedroom Left Window'},
-      {id:'210',name:'Loft Window'},{id:'212',name:'Bedroom 2 Window'},
-      {id:'213',name:'Attic Door'},{id:'214',name:'Entrance Window'},
-      {id:'216',name:'Garage Door'},{id:'218',name:'Living Room Left Window'},
-      {id:'219',name:'Garage Entrance Door'},{id:'221',name:'Living Room Right Window'},
-      {id:'223',name:'Master Bedroom Right Window'},{id:'224',name:'Back Door'},
-      {id:'226',name:'Master Closet'},{id:'229',name:'Garage Tilt Sensor'}
-    ],
-    motions: [
-      {id:'205',name:'Motion Detector Living Room'},{id:'207',name:'Motion Detector Loft'},
-      {id:'211',name:'Motion Detector Front Door'},{id:'217',name:'Motion Detector Attic'}
-    ],
-    smokes: [
-      {id:'234',name:'Smoke & CO Alarm Kitchen'},{id:'235',name:'CO Alarm Kitchen'},
-      {id:'236',name:'Smoke & CO Alarm Loft'},{id:'237',name:'CO Alarm Loft'}
-    ],
-    waters: [
-      {id:'228',name:'Garage Freeze Sensor'}
-    ],
-    glass: []           // glass break sensors
+  artemisPin:     '',
+  artemisSensors: {
+    contacts: [],
+    motions: [],
+    smokes: [],
+    waters: [],
+    glass: []
   },
   // Athena™ Voice Assistant Module (v1.0)
   athenaEnabled:    false,
@@ -1797,6 +1795,8 @@ const CONFIG = {
   athenaLang:       'en-US',    // en-US | en-GB | es-ES | es-US
   athenaVoice:      'female',   // female | male
   athenaVolume:     1.0,        // 0–1
+  athenaPersonality: 'balanced', // balanced | professional | playful | concise
+  athenaConvoMode:  true,       // keep mic open for multi-turn conversation
   athenaGoogleTTS:  false,      // use Google Cloud TTS for premium voices
   athenaGoogleApiKey: '',       // Google Cloud API key
   athenaGoogleVoice: '',        // specific Google voice name e.g. en-GB-Neural2-C
@@ -1817,24 +1817,23 @@ const ARTEMIS_SENSOR_DEFAULTS = JSON.parse(JSON.stringify(CONFIG.artemisSensors)
 ═══════════════════════════════════════════════════════ */
 const DEFAULTS = {
   config: {
-    hub:           'http://192.168.50.18',
-    appId:         '219',
-    token:         '42569660-0bd8-455d-a3cc-33c80bc6a3c1',
+    hub:           '',
+    appId:         '',
+    token:         '',
     poll:          1000,
     defaultRoom:   'home',
     returnTimeout: 60000,
-    lock:          { id: '13', label: 'Front Door' },
+    lock:          { id: '', label: '' },
     artemisEnabled: false,
     artemisPin:     '',
     artemisSensors: {
-      contacts: [{id:'206',name:'Home Office'},{id:'208',name:'Bedroom 1 Window'},{id:'209',name:'Master Bedroom Left Window'},{id:'210',name:'Loft Window'},{id:'212',name:'Bedroom 2 Window'},{id:'213',name:'Attick Door'},{id:'214',name:'Entrance Window'},{id:'215',name:'Living Room Backyard Right'},{id:'216',name:'Garage Door'},{id:'218',name:'Living Room Left Window'},{id:'219',name:'Garage Entrance Door'},{id:'221',name:'Living Room Right Window'},{id:'223',name:'Master Bedroom Right Window'},{id:'224',name:'Back Door'},{id:'225',name:'Living Room Backyard Left'},{id:'226',name:'Master Closet'},{id:'229',name:'Garage Tilt Sensor'}],
-      motions:  [{id:'205',name:'Motion Detector Living Room'},{id:'207',name:'Motion Detector Loft'},{id:'211',name:'Motion Detector Front Door'},{id:'217',name:'Motion Detector Attick'}],
-      smokes:   [{id:'234',name:'Smoke & CO Alarm Kitchen'},{id:'235',name:'CO Alarm Kitchen'},{id:'236',name:'Smoke & CO Alarm Loft'},{id:'237',name:'CO Alarm Loft'}],
-      waters:   [{id:'227',name:'Kitchen Flood Freeze Sensor'},{id:'228',name:'Garage Freeze Sensor'}],
-      glass:    [{id:'222',name:'Living Room Glass Break Sensor'}]
+      contacts: [],
+      motions:  [],
+      smokes:   [],
+      waters:   [],
+      glass:    []
     },
-    weather: { lat: 36.52, lon: -82.56, zip: '', city: 'Kingsport, TN', refresh: 600000 },
-    // Athena defaults
+    weather: { lat: '', lon: '', zip: '', city: '', refresh: 600000 },
     athenaEnabled:  false,
     athenaApiKey:   '',
     athenaModel:    'claude-haiku-4-5-20251001',
@@ -1843,22 +1842,14 @@ const DEFAULTS = {
     athenaLang:     'en-US',
     athenaVoice:    'female',
     athenaVolume:   1.0,
+    athenaPersonality: 'balanced',
+    athenaConvoMode:  true,
     athenaGoogleTTS: false,
     athenaGoogleApiKey: '',
     athenaGoogleVoice: ''
   },
-  thermostats: [
-    { id: '7', name: 'Upstairs',   zone: 'Master Bedroom · Office · Guest Rooms' },
-    { id: '4', name: 'Downstairs', zone: 'Foyer · Kitchen · Living · Dining'     }
-  ],
-  rooms: [
-    { id:'master', name:'Master Bedroom',         short:'Master',  switches:[{id:'8',name:'Ceiling'}],                                               dimmers:[{id:'90',name:'Left Lamp'},{id:'91',name:'Right Lamp'}], fans:[{id:'175',name:'Ceiling Fan'}], therms:[], shades:[{id:'166',name:'Left Window'},{id:'167',name:'Right Window'},{id:'169',name:'Closet'}] },
-    { id:'office', name:'Office',                 short:'Office',  switches:[{id:'10',name:'Lights'}],                                               dimmers:[], fans:[{id:'174',name:'Desk Fan'}], therms:[], shades:[{id:'178',name:'Window'}], placeholders:['dimmers'] },
-    { id:'guest1', name:'Guest Bedroom 1',        short:'Guest 1', switches:[{id:'11',name:'Ceiling'}],                                              dimmers:[{id:'86',name:'Left Lamp'},{id:'87',name:'Right Lamp'}], fans:[{id:'176',name:'Ceiling Fan'}], therms:[], shades:[{id:'164',name:'Window'}] },
-    { id:'guest2', name:'Guest Bedroom 2',        short:'Guest 2', switches:[{id:'12',name:'Ceiling'}],                                              dimmers:[{id:'88',name:'Left Lamp'},{id:'89',name:'Right Lamp'}], fans:[{id:'177',name:'Ceiling Fan'}], therms:[], shades:[{id:'165',name:'Window'}] },
-    { id:'common', name:'Foyer & Loft',           short:'Common',  switches:[{id:'6',name:'Foyer'},{id:'9',name:'Loft'},{id:'5',name:'Front Porch'}], dimmers:[], fans:[], therms:[], shades:[{id:'160',name:'Entrance'},{id:'162',name:'Loft'}], placeholders:['dimmers','fans'] },
-    { id:'lower',  name:'Kitchen · Living · Dining', short:'Lower', switches:[{id:'1',name:'Kitchen'},{id:'2',name:'Dining'},{id:'3',name:'Living Room'}], dimmers:[], fans:[{id:'171',name:'Ceiling Fan'}], therms:[], shades:[{id:'157',name:'Backyard'},{id:'159',name:'Left Window'},{id:'161',name:'Right Window'}], placeholders:['dimmers'] }
-  ]
+  thermostats: [],
+  rooms: []
 };
 
 function deepClone(obj) { return JSON.parse(JSON.stringify(obj)); }
@@ -2006,7 +1997,7 @@ function applyParsedConfig(parsed) {
       // Deep-merge nested objects so missing fields fall back to defaults
       // rather than the whole sub-object being replaced with an incomplete version
       CONFIG.weather = Object.assign(
-        { lat: 36.52, lon: -82.56, zip: '', city: '', refresh: 600000 },
+        { lat: '', lon: '', zip: '', city: '', refresh: 600000 },
         CONFIG.weather || {}
       );
       if (!CONFIG.lock) CONFIG.lock = {};
@@ -2047,6 +2038,7 @@ function buildConfigPayload() {
                    athenaWakeWord: CONFIG.athenaWakeWord, athenaRoom: CONFIG.athenaRoom,
                    athenaLang: CONFIG.athenaLang, athenaVoice: CONFIG.athenaVoice,
                    athenaVolume: CONFIG.athenaVolume,
+                   athenaPersonality: CONFIG.athenaPersonality, athenaConvoMode: CONFIG.athenaConvoMode,
                    athenaGoogleTTS: CONFIG.athenaGoogleTTS, athenaGoogleApiKey: CONFIG.athenaGoogleApiKey,
                    athenaGoogleVoice: CONFIG.athenaGoogleVoice,
                    hestiaAppId: CONFIG.hestiaAppId, hestiaAppToken: CONFIG.hestiaAppToken },
@@ -3362,6 +3354,8 @@ let artemisHsmReady   = null;      // null=unknown, true=HSM present, false=not 
 let athenaState       = 'idle';    // idle|wake|listening|processing|responding|clarifying
 let athenaHistory     = [];        // sliding window message history [{role,content}]
 let athenaSessionDate = null;      // for daily window reset
+let _athenaTimers     = [];        // active timers [{id,label,endTime,timeout}]
+let _athenaTimerNext  = 0;         // auto-increment timer ID
 let athenaRecog       = null;      // SpeechRecognition instance
 let athenaDebounce    = false;     // prevents double wake-word firing
 let athenaListening   = false;     // mic currently open
@@ -3372,6 +3366,7 @@ let _athenaSessionId    = 0;       // increments on panel open; stale responses 
 // ── Athena System 1 — Wake Word Detection ─────────────────────────────
 function athenaInit() {
   if (!CONFIG.athenaEnabled || !CONFIG.athenaApiKey) return;
+  athenaLoadHistory();
   const fab = document.getElementById('ath-fab');
   if (fab) fab.style.display = 'flex';
 
@@ -3383,6 +3378,10 @@ function athenaInit() {
   // cloud dependency. Falls back to SpeechRecognition if ONNX RT unavailable.
   // Mobile phones use tap-to-activate only (battery + Silk browser limitations).
   if (!isMobile() || isTablet()) {
+    if (isTablet()) {
+      OWW.CONSEC_HITS = 2;
+      console.log('[OWW] Tablet mode — 2 consecutive hits (vs 3 on desktop)');
+    }
     athenaStartWakeDetection();  // async — non-blocking
   } else {
     console.log('[Athena] Mobile detected — wake word disabled (tap-to-activate only)');
@@ -3403,7 +3402,7 @@ const OWW = {
   mel:         null,    // InferenceSession
   emb:         null,    // InferenceSession
   cls:         null,    // InferenceSession (classifier)
-  THRESHOLD:   0.85,    // Sprint 5 model — high threshold to reject ambient noise
+  THRESHOLD:   0.40,
   CONSEC_HITS: 3,       // 3 consecutive above-threshold scores — reduces false triggers
   COOLDOWN_MS: 3000,    // ms between triggers
   _lastFire:   0,
@@ -3454,6 +3453,9 @@ async function owwLoadModels() {
     OWW.mel = mel; OWW.emb = emb; OWW.cls = cls;
     OWW.ready = true;
     console.log('[OWW] Models ready ✓');
+    console.log('[OWW] Classifier inputs:', cls.inputNames, 'outputs:', cls.outputNames);
+    console.log('[OWW] Embedding inputs:', emb.inputNames, 'outputs:', emb.outputNames);
+    console.log('[OWW] Mel inputs:', mel.inputNames, 'outputs:', mel.outputNames);
     return true;
   } catch(e) {
     console.warn('[OWW] Model load failed:', e.message);
@@ -3461,11 +3463,13 @@ async function owwLoadModels() {
   }
 }
 
-// Mel frame accumulator — 16 chunks × 5 frames = 80 frames, use first 76
-const OWW_FRAMES_NEEDED = 76;
-const OWW_CHUNKS_NEEDED = 16;  // 16 × 5 = 80 ≥ 76
-let   owwFrameBuf = [];        // accumulated [5,32] mel frame arrays
-let   _owwChunkCount = 0;      // diagnostic: total chunks processed
+// Mel frame accumulator — cumulative sliding buffer (matches Python's melspectrogram_buffer)
+const OWW_MEL_WINDOW  = 76;           // mel frames needed for one embedding
+const OWW_EMB_HISTORY = 16;           // number of embeddings the classifier expects
+const OWW_MEL_BUF_MAX = 200;          // max mel frames to keep (prevents unbounded growth)
+let   owwMelBuf   = [];               // cumulative mel frame buffer: array of Float32Array(32)
+let   owwEmbBuf   = [];               // embedding ring buffer: array of Float32Array(96)
+let   _owwChunkCount = 0;
 
 async function owwProcessChunk(float32chunk) {
   if (!OWW.ready || athenaState !== 'idle' || athenaDebounce) return;
@@ -3478,44 +3482,90 @@ async function owwProcessChunk(float32chunk) {
     return;
   }
 
-  // Heartbeat: log periodically to confirm audio flow
+  // Heartbeat
   if (_owwChunkCount % 500 === 0) {
     console.log(`[OWW] Chunk #${_owwChunkCount} — audio flowing`);
   }
+
   try {
-    // 1. Mel model — input [1, 1280] → output [1, 1, 5, 32]
-    const melInput  = new ort.Tensor('float32', float32chunk, [1, 1280]);
-    const melOut    = await OWW.mel.run({ input: melInput });
-    const melData   = melOut[Object.keys(melOut)[0]];  // [1, 1, 5, 32]
-    // Extract the [5, 32] frame block
-    const frameBlock = new Float32Array(5 * 32);
-    frameBlock.set(melData.data.slice(0, 5 * 32));
-    owwFrameBuf.push(frameBlock);
+    // 1. Scale to int16 range + mel model
+    const scaledChunk = new Float32Array(1280);
+    for (let i = 0; i < 1280; i++) scaledChunk[i] = float32chunk[i] * 32768;
+    const melInput = new ort.Tensor('float32', scaledChunk, [1, 1280]);
+    const melOut   = await OWW.mel.run({ input: melInput });
+    const melData  = melOut[Object.keys(melOut)[0]];
 
-    // Keep buffer at most OWW_CHUNKS_NEEDED chunks
-    if (owwFrameBuf.length > OWW_CHUNKS_NEEDED) owwFrameBuf.shift();
-    if (owwFrameBuf.length < OWW_CHUNKS_NEEDED) return;
-
-    // 2. Assemble [76, 32] from accumulated frames
-    const allFrames = new Float32Array(OWW_CHUNKS_NEEDED * 5 * 32);
-    for (let i = 0; i < OWW_CHUNKS_NEEDED; i++) {
-      allFrames.set(owwFrameBuf[i], i * 5 * 32);
+    // Diagnostic: log audio RMS + raw mel + transformed mel on first run
+    if (!OWW._melDiag) {
+      OWW._melDiag = true;
+      let rms = 0;
+      for (let i = 0; i < 1280; i++) rms += float32chunk[i] * float32chunk[i];
+      rms = Math.sqrt(rms / 1280);
+      const rawMel = Array.from(melData.data.slice(0, 8)).map(v => v.toFixed(2));
+      const txMel = rawMel.map(v => (parseFloat(v) / 10 + 2).toFixed(2));
+      console.log(`[OWW] DIAG audio RMS: ${rms.toFixed(6)}, scaled RMS: ${(rms * 32768).toFixed(1)}`);
+      console.log('[OWW] DIAG raw mel (first 8):', rawMel);
+      console.log('[OWW] DIAG transformed mel (first 8):', txMel);
     }
-    // Take first 76 frames → reshape to [1, 76, 32, 1]
-    const embArr = new Float32Array(OWW_FRAMES_NEEDED * 32);
-    embArr.set(allFrames.slice(0, OWW_FRAMES_NEEDED * 32));
-    const embInput = new ort.Tensor('float32', embArr, [1, OWW_FRAMES_NEEDED, 32, 1]);
-    const embOut   = await OWW.emb.run({ input_1: embInput });
-    const embData  = embOut[Object.keys(embOut)[0]];   // [1, 1, 1, 96]
 
-    // 3. Classifier — input [1, 96] → score
-    const clsInput = new ort.Tensor('float32', embData.data.slice(0, 96), [1, 96]);
-    const clsOut   = await OWW.cls.run({ embedding: clsInput });
+    // 2. Extract 5 mel frames, apply mel transform, append to cumulative mel buffer
+    for (let f = 0; f < 5; f++) {
+      const frame = new Float32Array(32);
+      for (let j = 0; j < 32; j++) {
+        frame[j] = melData.data[f * 32 + j] / 10 + 2;
+      }
+      owwMelBuf.push(frame);
+    }
+
+    // Trim mel buffer to prevent unbounded growth
+    if (owwMelBuf.length > OWW_MEL_BUF_MAX) {
+      owwMelBuf = owwMelBuf.slice(-OWW_MEL_BUF_MAX);
+    }
+
+    // 3. Need at least 76 mel frames to compute an embedding
+    if (owwMelBuf.length < OWW_MEL_WINDOW) return;
+
+    // 4. Take last 76 mel frames -> [1, 76, 32, 1]
+    const melArr = new Float32Array(OWW_MEL_WINDOW * 32);
+    const startIdx = owwMelBuf.length - OWW_MEL_WINDOW;
+    for (let i = 0; i < OWW_MEL_WINDOW; i++) {
+      melArr.set(owwMelBuf[startIdx + i], i * 32);
+    }
+    const embInput = new ort.Tensor('float32', melArr, [1, OWW_MEL_WINDOW, 32, 1]);
+    const embOut   = await OWW.emb.run({ input_1: embInput });
+    const embData  = embOut[Object.keys(embOut)[0]];  // [1, 1, 1, 96]
+
+    // 5. Extract 96-dim embedding and append to embedding ring buffer
+    const emb = new Float32Array(96);
+    emb.set(embData.data.slice(0, 96));
+    owwEmbBuf.push(emb);
+
+    // Keep only the last OWW_EMB_HISTORY embeddings
+    if (owwEmbBuf.length > OWW_EMB_HISTORY) {
+      owwEmbBuf = owwEmbBuf.slice(-OWW_EMB_HISTORY);
+    }
+
+    // 6. Need at least 16 embeddings to run classifier
+    if (owwEmbBuf.length < OWW_EMB_HISTORY) return;
+
+    // 7. Assemble classifier input: [1, 16, 96]
+    const clsArr = new Float32Array(OWW_EMB_HISTORY * 96);
+    for (let i = 0; i < OWW_EMB_HISTORY; i++) {
+      clsArr.set(owwEmbBuf[i], i * 96);
+    }
+    const clsInput = new ort.Tensor('float32', clsArr, [1, OWW_EMB_HISTORY, 96]);
+    const clsOut   = await OWW.cls.run({ 'onnx::Flatten_0': clsInput });
     const score    = clsOut[Object.keys(clsOut)[0]].data[0];
 
-    // Log scores above threshold for diagnostics
-    if (score > OWW.THRESHOLD) {
-      console.log(`[OWW] Score: ${score.toFixed(3)}`);
+    // 8. Diagnostic logging
+    if (!OWW._diagDone) {
+      OWW._diagDone = true;
+      console.log(`[OWW] Classifier active at chunk #${_owwChunkCount} — say "Athena" now`);
+    }
+    if (score > 0.005) {
+      console.log(`[OWW] Score: ${score.toFixed(4)} (chunk #${_owwChunkCount})`);
+    } else if (_owwChunkCount % 50 === 0) {
+      console.log(`[OWW] Score: ${score.toFixed(6)} (chunk #${_owwChunkCount}, silence baseline)`);
     }
 
     if (score > OWW.THRESHOLD) {
@@ -3528,7 +3578,8 @@ async function owwProcessChunk(float32chunk) {
       } else if (OWW._hitCount >= OWW.CONSEC_HITS) {
         OWW._hitCount = 0;
         OWW._lastFire = now;
-        owwFrameBuf   = [];
+        owwMelBuf = [];
+        owwEmbBuf = [];
         console.log(`[OWW] Wake word confirmed — score: ${score.toFixed(3)} (${OWW.CONSEC_HITS} consecutive)`);
         athenaDebounce = true;
         setTimeout(() => { athenaDebounce = false; }, OWW.COOLDOWN_MS);
@@ -3542,7 +3593,7 @@ async function owwProcessChunk(float32chunk) {
   } catch(e) {
     if (!OWW._errLogged) {
       console.warn('[OWW] Inference error:', e.message);
-      OWW._errLogged = true;  // log once to avoid spam
+      OWW._errLogged = true;
     }
   }
 }
@@ -3556,7 +3607,10 @@ async function owwStart() {
   OWW._starting = true;
   try {
     OWW.ctx    = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-    OWW.stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    OWW.stream = await navigator.mediaDevices.getUserMedia({
+      audio: { autoGainControl: true, noiseSuppression: false, echoCancellation: false },
+      video: false
+    });
     athenaMicPermission = true;
 
     const source = OWW.ctx.createMediaStreamSource(OWW.stream);
@@ -3638,7 +3692,8 @@ async function owwStart() {
         if (!OWW.ctx || OWW.ctx.state === 'running') return _owwRemoveResume();
         OWW.ctx.resume().then(() => {
           if (OWW.ctx?.state === 'running') {
-            owwFrameBuf = [];
+            owwMelBuf = [];
+            owwEmbBuf = [];
             _owwChunkCount = 0;
             OWW._errLogged = false;
             console.log('[OWW] AudioContext resumed — wake detection active');
@@ -3678,7 +3733,21 @@ function owwStop() {
   OWW.running = false; OWW._starting = false;
   OWW.ctx = null; OWW.stream = null; OWW.worklet = null;
   OWW._firstHitTime = 0; OWW._hitCount = 0; OWW._errLogged = false;
-  owwFrameBuf = [];  // clear stale frames so restart begins fresh
+  owwMelBuf = [];  // clear stale frames so restart begins fresh
+  owwEmbBuf = [];
+}
+
+const _WAKE_WORDS_AVAILABLE = ['Athena','Artemis','Hestia'];
+const _WAKE_WORDS_SOON = ['Apollo','Achilles','Andromeda','Hermes','Odin','Osiris','Anubis'];
+
+function athenaChangeWakeWord(name) {
+  CONFIG.athenaWakeWord = name || 'Athena';
+  saveConfig();
+  owwStop();
+  OWW.ready = false;
+  OWW.mel = null; OWW.emb = null; OWW.cls = null;
+  console.log('[OWW] Wake word changed to "' + CONFIG.athenaWakeWord + '" — reloading model');
+  if (!isMobile() || isTablet()) athenaStartWakeDetection();
 }
 
 // ── Main wake detection entry point ──────────────────────────────────────
@@ -4459,12 +4528,13 @@ function _athenaStartSilenceDetection(analyser, recorder) {
       speechHeard = true; // user is speaking
       silentSince = 0;    // reset silence timer
     } else if (speechHeard) {
-      // Only count silence AFTER we've heard speech
       if (!silentSince) silentSince = Date.now();
       else if (Date.now() - silentSince > SILENCE_MS) {
-        console.log('[Athena] Silence detected — stopping recording');
-        clearTimeout(recorder._maxTimer);
-        recorder.stop();
+        if (recorder.state === 'recording') {
+          console.log('[Athena] Silence detected — stopping recording');
+          clearTimeout(recorder._maxTimer);
+          recorder.stop();
+        }
         return;
       }
     }
@@ -4566,7 +4636,10 @@ function athenaSystemPrompt() {
   // Thermostat states
   const thermLines = thermostats.map(t => {
     const st = S[t.id] || {};
-    return `- ${t.name}: ${st.cur||'--'}°F, ${st.state||'idle'}, setpoint ${st.heat||'--'}°F`;
+    let line = `- ${t.name} [id:${t.id}]: ${st.cur||'--'}°F, mode: ${st.mode||'heat'}, state: ${st.state||'idle'}`;
+    if (st.heat != null) line += `, heat setpoint: ${st.heat}°F`;
+    if (st.cool != null) line += `, cool setpoint: ${st.cool}°F`;
+    return line;
   }).join('\n');
 
   // Lock state
@@ -4585,20 +4658,48 @@ function athenaSystemPrompt() {
     ? `Security: ${artemisModeName()}`
     : 'Security: Artemis disabled';
   const lang = (CONFIG.athenaLang || 'en-US').startsWith('es') ? 'Spanish' : 'English';
-
   const assistantName = (CONFIG.athenaWakeWord || 'Athena').trim();
+  const personality = _ATHENA_PERSONALITIES[CONFIG.athenaPersonality] || _ATHENA_PERSONALITIES.balanced;
 
-  return `You are ${assistantName}, a voice assistant built into the Hestia smart home dashboard for Hubitat Elevation. You control smart home devices and can hold natural conversations on any topic.
+  // Weather context
+  let weatherCtx = '';
+  if (wxData && !wxData.error && wxData.current) {
+    const c = wxData.current;
+    weatherCtx = `\nWEATHER:\n- Current: ${c.temperature}°${c.temperatureUnit}, ${c.shortForecast}`;
+    if (c.relativeHumidity?.value != null) weatherCtx += `, ${c.relativeHumidity.value}% humidity`;
+    if (wxData.forecast?.length) weatherCtx += `\n- Next: ${wxData.forecast[0].name} — ${wxData.forecast[0].shortForecast}, ${wxData.forecast[0].temperature}°${wxData.forecast[0].temperatureUnit}`;
+  }
+
+  // Proactive hints based on time + device state
+  let proactiveHints = '';
+  const hour = new Date().getHours();
+  const hints = [];
+  if (hour >= 23 || hour < 5) {
+    const onLights = Object.entries(S).filter(([id,s]) => s.switch === 'on' && s._type === 'light');
+    if (onLights.length > 3) hints.push(`It's late and ${onLights.length} lights are still on.`);
+    const unlocked = CONFIG.lock?.id && S[CONFIG.lock.id]?.locked === 'unlocked';
+    if (unlocked) hints.push('The door is unlocked and it\'s late at night.');
+  }
+  if (hints.length) proactiveHints = '\n\nPROACTIVE AWARENESS (mention naturally if relevant to the user\'s request, don\'t volunteer unprompted):\n- ' + hints.join('\n- ');
+
+  // Active timers
+  const timerCtx = athenaActiveTimersSummary();
+
+  return `You are ${assistantName}, a voice assistant built into the Hestia smart home dashboard for Hubitat Elevation. You control smart home devices, set timers and reminders, and can hold natural conversations on any topic.
 
 LANGUAGE: Respond only in ${lang}.
 
+PERSONALITY:
+${personality}
+
 SPEECH TONE & LENGTH GUIDELINES:
-- Device commands (type:action): Warm but brief. 8–14 words maximum. Natural, not robotic. 
-  Good: "Done, the office lights are on." / "Got it — front door is locked." / "All set, living room fan is running."
-  Avoid: Single-word grunts ("Done.") AND verbose filler ("Sure thing! I've gone ahead and turned on all the lights in your office for you!")
-  The confirmation field is separate — keep speech focused on the outcome, not restating the command.
-- Clarifications (type:clarify): One natural question, under 12 words. "Which room did you mean?" not "I'm sorry, I didn't quite catch which room you were referring to."
-- Conversations (type:conversation): No length restriction — be as thorough as the topic warrants. Full sentences, natural prose.
+- Device commands (type:action): Warm but brief. 8–14 words maximum. Natural, not robotic.
+  Good: "Done, the office lights are on." / "Got it — front door is locked."
+  Avoid: Single-word grunts ("Done.") AND verbose filler ("Sure thing! I've gone ahead and turned on…")
+  The confirmation field is separate — keep speech focused on the outcome.
+- Clarifications (type:clarify): One natural question, under 12 words.
+- Conversations (type:conversation): Answer in 1–3 sentences unless the topic genuinely needs more. Be helpful, not verbose.
+- Timers (type:timer): Confirm the timer naturally. "Got it, 12 minutes starting now."
 
 HOME LAYOUT:
 ${roomLayout}
@@ -4608,15 +4709,17 @@ ${stateLines}
 
 THERMOSTATS:
 ${thermLines}
+${weatherCtx}
+${lockLine ? '\nLOCK:\n'+lockLine : ''}${timerCtx}
 
-${lockLine ? 'LOCK:\n'+lockLine+'\n' : ''}CONTEXT:
+CONTEXT:
 - Time: ${timeStr}
 - This dashboard's assigned room: ${athenaRoom}
 - Active sidebar room: ${sidebarRoom}
 - ${secLine}
-- Room resolution priority: 1) Explicit room in request, 2) Assigned room (${athenaRoom}), 3) Active sidebar room (${sidebarRoom}), 4) Ask for clarification
+- Room resolution priority: 1) Explicit room in request, 2) Assigned room (${athenaRoom}), 3) Active sidebar room (${sidebarRoom}), 4) Ask for clarification${proactiveHints}
 
-RESPONSE FORMAT — you MUST reply with a single valid JSON object and absolutely nothing else. No markdown, no backticks, no preamble, no self-correction, no explanation before or after the JSON. If your first attempt at a JSON object is wrong, do not show it — only output the correct final JSON.
+RESPONSE FORMAT — reply with a single valid JSON object. No markdown, no backticks, no preamble.
 
 For device commands:
 {"type":"action","speech":"Done, the office lights are on.","commands":[{"deviceId":"10","command":"on"}],"confirmation":"Office lights on"}
@@ -4627,7 +4730,15 @@ For conversation (no device action):
 For clarification needed:
 {"type":"clarify","speech":"Which room did you mean?","missing":"room"}
 
-Available commands: on, off, setLevel (value 0-100), setColorTemperature (value 2700-6500), setSpeed (off/low/medium/high), open, close, lock, unlock, armHome, armAway, disarm
+For setting a timer or reminder:
+{"type":"timer","speech":"Got it, 12 minutes starting now.","timer":{"label":"pasta","seconds":720}}
+
+For cancelling a timer:
+{"type":"cancel_timer","speech":"Pasta timer cancelled.","timer":{"label":"pasta"}}
+
+Available commands: on, off, setLevel (value 0-100), setColorTemperature (value 2700-6500), setColor (JSON: {"hue":0-100,"saturation":0-100,"level":0-100}), setSpeed (off/low/medium-low/medium/medium-high/high), open, close, setPosition (value 0-100 for shades), lock, unlock, armHome, armAway, setHeatingSetpoint (value in °F), setCoolingSetpoint (value in °F), setThermostatMode (heat/cool/auto/off), setThermostatFanMode (auto/on/circulate)
+
+SECURITY RESTRICTION: You CANNOT disarm the security system — disarming requires a PIN entered manually. If asked to disarm, explain that it must be done on the panel directly.
 
 CRITICAL DEVICE ID RULES:
 - Device IDs are the numeric strings shown in [id:X] in the room layout above
@@ -4722,15 +4833,163 @@ async function athenaCallClaude(userText) {
 
 function athenaPushHistory(role, content) {
   athenaHistory.push({ role, content });
-  // Keep last 20 messages (10 exchanges)
   if (athenaHistory.length > 20) athenaHistory.splice(0, 2);
+  try { localStorage.setItem('athena_history', JSON.stringify({ date: new Date().toDateString(), messages: athenaHistory })); } catch(e){}
+}
+
+function athenaLoadHistory() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('athena_history'));
+    if (saved && saved.date === new Date().toDateString() && Array.isArray(saved.messages)) {
+      athenaHistory = saved.messages;
+    }
+  } catch(e){}
 }
 
 function athenaCheckDayReset() {
   const today = new Date().toDateString();
-  if (athenaSessionDate && athenaSessionDate !== today) athenaHistory = [];
+  if (athenaSessionDate && athenaSessionDate !== today) {
+    athenaHistory = [];
+    try { localStorage.removeItem('athena_history'); } catch(e){}
+  }
   athenaSessionDate = today;
 }
+
+// ── Athena Timers & Reminders ─────────────────────────────────────────
+function athenaSetTimer(label, seconds) {
+  const id = ++_athenaTimerNext;
+  const endTime = Date.now() + seconds * 1000;
+  const timeout = setTimeout(() => {
+    athenaTimerFired(id, label);
+  }, seconds * 1000);
+  _athenaTimers.push({ id, label, endTime, timeout });
+  athenaUpdateTimerUI(); athenaStartTimerTick();
+  return id;
+}
+
+function athenaTimerFired(id, label) {
+  _athenaTimers = _athenaTimers.filter(t => t.id !== id);
+  athenaUpdateTimerUI(); athenaStartTimerTick();
+  const msg = label ? `Your ${label} timer is done.` : 'Your timer is done.';
+  athenaAddBubble('athena', msg);
+  athenaSpeak(msg);
+  const overlay = document.getElementById('ath-overlay');
+  if (!overlay?.classList.contains('open')) {
+    const fab = document.getElementById('ath-fab');
+    if (fab) fab.classList.add('ath-timer-alert');
+    setTimeout(() => fab?.classList.remove('ath-timer-alert'), 4000);
+  }
+}
+
+function athenaCancelTimer(label) {
+  const idx = label
+    ? _athenaTimers.findIndex(t => t.label.toLowerCase() === label.toLowerCase())
+    : _athenaTimers.length - 1;
+  if (idx >= 0) {
+    clearTimeout(_athenaTimers[idx].timeout);
+    const removed = _athenaTimers.splice(idx, 1)[0];
+    athenaUpdateTimerUI(); athenaStartTimerTick();
+    return removed.label || 'timer';
+  }
+  return null;
+}
+
+let _athenaTimerRAF = null;
+
+function athenaUpdateTimerUI() {
+  // Badge on FAB
+  let badge = document.getElementById('ath-timer-badge');
+  if (_athenaTimers.length > 0) {
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.id = 'ath-timer-badge';
+      badge.style.cssText = 'position:absolute;top:-4px;right:-4px;background:var(--amber);color:#000;font-size:10px;font-weight:700;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:91';
+      const fab = document.getElementById('ath-fab');
+      if (fab) fab.appendChild(badge);
+    }
+    badge.textContent = _athenaTimers.length;
+  } else if (badge) {
+    badge.remove();
+  }
+
+  // Floating pills (desktop/tablet only, max 3)
+  const floatEl = document.getElementById('ath-timer-float');
+  if (floatEl) {
+    if (_athenaTimers.length === 0) {
+      floatEl.innerHTML = '';
+    } else {
+      const pills = _athenaTimers.slice(0, 3);
+      floatEl.innerHTML = pills.map(t => {
+        const rem = Math.max(0, Math.round((t.endTime - Date.now()) / 1000));
+        const m = Math.floor(rem / 60);
+        const s = rem % 60;
+        return '<div class="ath-timer-pill" onclick="athenaFabTap()" title="' + (t.label || 'Timer') + '">' +
+          '<div class="ath-timer-pill-dot"></div>' +
+          '<span class="ath-timer-pill-lbl">' + (t.label || 'Timer') + '</span>' +
+          '<span class="ath-timer-pill-time">' + m + ':' + String(s).padStart(2,'0') + '</span></div>';
+      }).join('');
+    }
+  }
+
+  // Panel section
+  const panelEl = document.getElementById('ath-timer-panel');
+  if (panelEl) {
+    if (_athenaTimers.length === 0) {
+      panelEl.innerHTML = '';
+    } else {
+      let html = '<div class="ath-timer-hdr"><svg width="9" height="9" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="9" r="5" stroke="#666" stroke-width="1.2"/><line x1="8" y1="6" x2="8" y2="9" stroke="#666" stroke-width="1.1" stroke-linecap="round"/><line x1="8" y1="9" x2="10" y2="9" stroke="#666" stroke-width="1.1" stroke-linecap="round"/></svg>Scheduled</div>';
+      _athenaTimers.forEach(t => {
+        const rem = Math.max(0, Math.round((t.endTime - Date.now()) / 1000));
+        const m = Math.floor(rem / 60);
+        const s = rem % 60;
+        html += '<div class="ath-timer-row"><div class="ath-timer-name"><div class="ath-timer-pill-dot"></div>' +
+          (t.label || 'Timer') + '</div><div><span class="ath-timer-cd">' + m + ':' + String(s).padStart(2,'0') +
+          '</span><span class="ath-timer-x" onclick="athenaCancelTimerById(' + t.id + ')" title="Cancel">&#10005;</span></div></div>';
+      });
+      panelEl.innerHTML = html;
+    }
+  }
+
+}
+
+function athenaStartTimerTick() {
+  if (!_athenaTimerRAF && _athenaTimers.length > 0) {
+    _athenaTimerRAF = setInterval(() => {
+      athenaUpdateTimerUI();
+      if (_athenaTimers.length === 0) {
+        clearInterval(_athenaTimerRAF);
+        _athenaTimerRAF = null;
+      }
+    }, 1000);
+  }
+}
+
+function athenaCancelTimerById(id) {
+  const idx = _athenaTimers.findIndex(t => t.id === id);
+  if (idx >= 0) {
+    clearTimeout(_athenaTimers[idx].timeout);
+    _athenaTimers.splice(idx, 1);
+    athenaUpdateTimerUI();
+  }
+}
+
+function athenaActiveTimersSummary() {
+  if (_athenaTimers.length === 0) return '';
+  return '\nACTIVE TIMERS:\n' + _athenaTimers.map(t => {
+    const remaining = Math.max(0, Math.round((t.endTime - Date.now()) / 1000));
+    const mins = Math.floor(remaining / 60);
+    const secs = remaining % 60;
+    return `- ${t.label || 'Timer'}: ${mins}m ${secs}s remaining`;
+  }).join('\n');
+}
+
+// ── Athena Personality Definitions ───────────────────────────────────
+const _ATHENA_PERSONALITIES = {
+  balanced: 'You are warm and friendly but efficient. Be conversational and natural — not robotic, not verbose. For conversations, answer in 1–3 sentences unless the topic genuinely warrants more. No filler phrases ("Sure thing!", "Absolutely!", "Great question!").',
+  professional: 'You are polished and efficient. Formal tone, no humor, no filler. Get to the point. For conversations, give precise answers — prefer clarity over warmth.',
+  playful: 'You are upbeat and witty. Light humor is welcome. You can be expressive but stay concise — one good quip beats three mediocre sentences.',
+  concise: 'You are minimal. Shortest possible responses. No pleasantries, no filler, no elaboration unless explicitly asked. For conversations, answer in one sentence when possible.'
+};
 
 // ── Athena System 4 — Response Parser ─────────────────────────────────
 async function athenaHandleResponse(rawText) {
@@ -4808,6 +5067,31 @@ async function athenaHandleResponse(rawText) {
           athenaStartListening();
         }
       });
+      break;
+    }
+    case 'timer': {
+      athenaAddBubble('user', lastUserMsg);
+      const t = parsed.timer;
+      if (t && t.seconds > 0) {
+        athenaSetTimer(t.label || '', t.seconds);
+        athenaAddBubble('athena', parsed.speech || 'Timer set.');
+        athenaShowChip('green', `Timer: ${t.label || ''} ${Math.round(t.seconds/60)}m`);
+      } else {
+        athenaAddBubble('athena', parsed.speech || 'Timer set.');
+      }
+      athenaSetState('responding');
+      athenaSpeak(parsed.speech || 'Timer set.');
+      break;
+    }
+    case 'cancel_timer': {
+      athenaAddBubble('user', lastUserMsg);
+      const label = parsed.timer?.label || '';
+      const cancelled = athenaCancelTimer(label);
+      const speech = parsed.speech || (cancelled ? `${cancelled} timer cancelled.` : 'No matching timer found.');
+      athenaAddBubble('athena', speech);
+      athenaSetState('responding');
+      athenaShowChip('green', cancelled ? `Cancelled: ${cancelled}` : 'No timer found');
+      athenaSpeak(speech);
       break;
     }
     default: {
@@ -5185,42 +5469,58 @@ const _GOOGLE_VOICE_MAP = {
   'es-US': 'es-US-Neural2-A',
 };
 
+function athenaResetFollowUp() {
+  _athenaLastInput = Date.now();
+}
+let _athenaLastInput = 0;
+
 // ── Follow-up listening — re-open mic after TTS, auto-close after timeout ──
 function athenaStartFollowUp() {
-  if (athenaState !== 'responding') return;  // only after a response
+  if (athenaState !== 'responding') return;
   athenaSetState('listening');
 
-  // If no Google API key, stay in text-only mode with a longer window
+  const convoMode = CONFIG.athenaConvoMode !== false;
+  const textTimeout = convoMode ? 15000 : 10000;
+  const micIdleMax  = convoMode ? 8 : 5;
+  const micHardCap  = convoMode ? 15 : 10;
+
   if (!CONFIG.athenaGoogleApiKey) {
     const lbl = document.getElementById('ath-state-lbl');
-    if (lbl) lbl.textContent = 'Type follow-up or wait…';
+    if (lbl) lbl.textContent = convoMode ? 'Listening…' : 'Type follow-up or wait…';
     const input = document.getElementById('ath-text-input');
-    if (input) { input.placeholder = 'Type follow-up command…'; input.focus(); }
-    clearTimeout(athenaFollowUpTimer);
-    athenaFollowUpTimer = setTimeout(() => {
-      if (athenaState === 'listening') athenaClose();
-    }, 10000);  // 10s for text-only follow-up
+    if (input) { input.placeholder = convoMode ? 'Say something or type…' : 'Type follow-up command…'; input.focus(); }
+    clearInterval(athenaFollowUpTimer);
+    let _textChecks = 0;
+    athenaFollowUpTimer = setInterval(() => {
+      _textChecks++;
+      const typing = (Date.now() - _athenaLastInput) < 2000;
+      const hasText = (document.getElementById('ath-text-input')?.value || '').trim().length > 0;
+      if (typing || hasText) { _textChecks = 0; return; }
+      if (_textChecks >= Math.round(textTimeout / 1000)) {
+        clearInterval(athenaFollowUpTimer);
+        if (athenaState === 'listening') athenaClose();
+      }
+    }, 1000);
     return;
   }
 
   athenaStartListening();
-  // Auto-close panel after 5s of silence — check periodically since recording
-  // may still be active when the first check fires
   clearInterval(athenaFollowUpTimer);
   let _followUpChecks = 0;
   athenaFollowUpTimer = setInterval(() => {
     _followUpChecks++;
+    const typing = (Date.now() - _athenaLastInput) < 2000;
+    const hasText = (document.getElementById('ath-text-input')?.value || '').trim().length > 0;
+    if (typing || hasText) { _followUpChecks = 0; return; }
     if (athenaState !== 'listening' && athenaState !== 'idle') {
-      clearInterval(athenaFollowUpTimer);  // user submitted — stop checking
+      clearInterval(athenaFollowUpTimer);
       return;
     }
-    // After 5s (5 checks), close if not actively listening
-    if (_followUpChecks >= 5 && !athenaListening) {
+    if (_followUpChecks >= micIdleMax && !athenaListening) {
       clearInterval(athenaFollowUpTimer);
       athenaClose();
     }
-    // Hard cap at 10s regardless
-    if (_followUpChecks >= 10) {
+    if (_followUpChecks >= micHardCap) {
       clearInterval(athenaFollowUpTimer);
       if (athenaState === 'listening') athenaClose();
     }
@@ -6267,7 +6567,7 @@ function spWallPanelBody() {
         <div style="font-size:11px;color:var(--t2);line-height:1.6;margin-bottom:10px">
           Open <span style="color:var(--t1);user-select:all">${h(CONFIG.hub || 'http://YOUR_HUB_IP')}/local/index.html</span> in a new tab, then come back to Settings → Wall Panel.
         </div>
-        <button class="ob-trigger-btn" onclick="window.open('${CONFIG.hub || 'http://192.168.50.139'}/local/index.html','_blank')" style="width:auto;padding:0 16px;border-style:solid">
+        <button class="ob-trigger-btn" onclick="window.open('${CONFIG.hub || 'http://YOUR_HUB_IP'}/local/index.html','_blank')" style="width:auto;padding:0 16px;border-style:solid">
           Open hub dashboard ↗
         </button>
         ` : `
@@ -6452,13 +6752,13 @@ function spAthenaBody() {
       <div class="sp-group">
         <div class="sp-group-lbl">Wake Word &amp; Room</div>
         <div class="sp-input-row" style="flex-wrap:wrap">
-          <div class="sp-field" style="min-width:130px">
-            <label class="sp-label">Name &amp; Wake Word</label>
-            <input type="text" class="sp-input" placeholder="Athena"
-              value="${CONFIG.athenaWakeWord||'Athena'}"
-              oninput="CONFIG.athenaWakeWord=this.value.trim()||'Athena'"
-              onblur="saveConfig()">
-            <span class="sp-hint">This is both what activates the assistant hands-free <em>and</em> the name it uses when referring to itself. "Hey ${CONFIG.athenaWakeWord||'Athena'}, turn off the lights." If you change this, the assistant will introduce itself by the new name immediately.</span>
+          <div class="sp-field" style="min-width:160px">
+            <label class="sp-label">Wake Word</label>
+            <select class="sp-select" id="sp-wakeword-sel" onchange="athenaChangeWakeWord(this.value)">
+              ${_WAKE_WORDS_AVAILABLE.map(w => '<option value="'+w+'"'+(((CONFIG.athenaWakeWord||'Athena')===w)?' selected':'')+'>'+w+'</option>').join('')}
+              ${_WAKE_WORDS_SOON.map(w => '<option disabled>'+w+' (Coming Soon)</option>').join('')}
+            </select>
+            <span class="sp-hint">Say this word to activate hands-free on desktop. The assistant will also use this name when referring to itself.</span>
           </div>
           <div class="sp-field" style="min-width:140px">
             <label class="sp-label">This Device's Room</label>
@@ -6468,7 +6768,35 @@ function spAthenaBody() {
             </select>
           </div>
         </div>
-        <span class="sp-hint">The name doubles as the wake word on desktop — say it to activate hands-free. Mobile uses tap. Room sets the context for ambiguous commands.</span>
+        <span class="sp-hint">Room sets the context for ambiguous commands like "turn off the lights." Mobile uses tap instead of wake word.</span>
+      </div>
+
+      <div class="sp-sep"></div>
+      <div class="sp-group">
+        <div class="sp-group-lbl">Personality &amp; Behavior</div>
+        <div class="sp-input-row" style="flex-wrap:wrap">
+          <div class="sp-field" style="min-width:160px">
+            <label class="sp-label">Personality</label>
+            <select class="sp-select" onchange="CONFIG.athenaPersonality=this.value;saveConfig()">
+              <option value="balanced"${(CONFIG.athenaPersonality||'balanced')==='balanced'?' selected':''}>Balanced — warm &amp; efficient</option>
+              <option value="professional"${CONFIG.athenaPersonality==='professional'?' selected':''}>Professional — formal &amp; precise</option>
+              <option value="playful"${CONFIG.athenaPersonality==='playful'?' selected':''}>Playful — witty &amp; expressive</option>
+              <option value="concise"${CONFIG.athenaPersonality==='concise'?' selected':''}>Concise — minimal &amp; direct</option>
+            </select>
+            <span class="sp-hint">Controls tone for conversations. Device commands are always brief regardless of personality.</span>
+          </div>
+        </div>
+        <div class="sp-toggle-row" style="padding:8px 0 0">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name" style="font-size:12px">Conversation Mode</div>
+            <div class="sp-toggle-desc">Keep listening for follow-ups after each response — say "thanks" or "goodbye" to dismiss</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${CONFIG.athenaConvoMode!==false?'checked':''}
+              onchange="CONFIG.athenaConvoMode=this.checked;saveConfig()">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
       </div>
 
       <div class="sp-sep"></div>
@@ -8935,7 +9263,7 @@ function spShowSection(id, force) {
         <div class="sp-group">
           <div class="sp-group-lbl">Hubitat Hub</div>
           <div class="sp-field"><label class="sp-label">Hub URL</label>
-            <input class="sp-input" id="sp-hub" value="${CONFIG.hub}" placeholder="http://192.168.50.18">${httpsHint}</div>
+            <input class="sp-input" id="sp-hub" value="${CONFIG.hub}" placeholder="http://192.168.1.100">${httpsHint}</div>
           <div class="sp-input-row">
             <div class="sp-field" style="flex:1"><label class="sp-label">Maker API App ID</label>
               <input class="sp-input" id="sp-appid" value="${CONFIG.appId}"></div>
@@ -9815,8 +10143,9 @@ let wsRetryTimer  = null;
 const _motionClearTimers = {};
 
 function wsUrl() {
-  // Hubitat Maker API WebSocket endpoint — no separate server needed
-  return `ws://${CONFIG.hub.replace('http://','')}/apps/api/${CONFIG.appId}/ws?access_token=${CONFIG.token}`;
+  const secure = CONFIG.hub.startsWith('https://');
+  const host = CONFIG.hub.replace(/^https?:\/\//, '');
+  return `${secure ? 'wss' : 'ws'}://${host}/apps/api/${CONFIG.appId}/ws?access_token=${CONFIG.token}`;
 }
 
 function connectWebSocket() {
@@ -9968,6 +10297,7 @@ let pollTimer   = null;
 let lastConnOk  = null;
 let _pollFailCount  = 0;
 let _hsmSyncCounter = 0; // counts poll cycles for periodic HSM sync
+let _mixedContentMode = false; // true when HTTPS page talks to HTTP hub
 
 
 /* ═══════════════════════════════════════════════════════
@@ -10245,6 +10575,7 @@ function detectRemovedDevices(devices) {
   });
 }
 function scheduleNextPoll() {
+  if (_mixedContentMode) return;
   clearTimeout(pollTimer);
   pollTimer = setTimeout(async function runPoll() {
     if (document.activeElement && document.activeElement.type === 'range') {
@@ -10272,10 +10603,19 @@ function scheduleNextPoll() {
       if (lastConnOk !== false) console.warn('[POLL] Hub unreachable:', e.message);
       lastConnOk = false;
       pollDelay  = Math.min(pollDelay * 2, 60000);
-      // Only show offline banner after 3 consecutive failures — avoids flashing
-      // on a single transient hub hiccup (e.g. hub processing an HSM command)
       _pollFailCount = (_pollFailCount || 0) + 1;
       if (_pollFailCount >= 3 && !wsConnected) setConn('err');
+      // Stop polling if mixed content is the cause — no point retrying
+      if (_pollFailCount >= 3 && window.location.protocol === 'https:' && CONFIG.hub && CONFIG.hub.startsWith('http://')) {
+        _mixedContentMode = true;
+        const hubHost = CONFIG.hub.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+        const banner = document.getElementById('offline-banner');
+        if (banner) banner.innerHTML =
+          'Can\'t reach hub over HTTP from this HTTPS page — ' +
+          '<a href="http://' + hubHost + '/local/index.html" style="color:inherit;text-decoration:underline">open the local dashboard</a>' +
+          ' or switch hub URL to HTTPS in Settings';
+        return;
+      }
     }
     scheduleNextPoll();
   }, pollDelay);
@@ -10857,10 +11197,10 @@ function obFinish() {
   // Guard: ensure CONFIG.weather is a valid object — can be clobbered by a
   // malformed localStorage config or failed JSON parse during boot.
   if (!CONFIG.weather || typeof CONFIG.weather !== 'object') {
-    CONFIG.weather = { lat: 36.52, lon: -82.56, zip: '', city: '', refresh: 600000 };
+    CONFIG.weather = { lat: '', lon: '', zip: '', city: '', refresh: 600000 };
   }
-  CONFIG.weather.lat = parseFloat(OB.weather.lat) || 36.52;
-  CONFIG.weather.lon = parseFloat(OB.weather.lon) || -82.56;
+  CONFIG.weather.lat = parseFloat(OB.weather.lat) || '';
+  CONFIG.weather.lon = parseFloat(OB.weather.lon) || '';
   if (OB.lock.id) CONFIG.lock = { id: OB.lock.id, label: OB.lock.label || 'Front Door' };
 
   // Build rooms from assignments
@@ -10938,16 +11278,16 @@ function launchOnboarding() {
   // cross-origin (CORS blocked). Instead, pass companion app credentials
   // directly in the URL so we can call the CORS-enabled config API.
   //
-  // Wall panel setup:  https://hestari.com?hub=192.168.50.139&hid=222&htk=TOKEN
+  // Wall panel setup:  https://hestari.com?hub=192.168.1.100&hid=APP_ID&htk=TOKEN
   //   hub = hub local IP (bare IP or full http:// URL)
   //   hid = Hestia companion app ID
   //   htk = Hestia companion app access token
   //
-  // Maker API shortcut: https://hestari.com?hub=192.168.50.139&mid=219&mtk=TOKEN
+  // Maker API shortcut: https://hestari.com?hub=192.168.1.100&mid=APP_ID&mtk=TOKEN
   //   mid = Maker API app ID, mtk = Maker API access token
   //   Auto-fills and tests the wizard — no manual entry needed
   //
-  // Minimal (pre-fills wizard): https://hestari.com?hub=192.168.50.139
+  // Minimal (pre-fills wizard): https://hestari.com?hub=192.168.1.100
   const _urlParams = new URLSearchParams(window.location.search);
   const _urlHub = _urlParams.get('hub');
   const _urlHid = _urlParams.get('hid');
@@ -11094,6 +11434,18 @@ function launchOnboarding() {
     setConn('ok'); // Mark online immediately after devices load — before any secondary tasks
   } catch (e) {
     lastConnOk = false;
+    // Mixed content: HTTPS page can't reach HTTP hub. Show actionable guidance
+    // instead of the generic "Hub unreachable" banner.
+    if (window.location.protocol === 'https:' && CONFIG.hub && CONFIG.hub.startsWith('http://')) {
+      _mixedContentMode = true;
+      const hubHost = CONFIG.hub.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+      const banner = document.getElementById('offline-banner');
+      if (banner) banner.innerHTML =
+        'Can’t reach hub over HTTP from this HTTPS page — ' +
+        '<a href="http://' + hubHost + '/local/index.html" style="color:inherit;text-decoration:underline">open the local dashboard</a>' +
+        ' or switch hub URL to HTTPS in Settings';
+      console.warn('[Boot] Mixed content blocked — HTTPS page cannot fetch from HTTP hub. Use the local URL for full functionality.');
+    }
     setConn('err');
   }
 
