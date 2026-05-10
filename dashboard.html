@@ -512,6 +512,22 @@ html[data-display-desktop] .tb-date{display:block !important}
 .a-alarm-btn{font-size:10px;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:inherit;background:transparent}
 .a-alarm-btn.a-red{color:#F87171;border:1px solid rgba(248,113,113,.3)}
 .a-alarm-btn.a-amber{color:var(--amber);border:1px solid rgba(245,158,11,.3)}
+/* Transition state overlay (arming / entry delay) */
+.a-trans-wrap{display:flex;flex-direction:column;align-items:center;gap:14px;padding:12px 0;flex-shrink:0}
+.a-trans-ring{position:relative;width:90px;height:90px;display:flex;align-items:center;justify-content:center}
+.a-trans-ring svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
+.a-trans-ring-bg{fill:none;stroke:var(--border);stroke-width:3}
+.a-trans-ring-fg{fill:none;stroke-width:3;stroke-linecap:round;stroke-dasharray:289;animation:a-trans-spin 2.5s linear infinite}
+.a-trans-ring-fg.a-arming{stroke:var(--amber)}
+.a-trans-ring-fg.a-entry{stroke:#F87171}
+@keyframes a-trans-spin{0%{stroke-dashoffset:289;opacity:.4}50%{stroke-dashoffset:72;opacity:1}100%{stroke-dashoffset:289;opacity:.4}}
+.a-trans-icon{position:relative;z-index:1}
+.a-trans-label{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
+.a-trans-label.a-arming{color:var(--amber)}
+.a-trans-label.a-entry{color:#F87171;animation:a-pulse 1s infinite}
+.a-trans-sub{font-size:11px;color:var(--t3);font-weight:300}
+.a-trans-cancel{font-size:10px;border-radius:6px;padding:5px 16px;cursor:pointer;font-family:inherit;background:transparent;color:var(--t2);border:1px solid var(--border);transition:border-color .15s}
+.a-trans-cancel:hover{border-color:var(--t3)}
 /* Brand footer */
 .a-brand-ftr{display:flex;justify-content:flex-end;align-items:center;gap:7px;flex-shrink:0;margin-top:auto;padding-top:4px}
 .a-brand-nm{font-size:11px;font-weight:300;letter-spacing:.22em;color:var(--t1)}
@@ -1475,7 +1491,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2025-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.4.1';
-const HESTIA_BUILD_DATE = '2026-05-09';
+const HESTIA_BUILD_DATE = '2026-05-10';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 
 /* ═══════════════════════════════════════════════════════
@@ -3349,6 +3365,8 @@ let artemisLockTimer  = null;      // lockout interval
 let artemisAlarmType  = null;      // 'intrusion'|'smoke'|'water'|'glass'|null
 let artemisHsmMode    = 'disarmed';// reflects actual HSM state from hub
 let artemisHsmReady   = null;      // null=unknown, true=HSM present, false=not detected
+let artemisTransition = null;      // null|'arming'|'entry-delay' — HSM transitional state
+let artemisArmingTarget = null;    // 'home'|'away' — which mode is being armed
 
 // ── Athena™ Voice Assistant ────────────────────────────────────────────
 let athenaState       = 'idle';    // idle|wake|listening|processing|responding|clarifying
@@ -5687,6 +5705,8 @@ if (window.speechSynthesis) {
 
 // ── Artemis helpers ───────────────────────────────────────────────────
 function artemisModeName() {
+  if (artemisTransition === 'arming') return `Arming ${artemisArmingTarget === 'home' ? 'Home' : 'Away'}`;
+  if (artemisTransition === 'entry-delay') return 'Entry Delay';
   if (artemisMode === 'home')  return 'Armed · Home';
   if (artemisMode === 'away')  return 'Armed · Away';
   return 'Disarmed';
@@ -6152,10 +6172,23 @@ function renderSecurity() {
       </div>
     </div>` : '';
 
-  // Right column — no-HSM state or full mode+keypad
-  const rightHTML = artemisHsmReady === false
-    ? artemisNoHsmRightHTML()
-    : `<div class="artemis-right">
+  // Right column — no-HSM state, transition, or full mode+keypad
+  let rightHTML;
+  if (artemisHsmReady === false) {
+    rightHTML = artemisNoHsmRightHTML();
+  } else if (artemisTransition) {
+    rightHTML = `<div class="artemis-right" style="align-items:center;justify-content:center">
+      ${artemisTransitionHTML()}
+      <div class="a-brand-ftr" style="width:100%">
+        <div style="text-align:right">
+          <div class="a-brand-nm">ARTEMIS<span class="a-brand-tm">™</span></div>
+          <div class="a-brand-sub">Home Security</div>
+        </div>
+        ${artemisGemMark(26,30)}
+      </div>
+    </div>`;
+  } else {
+    rightHTML = `<div class="artemis-right">
       <div class="a-status">
         ${artemisGemSVG(artemisMode, 34, 39)}
         <div>
@@ -6177,6 +6210,7 @@ function renderSecurity() {
         ${artemisGemMark(26,30)}
       </div>
     </div>`;
+  }
 
   // Mobile no-HSM: simpler single-column layout
   const mobileNoHsmHTML = artemisHsmReady === false
@@ -6213,7 +6247,7 @@ function renderSecurity() {
     ma.innerHTML = `<div class="artemis-panel" style="grid-template-columns:1fr">
       ${alarmHTML}
       <div style="display:flex;flex-direction:column;gap:8px;padding:12px">
-        ${mobileNoHsmHTML || `
+        ${mobileNoHsmHTML || (artemisTransition ? artemisTransitionHTML() : `
         <div class="a-status">
           ${artemisGemSVG(artemisMode, 34, 39)}
           <div>
@@ -6225,7 +6259,7 @@ function renderSecurity() {
           ${artemisModeBtn('disarm','Disarm', artemisMode==='disarm')}
           ${artemisModeBtn('home',  'Home',   artemisMode==='home')}
           ${artemisModeBtn('away',  'Away',   artemisMode==='away')}
-        </div>`}
+        </div>`)}
         ${artemisEntrySensorsHTML()}
         ${artemisLocksHTML()}
         ${artemisEnvHTML()}
@@ -6359,11 +6393,18 @@ async function artemisHsmSync() {
     artemisHsmReady = ready;
 
     if (ready) {
+      const isArming = /armingaway|arminghome/i.test(hsm);
+      if (isArming && !artemisTransition) {
+        const target = /armingaway/i.test(hsm) ? 'away' : 'home';
+        artemisSetTransition('arming', target);
+        return;
+      }
       let newMode = 'disarm';
-      if      (/armedaway|armingaway/i.test(hsm))               newMode = 'away';
-      else if (/armedhome|arminghome|armednight/i.test(hsm))    newMode = 'home';
+      if      (/armedaway/i.test(hsm))                          newMode = 'away';
+      else if (/armedhome|armednight/i.test(hsm))               newMode = 'home';
       else if (/disarmed|alldisarmed/i.test(hsm))               newMode = 'disarm';
       if (newMode !== artemisMode || prevReady !== true) {
+        if (artemisTransition) artemisClearTransition();
         artemisMode = newMode;
         if (isMobile() ? activeTab === 'security' : activeRoom === 'security') renderSecurity();
         renderSidebar();
@@ -6387,6 +6428,7 @@ async function artemisHsmSync() {
 // ── Mode switching ────────────────────────────────────────────────────
 function artemisDoDisarm() {
   if (artemisHsmReady === false) return;
+  artemisClearTransition();
   artemisMode = 'disarm';
   artemisPin = '';
   artemisClearAlarm();
@@ -6399,14 +6441,18 @@ function artemisDoDisarm() {
 function artemisSetMode(m) {
   if (artemisHsmReady === false) return;
   if (m === 'disarm' && artemisMode !== 'disarm') {
+    artemisClearTransition();
     if (isMobile()) artemisOpenSheet();
     return;
   }
-  artemisMode = m;
   artemisPin = '';
   artemisClearAlarm();
-  if (m === 'home') artemisHsmCmd('armHome');
-  if (m === 'away') artemisHsmCmd('armAway');
+  if (m === 'home' || m === 'away') {
+    artemisHsmCmd(m === 'home' ? 'armHome' : 'armAway');
+    artemisSetTransition('arming', m);
+    return;
+  }
+  artemisMode = m;
   renderSecurity();
   renderSidebar();
   updateArmedStatus();
@@ -6463,6 +6509,53 @@ function artemisClearAlarm() {
   if (banner) banner.classList.remove('visible');
   const toast = document.getElementById('artemis-alert-toast');
   if (toast) toast.style.display = 'none';
+}
+
+// ── HSM transition states ────────────────────────────────────────────
+
+function artemisSetTransition(type, targetMode) {
+  artemisTransition = type;
+  artemisArmingTarget = targetMode || null;
+  if (isMobile() ? activeTab === 'security' : activeRoom === 'security') renderSecurity();
+  renderSidebar();
+  updateArmedStatus();
+  console.log(`[Artemis] transition: ${type}${targetMode ? ' → ' + targetMode : ''}`);
+}
+
+function artemisClearTransition() {
+  artemisTransition = null;
+  artemisArmingTarget = null;
+}
+
+function artemisCancelArming() {
+  artemisClearTransition();
+  artemisMode = 'disarm';
+  artemisHsmCmd('disarm');
+  if (isMobile() ? activeTab === 'security' : activeRoom === 'security') renderSecurity();
+  renderSidebar();
+  updateArmedStatus();
+}
+
+function artemisTransitionHTML() {
+  if (!artemisTransition) return '';
+  const isArming = artemisTransition === 'arming';
+  const cls = isArming ? 'a-arming' : 'a-entry';
+  const label = isArming
+    ? `Arming ${artemisArmingTarget === 'home' ? 'Home' : 'Away'}`
+    : 'Entry Delay';
+  const sub = isArming ? 'Waiting for hub confirmation…' : 'Enter PIN to disarm';
+  return `<div class="a-trans-wrap">
+    <div class="a-trans-ring">
+      <svg viewBox="0 0 100 100">
+        <circle class="a-trans-ring-bg" cx="50" cy="50" r="46"/>
+        <circle class="a-trans-ring-fg ${cls}" cx="50" cy="50" r="46"/>
+      </svg>
+      <div class="a-trans-icon">${artemisGemSVG(isArming ? (artemisArmingTarget || 'away') : artemisMode, 34, 39)}</div>
+    </div>
+    <div class="a-trans-label ${cls}">${label}</div>
+    <div class="a-trans-sub">${sub}</div>
+    ${isArming ? '<button class="a-trans-cancel" onclick="artemisCancelArming()">Cancel</button>' : ''}
+  </div>`;
 }
 
 // ── Lock toggle ───────────────────────────────────────────────────────
@@ -10173,22 +10266,31 @@ function connectWebSocket() {
       //            or: {source:"HSM", name:"hsmAlert",  value:"intrusion"}
       if (msg.source === 'HSM' || msg.name === 'hsmStatus' || msg.name === 'hsmAlert') {
         if (msg.name === 'hsmStatus' || msg.name === 'hsmSetArm') {
-          // Mode change from hub — reconcile without triggering alarm
           const raw = String(msg.value || '').toLowerCase();
+          // Detect arming transitional states
+          if (/armingaway|arminghome/i.test(raw)) {
+            if (!artemisTransition) {
+              const target = /armingaway/i.test(raw) ? 'away' : 'home';
+              artemisSetTransition('arming', target);
+            }
+            return;
+          }
+          // Final armed/disarmed state — clear transition, update mode
           let newMode = 'disarm';
           if (raw === 'armedaway')                    newMode = 'away';
           else if (raw === 'armedhome')               newMode = 'home';
           else if (raw === 'armednight')              newMode = 'home';
           else if (/disarm|alldisarmed/i.test(raw))  newMode = 'disarm';
+          if (artemisTransition) artemisClearTransition();
           if (newMode !== artemisMode) {
             artemisMode = newMode;
             if (isMobile() ? activeTab === 'security' : activeRoom === 'security') {
               renderSecurity();
             }
             renderSidebar();
+            updateArmedStatus();
           }
         } else if (msg.name === 'hsmAlert') {
-          // Intrusion or alert event — fire the alarm banner
           const alertVal = String(msg.value || '').toLowerCase();
           let alertType = 'intrusion';
           if (/smoke|co|carbonmonoxide/i.test(alertVal))  alertType = 'smoke';
@@ -10196,10 +10298,15 @@ function connectWebSocket() {
           else if (/glass/i.test(alertVal))               alertType = 'glass';
           else if (/intrusion|motion|contact/i.test(alertVal)) alertType = 'intrusion';
           artemisAlarmType = alertType;
+          // Intrusion — show entry delay state + auto-open PIN
+          if (alertType === 'intrusion' && !artemisTransition) {
+            artemisSetTransition('entry-delay', null);
+            if (isMobile()) artemisOpenSheet();
+            return;
+          }
           if (isMobile() ? activeTab === 'security' : activeRoom === 'security') {
             renderSecurity();
           } else {
-            // Show banner even if not on security screen
             artemisShowAlarm(alertType);
           }
         }

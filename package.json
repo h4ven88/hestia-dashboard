@@ -2,5 +2,8 @@
   "devDependencies": {
     "clean-css": "^5.3.3",
     "terser": "^5.46.2"
+  },
+  "dependencies": {
+    "docx": "^9.6.1"
   }
 }
