@@ -2,10 +2,10 @@
   "name": "Hestia Dashboard",
   "version": "1.4.1",
   "buildDate": "2026-05-10",
-  "sourceSize": 581255,
-  "distSize": 426938,
-  "reduction": "26.5%",
-  "sha256": "E42D7FC2525AF08E65A929AD390FB1060A61CF280AF29FAE64C0E0DB0BA12EFC",
+  "sourceSize": 579500,
+  "distSize": 425323,
+  "reduction": "26.6%",
+  "sha256": "902D0D7FDA89A0DE9ABBBA112D0E6C523EF303D6F9C4E4A0433E3B06A9427E1C",
   "licence": "CC BY-NC 4.0",
   "copyright": "© 2026 Haven"
 }
