@@ -516,10 +516,13 @@ html[data-display-desktop] .tb-date{display:block !important}
 .a-trans-ring{position:relative;width:50px;height:50px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .a-trans-ring svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
 .a-trans-ring-bg{fill:none;stroke:var(--border);stroke-width:3}
-.a-trans-ring-fg{fill:none;stroke-width:3;stroke-linecap:round;stroke-dasharray:289;animation:a-trans-spin 2.5s linear infinite}
+.a-trans-ring-fg{fill:none;stroke-width:3;stroke-linecap:round;stroke-dasharray:289;stroke-dashoffset:0;animation:a-trans-deplete linear forwards}
 .a-trans-ring-fg.a-arming{stroke:var(--amber)}
 .a-trans-ring-fg.a-entry{stroke:#F87171}
-@keyframes a-trans-spin{0%{stroke-dashoffset:289;opacity:.4}50%{stroke-dashoffset:72;opacity:1}100%{stroke-dashoffset:289;opacity:.4}}
+@keyframes a-trans-deplete{from{stroke-dashoffset:0}to{stroke-dashoffset:289}}
+.a-trans-countdown{position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);font-size:11px;font-weight:600;white-space:nowrap;letter-spacing:.03em}
+.a-trans-countdown.a-arming{color:var(--amber)}
+.a-trans-countdown.a-entry{color:#F87171}
 .a-trans-icon{position:relative;z-index:1}
 /* Brand footer */
 .a-brand-ftr{display:flex;justify-content:flex-end;align-items:center;gap:7px;flex-shrink:0;margin-top:auto;padding-top:4px}
@@ -1789,6 +1792,9 @@ const CONFIG = {
   settingsPin: '',
   artemisEnabled: false,
   artemisPin:     '',
+  artemisExitDelay:  60,
+  artemisEntryDelay: 60,
+  artemisRingDeviceId: '',
   artemisSensors: {
     contacts: [],
     motions: [],
@@ -1835,6 +1841,9 @@ const DEFAULTS = {
     lock:          { id: '', label: '' },
     artemisEnabled: false,
     artemisPin:     '',
+    artemisExitDelay:  60,
+    artemisEntryDelay: 60,
+    artemisRingDeviceId: '',
     artemisSensors: {
       contacts: [],
       motions:  [],
@@ -2041,6 +2050,8 @@ function buildConfigPayload() {
                    defaultRoom: CONFIG.defaultRoom, returnTimeout: CONFIG.returnTimeout,
                    lock: CONFIG.lock, weather: CONFIG.weather, settingsPin: CONFIG.settingsPin,
                    artemisEnabled: CONFIG.artemisEnabled, artemisPin: CONFIG.artemisPin,
+                   artemisExitDelay: CONFIG.artemisExitDelay, artemisEntryDelay: CONFIG.artemisEntryDelay,
+                   artemisRingDeviceId: CONFIG.artemisRingDeviceId,
                    artemisSensors: CONFIG.artemisSensors,
                    athenaEnabled: CONFIG.athenaEnabled, athenaApiKey: CONFIG.athenaApiKey,
                    athenaModel: CONFIG.athenaModel,
@@ -3360,6 +3371,8 @@ let artemisHsmMode    = 'disarmed';// reflects actual HSM state from hub
 let artemisHsmReady   = null;      // null=unknown, true=HSM present, false=not detected
 let artemisTransition = null;      // null|'arming'|'entry-delay' — HSM transitional state
 let artemisArmingTarget = null;    // 'home'|'away' — which mode is being armed
+let artemisCountdownEnd = null;    // timestamp when countdown expires
+let artemisCountdownInterval = null; // interval ID for countdown tick
 
 // ── Athena™ Voice Assistant ────────────────────────────────────────────
 let athenaState       = 'idle';    // idle|wake|listening|processing|responding|clarifying
@@ -6338,14 +6351,23 @@ function artemisStartLockout(dotPrefix) {
 }
 
 // ── HSM API ───────────────────────────────────────────────────────────
-async function artemisHsmCmd(cmd) {
+async function artemisHsmCmd(hsmCmd) {
   // Maker API HSM endpoints: armAway, armHome, disarm
   if (!CONFIG.hub || !CONFIG.appId || !CONFIG.token) return;
   try {
-    const url = `${CONFIG.hub}/apps/api/${CONFIG.appId}/hsm/${cmd}?access_token=${CONFIG.token}`;
+    const url = `${CONFIG.hub}/apps/api/${CONFIG.appId}/hsm/${hsmCmd}?access_token=${CONFIG.token}`;
     await fetch(url);
   } catch(e) {
-    console.warn('[Artemis] HSM command failed:', cmd, e.message);
+    console.warn('[Artemis] HSM command failed:', hsmCmd, e.message);
+  }
+  // Mirror command to Ring Alarm base station if configured
+  if (CONFIG.artemisRingDeviceId) {
+    try {
+      await cmd(CONFIG.artemisRingDeviceId, hsmCmd);
+      console.log(`[Artemis] Ring device ${CONFIG.artemisRingDeviceId}: ${hsmCmd}`);
+    } catch(e) {
+      console.warn('[Artemis] Ring command failed:', hsmCmd, e.message);
+    }
   }
 }
 
@@ -6495,25 +6517,45 @@ function artemisClearAlarm() {
 function artemisSetTransition(type, targetMode) {
   artemisTransition = type;
   artemisArmingTarget = targetMode || null;
+  const delaySec = type === 'arming' ? (CONFIG.artemisExitDelay || 60) : (CONFIG.artemisEntryDelay || 60);
+  artemisCountdownEnd = Date.now() + delaySec * 1000;
+  if (artemisCountdownInterval) clearInterval(artemisCountdownInterval);
+  artemisCountdownInterval = setInterval(artemisTickCountdown, 250);
   if (isMobile() ? activeTab === 'security' : activeRoom === 'security') renderSecurity();
   renderSidebar();
   updateArmedStatus();
-  console.log(`[Artemis] transition: ${type}${targetMode ? ' → ' + targetMode : ''}`);
+  console.log(`[Artemis] transition: ${type}${targetMode ? ' → ' + targetMode : ''} (${delaySec}s)`);
 }
 
 function artemisClearTransition() {
   artemisTransition = null;
   artemisArmingTarget = null;
+  artemisCountdownEnd = null;
+  if (artemisCountdownInterval) { clearInterval(artemisCountdownInterval); artemisCountdownInterval = null; }
+}
+
+function artemisTickCountdown() {
+  if (!artemisTransition || !artemisCountdownEnd) return;
+  const remaining = Math.max(0, Math.ceil((artemisCountdownEnd - Date.now()) / 1000));
+  const cdEl = document.getElementById('a-countdown');
+  if (cdEl) cdEl.textContent = remaining + 's';
+  if (remaining <= 0) {
+    if (artemisCountdownInterval) { clearInterval(artemisCountdownInterval); artemisCountdownInterval = null; }
+  }
 }
 
 function artemisGemWithRing(mode) {
-  const cls = artemisTransition === 'entry-delay' ? 'a-entry' : 'a-arming';
+  const isEntry = artemisTransition === 'entry-delay';
+  const cls = isEntry ? 'a-entry' : 'a-arming';
+  const delaySec = isEntry ? (CONFIG.artemisEntryDelay || 60) : (CONFIG.artemisExitDelay || 60);
+  const remaining = artemisCountdownEnd ? Math.max(0, Math.ceil((artemisCountdownEnd - Date.now()) / 1000)) : delaySec;
   return `<div class="a-trans-ring">
     <svg viewBox="0 0 100 100">
       <circle class="a-trans-ring-bg" cx="50" cy="50" r="46"/>
-      <circle class="a-trans-ring-fg ${cls}" cx="50" cy="50" r="46"/>
+      <circle class="a-trans-ring-fg ${cls}" cx="50" cy="50" r="46" style="animation-duration:${delaySec}s"/>
     </svg>
     <div class="a-trans-icon">${artemisGemSVG(mode, 34, 39)}</div>
+    <div class="a-trans-countdown ${cls}" id="a-countdown">${remaining}s</div>
   </div>`;
 }
 
@@ -7138,6 +7180,40 @@ function spArtemisBody() {
           inputmode="numeric" pattern="[0-9]*" placeholder="6 digits" value=""
           style="width:200px;letter-spacing:.2em">
         <span class="sp-hint">Required to disarm. Leave blank to allow any entry.</span>
+      </div>
+    </div>
+
+    <div class="sp-sep"></div>
+    <div class="sp-group">
+      <div class="sp-group-lbl">Delay Timers</div>
+      <div class="sp-field">
+        <label class="sp-label">Exit Delay (arming)</label>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input class="sp-input" id="sp-artemis-exit-delay" type="number" min="0" max="300"
+            value="${CONFIG.artemisExitDelay || 60}" style="width:80px">
+          <span class="sp-hint" style="margin:0">seconds</span>
+        </div>
+        <span class="sp-hint">Countdown shown when arming. Match this to your HSM &amp; Ring exit delay.</span>
+      </div>
+      <div class="sp-field" style="margin-top:8px">
+        <label class="sp-label">Entry Delay (intrusion)</label>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input class="sp-input" id="sp-artemis-entry-delay" type="number" min="0" max="300"
+            value="${CONFIG.artemisEntryDelay || 60}" style="width:80px">
+          <span class="sp-hint" style="margin:0">seconds</span>
+        </div>
+        <span class="sp-hint">Countdown shown when a sensor trips while armed. Match to HSM &amp; Ring entry delay.</span>
+      </div>
+    </div>
+
+    <div class="sp-sep"></div>
+    <div class="sp-group">
+      <div class="sp-group-lbl">Ring Integration</div>
+      <div class="sp-field">
+        <label class="sp-label">Ring Alarm Base Station Device ID</label>
+        <input class="sp-input" id="sp-artemis-ring-id" type="text"
+          value="${h(CONFIG.artemisRingDeviceId || '')}" placeholder="e.g. 240" style="width:120px">
+        <span class="sp-hint">Maker API device ID for Ring Alarm base station. Arm/disarm commands will be sent to both HSM and Ring.</span>
       </div>
     </div>
 
@@ -9590,6 +9666,12 @@ async function saveSettings() {
     CONFIG.artemisEnabled = artEnabledEl.checked;
     if (CONFIG.artemisEnabled !== wasEnabled) artemisToggleEnabled(CONFIG.artemisEnabled);
   }
+  const exitDelayEl = document.getElementById('sp-artemis-exit-delay');
+  if (exitDelayEl) CONFIG.artemisExitDelay = Math.max(0, Math.min(300, parseInt(exitDelayEl.value) || 60));
+  const entryDelayEl = document.getElementById('sp-artemis-entry-delay');
+  if (entryDelayEl) CONFIG.artemisEntryDelay = Math.max(0, Math.min(300, parseInt(entryDelayEl.value) || 60));
+  const ringIdEl = document.getElementById('sp-artemis-ring-id');
+  if (ringIdEl) CONFIG.artemisRingDeviceId = ringIdEl.value.trim();
   artemisRegisterSensors();
   await saveConfig();
   applyConfig();
@@ -9609,6 +9691,8 @@ function exportSettings() {
       defaultRoom: CONFIG.defaultRoom, returnTimeout: CONFIG.returnTimeout,
       lock: CONFIG.lock, weather: CONFIG.weather, settingsPin: CONFIG.settingsPin,
       artemisEnabled: CONFIG.artemisEnabled, artemisPin: CONFIG.artemisPin,
+      artemisExitDelay: CONFIG.artemisExitDelay, artemisEntryDelay: CONFIG.artemisEntryDelay,
+      artemisRingDeviceId: CONFIG.artemisRingDeviceId,
       artemisSensors: CONFIG.artemisSensors,
       athenaEnabled: CONFIG.athenaEnabled, athenaApiKey: CONFIG.athenaApiKey,
       athenaWakeWord: CONFIG.athenaWakeWord, athenaRoom: CONFIG.athenaRoom,
