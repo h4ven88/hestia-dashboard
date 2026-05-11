@@ -1484,7 +1484,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2025-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.4.1';
-const HESTIA_BUILD_DATE = '2026-05-10';
+const HESTIA_BUILD_DATE = '2026-05-11';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 
 /* ═══════════════════════════════════════════════════════
@@ -6287,7 +6287,7 @@ function artemisKb() {
   artemisUpdDots();
 }
 function artemisKc() {
-  if (artemisLocked || artemisMode === 'disarm' || !artemisPin.length) return;
+  if (artemisLocked || (artemisMode === 'disarm' && !artemisTransition) || !artemisPin.length) return;
   artemisCheckPin(artemisPin, 'apd', function() {
     artemisDoDisarm();
     artemisPin = '';
@@ -6382,8 +6382,9 @@ async function artemisHsmSync() {
       if      (/armedaway/i.test(hsm))                          newMode = 'away';
       else if (/armedhome|armednight/i.test(hsm))               newMode = 'home';
       else if (/disarmed|alldisarmed/i.test(hsm))               newMode = 'disarm';
-      if (newMode !== artemisMode || prevReady !== true) {
-        if (artemisTransition) artemisClearTransition();
+      const changed = newMode !== artemisMode || prevReady !== true || artemisTransition;
+      if (artemisTransition) artemisClearTransition();
+      if (changed) {
         artemisMode = newMode;
         if (isMobile() ? activeTab === 'security' : activeRoom === 'security') renderSecurity();
         renderSidebar();
@@ -10239,8 +10240,9 @@ function connectWebSocket() {
           else if (raw === 'armedhome')               newMode = 'home';
           else if (raw === 'armednight')              newMode = 'home';
           else if (/disarm|alldisarmed/i.test(raw))  newMode = 'disarm';
+          const wsChanged = newMode !== artemisMode || artemisTransition;
           if (artemisTransition) artemisClearTransition();
-          if (newMode !== artemisMode) {
+          if (wsChanged) {
             artemisMode = newMode;
             if (isMobile() ? activeTab === 'security' : activeRoom === 'security') {
               renderSecurity();
