@@ -423,6 +423,7 @@ html[data-display-desktop] .tb-date{display:block !important}
 .a-cnt{font-size:11px;color:var(--t3)}
 .a-cnt.a-alert{color:var(--amber)}
 .a-cnt.a-secure{color:var(--a-ok)}
+.a-cnt.a-blue-cnt{color:var(--a-blue)}
 /* Sensor rows */
 .a-row{display:flex;align-items:center;gap:10px;padding:0 14px;min-height:44px;border-bottom:1px solid var(--border-s)}
 .a-sub-rows{border-top:1px solid var(--border-s)}
@@ -2413,6 +2414,11 @@ function applyAttrs(id, attrs) {
     if (attrs.glassBreak != null) S[id].detected = attrs.glassBreak === 'detected';
     if (attrs.shock      != null) S[id].detected = S[id].detected || attrs.shock === 'detected';
     const batG = safeNum(attrs.battery); if (batG !== null) S[id].bat = batG;
+
+  } else if (type === 'camera') {
+    if (attrs.motion != null) S[id].active = attrs.motion === 'active';
+    if (attrs.switch != null) S[id].on = attrs.switch === 'on';
+    const batCam = safeNum(attrs.battery); if (batCam !== null) S[id].bat = batCam;
   }
 
   return JSON.stringify(S[id]) !== prev;
@@ -2511,20 +2517,31 @@ async function fetchAllDevices() {
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const devices = await res.json();
   lastPollDevices = devices;
-  let ringOfficial = null, ringUnofficial = null;
+  let alarmOfficial = null, alarmUnofficial = null;
   devices.forEach(function(device) {
     const id = String(device.id);
+    const caps = (device.capabilities || []).join(',');
     const cmds = (device.commands || []).map(c => c.command || c);
+    // Detect alarm base station (generic — works with any integration)
     const hasArm = cmds.includes('armAway') && cmds.includes('disarm');
     if (hasArm) {
-      if (cmds.includes('createChildDevices')) ringOfficial = id;
-      else if (!ringOfficial) ringUnofficial = id;
+      if (cmds.includes('createChildDevices')) alarmOfficial = id;
+      else if (!alarmOfficial) alarmUnofficial = id;
+    }
+    // Detect cameras: devices with both MotionSensor + Switch (e.g. floodlight cams)
+    if (/MotionSensor/i.test(caps) && /\bSwitch\b/i.test(caps) && /Alarm/i.test(caps)) {
+      if (!DEVICE_TYPE[id] || DEVICE_TYPE[id] === 'motion') {
+        DEVICE_TYPE[id] = 'camera';
+        if (!S[id]) S[id] = { active: false, on: false };
+        else { if (S[id].active == null) S[id].active = false; if (S[id].on == null) S[id].on = false; }
+        DEVICE_REGISTRY.add(id);
+        console.log(`[Artemis] Camera auto-detected: ${device.label || device.name} (#${id})`);
+      }
     }
     // Allow if known type OR if it's a registered Artemis sensor
     if (!DEVICE_TYPE[id] && !DEVICE_REGISTRY.has(id)) return;
     // Ensure Artemis sensors have their type set if missing
     if (!DEVICE_TYPE[id] && DEVICE_REGISTRY.has(id)) {
-      const caps = (device.capabilities || []).join(',');
       DEVICE_TYPE[id] = (function() {
         if (/SmokeDetector/i.test(caps))            return 'smoke';
         if (/CarbonMonoxideDetector/i.test(caps))   return 'smoke';
@@ -2546,10 +2563,10 @@ async function fetchAllDevices() {
     const attrs = parseAttrs(device);
     applyAttrs(id, attrs);
   });
-  const detectedRing = ringOfficial || ringUnofficial;
-  if (detectedRing && detectedRing !== CONFIG.artemisRingDeviceId) {
-    CONFIG.artemisRingDeviceId = detectedRing;
-    console.log(`[Artemis] Ring base station auto-detected: device ${detectedRing}${ringOfficial ? ' (official)' : ' (community)'}`);
+  const detectedAlarm = alarmOfficial || alarmUnofficial;
+  if (detectedAlarm && detectedAlarm !== CONFIG.artemisRingDeviceId) {
+    CONFIG.artemisRingDeviceId = detectedAlarm;
+    console.log(`[Artemis] Alarm base station auto-detected: device ${detectedAlarm}${alarmOfficial ? ' (official)' : ' (community)'}`);
   }
   setConn('ok');
 }
@@ -6057,6 +6074,34 @@ function artemisLocksHTML() {
     </div></div>`;
 }
 
+// ── Cameras card HTML ─────────────────────────────────────────────────
+function artemisCamerasHTML() {
+  const cams = Object.keys(DEVICE_TYPE).filter(id => DEVICE_TYPE[id] === 'camera');
+  if (!cams.length) return '';
+  const activeCount = cams.filter(id => S[id] && S[id].active).length;
+  const statusTxt = activeCount > 0 ? activeCount + ' motion' : 'All idle';
+  const rows = cams.map(id => {
+    const s = S[id] || {};
+    const name = lastPollDevices.find(d => String(d.id) === id);
+    const label = name ? (name.label || name.name) : 'Camera #' + id;
+    const motionCls = s.active ? 'a-blue' : 'a-ok';
+    const lightOn = s.on;
+    return `<div class="a-lrow">
+      <div class="a-si ${motionCls}" style="width:24px;height:24px">${aIconMotion(s.active ? aBlueColor() : aOkColor())}</div>
+      <div class="a-li" style="flex:1">
+        <div class="a-ln">${h(label)}</div>
+        <div style="font-size:10px;color:var(--t3)">${s.active ? 'Motion detected' : 'Idle'}</div>
+      </div>
+      ${batBadge(id)}
+      <button class="a-lbtn ${lightOn?'a-ul':'a-lk'}" onclick="cmd('${id}','${lightOn?'off':'on'}')" title="${lightOn?'Light on':'Light off'}" style="background:${lightOn?'rgba(250,204,21,.15)':'var(--bg-card)'};border-color:${lightOn?'rgba(250,204,21,.3)':'var(--border)'}">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 1v1M8 14v1M1 8H2M14 8h1M3.05 3.05l.7.7M12.25 3.05l-.7.7M3.05 12.95l.7-.7M12.25 12.95l-.7-.7" stroke="${lightOn?'#FACC15':'var(--t3)'}" stroke-width="1.3" stroke-linecap="round"/><circle cx="8" cy="8" r="3" stroke="${lightOn?'#FACC15':'var(--t3)'}" stroke-width="1.3" fill="${lightOn?'rgba(250,204,21,.2)':'none'}"/></svg>
+      </button>
+    </div>`;
+  }).join('');
+  return `<div class="a-card"><div class="a-card-hdr">Cameras
+    <span class="a-cnt ${activeCount > 0 ? 'a-blue-cnt' : 'a-secure'}">${statusTxt}</span></div>${rows}</div>`;
+}
+
 // ── Environmental card HTML ───────────────────────────────────────────
 function artemisEnvHTML() {
   const smokes = artemisSensorList('smokes');
@@ -6243,6 +6288,7 @@ function renderSecurity() {
     <div class="artemis-left">
       ${artemisEntrySensorsHTML()}
       ${artemisLocksHTML()}
+      ${artemisCamerasHTML()}
       ${artemisEnvHTML()}
     </div>`;
 
@@ -6303,7 +6349,7 @@ function artemisUpdDots(prefix) {
   }
 }
 function artemisKd(n) {
-  if (artemisLocked || artemisMode === 'disarm') return;
+  if (artemisLocked || (artemisMode === 'disarm' && !artemisTransition)) return;
   if (artemisPin.length < 6) { artemisPin += n; artemisUpdDots(); }
 }
 function artemisKb() {
@@ -10361,6 +10407,35 @@ function connectWebSocket() {
         return; // HSM events handled — don't fall through to device handling
       }
 
+      // ── Alarm base station events (Ring or any integration) ────────
+      if (CONFIG.artemisRingDeviceId && msg.deviceId && String(msg.deviceId) === CONFIG.artemisRingDeviceId) {
+        const attrName = String(msg.name || '');
+        const attrVal = String(msg.value || '').toLowerCase();
+        console.log(`[Artemis] Alarm device ${msg.deviceId}: ${attrName}=${attrVal}`);
+        if (attrName === 'alarmMode' || attrName === 'alarm') {
+          if (/off|none|disarmed/i.test(attrVal) && (artemisMode !== 'disarm' || artemisTransition)) {
+            artemisClearTransition();
+            artemisMode = 'disarm';
+            if (isMobile() ? activeTab === 'security' : activeRoom === 'security') renderSecurity();
+            renderSidebar();
+            updateArmedStatus();
+            artemisHsmCmd('disarm');
+          } else if (/away/i.test(attrVal) && artemisMode !== 'away') {
+            if (artemisTransition) artemisClearTransition();
+            artemisMode = 'away';
+            if (isMobile() ? activeTab === 'security' : activeRoom === 'security') renderSecurity();
+            renderSidebar();
+            updateArmedStatus();
+          } else if (/home/i.test(attrVal) && artemisMode !== 'home') {
+            if (artemisTransition) artemisClearTransition();
+            artemisMode = 'home';
+            if (isMobile() ? activeTab === 'security' : activeRoom === 'security') renderSecurity();
+            renderSidebar();
+            updateArmedStatus();
+          }
+        }
+      }
+
       // ── Device events ────────────────────────────────────────────────
       // Hubitat WS event shape: {deviceId, name, value, displayName, ...}
       const id = msg.deviceId ? String(msg.deviceId) : null;
@@ -10400,7 +10475,7 @@ function connectWebSocket() {
 
       // Motion auto-clear — start a 30s timer when a sensor goes active,
       // clear the visual once the sensor goes inactive (Ring inactivity window)
-      if (DEVICE_TYPE[id] === 'motion') {
+      if (DEVICE_TYPE[id] === 'motion' || DEVICE_TYPE[id] === 'camera') {
         if (S[id] && S[id].active) {
           clearTimeout(_motionClearTimers[id]);
           _motionClearTimers[id] = setTimeout(() => {
