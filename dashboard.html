@@ -523,7 +523,7 @@ html[data-display-desktop] .tb-date{display:block !important}
 .a-trans-countdown{position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);font-size:11px;font-weight:600;white-space:nowrap;letter-spacing:.03em}
 .a-trans-countdown.a-arming{color:var(--amber)}
 .a-trans-countdown.a-entry{color:#F87171}
-.a-trans-icon{position:relative;z-index:1}
+.a-trans-icon{position:relative;z-index:1;display:flex;align-items:center;justify-content:center}
 /* Brand footer */
 .a-brand-ftr{display:flex;justify-content:flex-end;align-items:center;gap:7px;flex-shrink:0;margin-top:auto;padding-top:4px}
 .a-brand-nm{font-size:11px;font-weight:300;letter-spacing:.22em;color:var(--t1)}
@@ -6406,16 +6406,19 @@ async function artemisHsmSync() {
     artemisHsmReady = ready;
 
     if (ready) {
-      const isArming = /armingaway|arminghome/i.test(hsm);
-      if (isArming && !artemisTransition) {
-        const target = /armingaway/i.test(hsm) ? 'away' : 'home';
-        artemisSetTransition('arming', target);
+      const isArming = /arming\s*away|arming\s*home|delayed\s*arming/i.test(hsm);
+      if (isArming) {
+        if (!artemisTransition) {
+          const target = /away/i.test(hsm) ? 'away' : 'home';
+          artemisSetTransition('arming', target);
+        }
         return;
       }
       let newMode = 'disarm';
-      if      (/armedaway/i.test(hsm))                          newMode = 'away';
-      else if (/armedhome|armednight/i.test(hsm))               newMode = 'home';
-      else if (/disarmed|alldisarmed/i.test(hsm))               newMode = 'disarm';
+      if      (/armed\s*away/i.test(hsm))                       newMode = 'away';
+      else if (/armed\s*home|armed\s*night/i.test(hsm))         newMode = 'home';
+      else if (/disarm|alldisarmed/i.test(hsm))                 newMode = 'disarm';
+      else if (artemisTransition) return;
       const changed = newMode !== artemisMode || prevReady !== true || artemisTransition;
       if (artemisTransition) artemisClearTransition();
       if (changed) {
@@ -6568,7 +6571,7 @@ function artemisGemWithRing(mode) {
       <circle class="a-trans-ring-bg" cx="50" cy="50" r="46"/>
       <circle class="a-trans-ring-fg ${cls}" cx="50" cy="50" r="46" style="animation-duration:${delaySec}s"/>
     </svg>
-    <div class="a-trans-icon">${artemisGemSVG(mode, 34, 39)}</div>
+    <div class="a-trans-icon">${artemisGemSVG(mode, 26, 30)}</div>
     <div class="a-trans-countdown ${cls}" id="a-countdown">${remaining}s</div>
   </div>`;
 }
@@ -10312,9 +10315,9 @@ function connectWebSocket() {
         if (msg.name === 'hsmStatus' || msg.name === 'hsmSetArm') {
           const raw = String(msg.value || '').toLowerCase();
           // Detect arming transitional states
-          if (/armingaway|arminghome/i.test(raw)) {
+          if (/arming\s*away|arming\s*home|delayed\s*arming/i.test(raw)) {
             if (!artemisTransition) {
-              const target = /armingaway/i.test(raw) ? 'away' : 'home';
+              const target = /away/i.test(raw) ? 'away' : 'home';
               artemisSetTransition('arming', target);
             }
             return;
