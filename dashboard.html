@@ -789,8 +789,8 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 .bulk-btn{flex:1;height:34px;border:1px solid var(--border);border-radius:7px;cursor:pointer;background:transparent;color:var(--t2);font-size:12px;font-family:inherit;transition:all .15s;font-weight:500}
 .bulk-btn:hover{background:var(--bg-hover);color:var(--t1)}
 .dcard-bulk{margin-left:auto;display:inline-flex;gap:6px;float:right}
-.dcard-bulk-btn{background:none;border:none;cursor:pointer;font-size:10px;font-weight:600;color:var(--t4);font-family:inherit;padding:0;letter-spacing:.04em;text-transform:lowercase;transition:color .15s}
-.dcard-bulk-btn:hover{color:var(--t2)}
+.dcard-bulk-btn{background:none;border:none;cursor:pointer;font-size:10px;font-weight:600;color:var(--t3);font-family:inherit;padding:0;letter-spacing:.04em;text-transform:lowercase;transition:color .15s}
+.dcard-bulk-btn:hover{color:var(--t1)}
 
 /* ── BLINDS + LIGHTS aggregate views ── */
 .agg-view{flex:1;overflow-y:auto;padding:14px 18px;display:flex;flex-direction:column;gap:12px}
@@ -3354,6 +3354,24 @@ function renderThermCard(t) {
 // so they are included in every Maker API poll cycle.
 function artemisRegisterSensors() {
   if (!CONFIG.artemisSensors) return;
+  // Migrate: deduplicate bare IDs when virtual counterpart exists (e.g. 241 + 241:motion → keep 241:motion)
+  let migrated = false;
+  Object.keys(CONFIG.artemisSensors).forEach(cat => {
+    const arr = CONFIG.artemisSensors[cat];
+    if (!Array.isArray(arr)) return;
+    const vids = new Set(arr.map(d => String(d.id || d)));
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const id = String(arr[i].id || arr[i]);
+      if (id.indexOf(':') === -1 && vids.has(id + ':motion')) {
+        console.log('[Artemis] Migration: removing bare ID ' + id + ' (replaced by ' + id + ':motion)');
+        arr.splice(i, 1);
+        DEVICE_REGISTRY.delete(id);
+        delete DEVICE_TYPE[id]; delete S[id];
+        migrated = true;
+      }
+    }
+  });
+  if (migrated) saveConfig();
   const typeMap = { contacts:'contact', motions:'motion', smokes:'smoke', waters:'water', glass:'glass' };
   const artemisIds = new Set();
   Object.keys(typeMap).forEach(cat => {
@@ -10818,7 +10836,7 @@ function detectRemovedDevices(devices) {
   const missing = [];
   const skipTypes = new Set(['therm','lock']); // therms/lock handled separately
   DEVICE_REGISTRY.forEach(id => {
-    if (pollIds.has(id)) return; // still present — no issue
+    if (pollIds.has(realDeviceId(id))) return; // still present — check physical ID
     if (skipTypes.has(DEVICE_TYPE[id])) return; // skip therms/lock
     // Find the name from rooms or staging
     let name = id;
@@ -10854,7 +10872,7 @@ function detectRemovedDevices(devices) {
   });
   // Clear miss counts for devices that reappeared
   Object.keys(state_missCounts).forEach(key => {
-    if (pollIds.has(key)) state_missCounts[key] = 0;
+    if (pollIds.has(realDeviceId(key))) state_missCounts[key] = 0;
   });
 }
 function scheduleNextPoll() {
