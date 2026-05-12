@@ -1487,7 +1487,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2025-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.4.1';
-const HESTIA_BUILD_DATE = '2026-05-11';
+const HESTIA_BUILD_DATE = '2026-05-12';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 
 /* ═══════════════════════════════════════════════════════
@@ -2511,8 +2511,15 @@ async function fetchAllDevices() {
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const devices = await res.json();
   lastPollDevices = devices;
+  let ringOfficial = null, ringUnofficial = null;
   devices.forEach(function(device) {
     const id = String(device.id);
+    const cmds = (device.commands || []).map(c => c.command || c);
+    const hasArm = cmds.includes('armAway') && cmds.includes('disarm');
+    if (hasArm) {
+      if (cmds.includes('createChildDevices')) ringOfficial = id;
+      else if (!ringOfficial) ringUnofficial = id;
+    }
     // Allow if known type OR if it's a registered Artemis sensor
     if (!DEVICE_TYPE[id] && !DEVICE_REGISTRY.has(id)) return;
     // Ensure Artemis sensors have their type set if missing
@@ -2539,6 +2546,11 @@ async function fetchAllDevices() {
     const attrs = parseAttrs(device);
     applyAttrs(id, attrs);
   });
+  const detectedRing = ringOfficial || ringUnofficial;
+  if (detectedRing && detectedRing !== CONFIG.artemisRingDeviceId) {
+    CONFIG.artemisRingDeviceId = detectedRing;
+    console.log(`[Artemis] Ring base station auto-detected: device ${detectedRing}${ringOfficial ? ' (official)' : ' (community)'}`);
+  }
   setConn('ok');
 }
 
@@ -7207,17 +7219,6 @@ function spArtemisBody() {
     </div>
 
     <div class="sp-sep"></div>
-    <div class="sp-group">
-      <div class="sp-group-lbl">Ring Integration</div>
-      <div class="sp-field">
-        <label class="sp-label">Ring Alarm Base Station Device ID</label>
-        <input class="sp-input" id="sp-artemis-ring-id" type="text"
-          value="${h(CONFIG.artemisRingDeviceId || '')}" placeholder="e.g. 240" style="width:120px">
-        <span class="sp-hint">Maker API device ID for Ring Alarm base station. Arm/disarm commands will be sent to both HSM and Ring.</span>
-      </div>
-    </div>
-
-    <div class="sp-sep"></div>
 
     <!-- ── Sensors ── -->
     <div class="sp-group">
@@ -9670,8 +9671,6 @@ async function saveSettings() {
   if (exitDelayEl) CONFIG.artemisExitDelay = Math.max(0, Math.min(300, parseInt(exitDelayEl.value) || 60));
   const entryDelayEl = document.getElementById('sp-artemis-entry-delay');
   if (entryDelayEl) CONFIG.artemisEntryDelay = Math.max(0, Math.min(300, parseInt(entryDelayEl.value) || 60));
-  const ringIdEl = document.getElementById('sp-artemis-ring-id');
-  if (ringIdEl) CONFIG.artemisRingDeviceId = ringIdEl.value.trim();
   artemisRegisterSensors();
   await saveConfig();
   applyConfig();
