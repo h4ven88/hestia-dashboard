@@ -514,16 +514,13 @@ html[data-display-desktop] .tb-date{display:block !important}
 .a-alarm-btn.a-red{color:#F87171;border:1px solid rgba(248,113,113,.3)}
 .a-alarm-btn.a-amber{color:var(--amber);border:1px solid rgba(245,158,11,.3)}
 /* Transition ring around gem (arming / entry delay) */
-.a-trans-ring{position:relative;width:50px;height:50px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.a-trans-ring{position:relative;width:44px;height:44px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .a-trans-ring>svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
 .a-trans-ring-bg{fill:none;stroke:var(--border);stroke-width:3}
 .a-trans-ring-fg{fill:none;stroke-width:3;stroke-linecap:round;stroke-dasharray:289;stroke-dashoffset:0;animation:a-trans-deplete linear forwards}
 .a-trans-ring-fg.a-arming{stroke:var(--amber)}
 .a-trans-ring-fg.a-entry{stroke:#F87171}
 @keyframes a-trans-deplete{from{stroke-dashoffset:0}to{stroke-dashoffset:289}}
-.a-trans-countdown{position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);font-size:11px;font-weight:600;white-space:nowrap;letter-spacing:.03em}
-.a-trans-countdown.a-arming{color:var(--amber)}
-.a-trans-countdown.a-entry{color:#F87171}
 .a-trans-icon{position:relative;z-index:1;display:flex;align-items:center;justify-content:center}
 /* Brand footer */
 .a-brand-ftr{display:flex;justify-content:flex-end;align-items:center;gap:7px;flex-shrink:0;margin-top:auto;padding-top:4px}
@@ -2415,10 +2412,6 @@ function applyAttrs(id, attrs) {
     if (attrs.shock      != null) S[id].detected = S[id].detected || attrs.shock === 'detected';
     const batG = safeNum(attrs.battery); if (batG !== null) S[id].bat = batG;
 
-  } else if (type === 'camera') {
-    if (attrs.motion != null) S[id].active = attrs.motion === 'active';
-    if (attrs.switch != null) S[id].on = attrs.switch === 'on';
-    const batCam = safeNum(attrs.battery); if (batCam !== null) S[id].bat = batCam;
   }
 
   return JSON.stringify(S[id]) !== prev;
@@ -2528,14 +2521,13 @@ async function fetchAllDevices() {
       if (cmds.includes('createChildDevices')) alarmOfficial = id;
       else if (!alarmOfficial) alarmUnofficial = id;
     }
-    // Detect cameras: devices with both MotionSensor + Switch (e.g. floodlight cams)
-    if (/MotionSensor/i.test(caps) && /\bSwitch\b/i.test(caps) && /Alarm/i.test(caps)) {
-      if (!DEVICE_TYPE[id] || DEVICE_TYPE[id] === 'motion') {
-        DEVICE_TYPE[id] = 'camera';
-        if (!S[id]) S[id] = { active: false, on: false };
-        else { if (S[id].active == null) S[id].active = false; if (S[id].on == null) S[id].on = false; }
+    // Dual-capability devices (e.g. floodlight cams): register as motion sensor for Artemis,
+    // switch capability is available for room assignment via the normal device picker
+    if (/MotionSensor/i.test(caps) && /\bSwitch\b/i.test(caps)) {
+      if (!DEVICE_TYPE[id]) {
+        DEVICE_TYPE[id] = 'motion';
+        if (!S[id]) S[id] = { active: false };
         DEVICE_REGISTRY.add(id);
-        console.log(`[Artemis] Camera auto-detected: ${device.label || device.name} (#${id})`);
       }
     }
     // Allow if known type OR if it's a registered Artemis sensor
@@ -5740,8 +5732,14 @@ if (window.speechSynthesis) {
 
 // ── Artemis helpers ───────────────────────────────────────────────────
 function artemisModeName() {
-  if (artemisTransition === 'arming') return `Arming ${artemisArmingTarget === 'home' ? 'Home' : 'Away'}`;
-  if (artemisTransition === 'entry-delay') return 'Entry Delay';
+  if (artemisTransition === 'arming') {
+    const r = artemisCountdownEnd ? Math.max(0, Math.ceil((artemisCountdownEnd - Date.now()) / 1000)) : '';
+    return `Arming ${artemisArmingTarget === 'home' ? 'Home' : 'Away'}${r ? ' · ' + r + 's' : ''}`;
+  }
+  if (artemisTransition === 'entry-delay') {
+    const r = artemisCountdownEnd ? Math.max(0, Math.ceil((artemisCountdownEnd - Date.now()) / 1000)) : '';
+    return `Entry Delay${r ? ' · ' + r + 's' : ''}`;
+  }
   if (artemisMode === 'home')  return 'Armed · Home';
   if (artemisMode === 'away')  return 'Armed · Away';
   return 'Disarmed';
@@ -6074,33 +6072,6 @@ function artemisLocksHTML() {
     </div></div>`;
 }
 
-// ── Cameras card HTML ─────────────────────────────────────────────────
-function artemisCamerasHTML() {
-  const cams = Object.keys(DEVICE_TYPE).filter(id => DEVICE_TYPE[id] === 'camera');
-  if (!cams.length) return '';
-  const activeCount = cams.filter(id => S[id] && S[id].active).length;
-  const statusTxt = activeCount > 0 ? activeCount + ' motion' : 'All idle';
-  const rows = cams.map(id => {
-    const s = S[id] || {};
-    const name = lastPollDevices.find(d => String(d.id) === id);
-    const label = name ? (name.label || name.name) : 'Camera #' + id;
-    const motionCls = s.active ? 'a-blue' : 'a-ok';
-    const lightOn = s.on;
-    return `<div class="a-lrow">
-      <div class="a-si ${motionCls}" style="width:24px;height:24px">${aIconMotion(s.active ? aBlueColor() : aOkColor())}</div>
-      <div class="a-li" style="flex:1">
-        <div class="a-ln">${h(label)}</div>
-        <div style="font-size:10px;color:var(--t3)">${s.active ? 'Motion detected' : 'Idle'}</div>
-      </div>
-      ${batBadge(id)}
-      <button class="a-lbtn ${lightOn?'a-ul':'a-lk'}" onclick="cmd('${id}','${lightOn?'off':'on'}')" title="${lightOn?'Light on':'Light off'}" style="background:${lightOn?'rgba(250,204,21,.15)':'var(--bg-card)'};border-color:${lightOn?'rgba(250,204,21,.3)':'var(--border)'}">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 1v1M8 14v1M1 8H2M14 8h1M3.05 3.05l.7.7M12.25 3.05l-.7.7M3.05 12.95l.7-.7M12.25 12.95l-.7-.7" stroke="${lightOn?'#FACC15':'var(--t3)'}" stroke-width="1.3" stroke-linecap="round"/><circle cx="8" cy="8" r="3" stroke="${lightOn?'#FACC15':'var(--t3)'}" stroke-width="1.3" fill="${lightOn?'rgba(250,204,21,.2)':'none'}"/></svg>
-      </button>
-    </div>`;
-  }).join('');
-  return `<div class="a-card"><div class="a-card-hdr">Cameras
-    <span class="a-cnt ${activeCount > 0 ? 'a-blue-cnt' : 'a-secure'}">${statusTxt}</span></div>${rows}</div>`;
-}
 
 // ── Environmental card HTML ───────────────────────────────────────────
 function artemisEnvHTML() {
@@ -6288,7 +6259,6 @@ function renderSecurity() {
     <div class="artemis-left">
       ${artemisEntrySensorsHTML()}
       ${artemisLocksHTML()}
-      ${artemisCamerasHTML()}
       ${artemisEnvHTML()}
     </div>`;
 
@@ -6600,8 +6570,7 @@ function artemisClearTransition() {
 function artemisTickCountdown() {
   if (!artemisTransition || !artemisCountdownEnd) return;
   const remaining = Math.max(0, Math.ceil((artemisCountdownEnd - Date.now()) / 1000));
-  const cdEl = document.getElementById('a-countdown');
-  if (cdEl) cdEl.textContent = remaining + 's';
+  document.querySelectorAll('.a-mode-val, #a-mode-val').forEach(el => el.textContent = artemisModeName());
   if (remaining <= 0) {
     if (artemisCountdownInterval) { clearInterval(artemisCountdownInterval); artemisCountdownInterval = null; }
   }
@@ -6611,14 +6580,12 @@ function artemisGemWithRing(mode) {
   const isEntry = artemisTransition === 'entry-delay';
   const cls = isEntry ? 'a-entry' : 'a-arming';
   const delaySec = isEntry ? (CONFIG.artemisEntryDelay || 60) : (CONFIG.artemisExitDelay || 60);
-  const remaining = artemisCountdownEnd ? Math.max(0, Math.ceil((artemisCountdownEnd - Date.now()) / 1000)) : delaySec;
   return `<div class="a-trans-ring">
     <svg viewBox="0 0 100 100">
       <circle class="a-trans-ring-bg" cx="50" cy="50" r="46"/>
       <circle class="a-trans-ring-fg ${cls}" cx="50" cy="50" r="46" style="animation-duration:${delaySec}s"/>
     </svg>
-    <div class="a-trans-icon">${artemisGemSVG(mode, 26, 30)}</div>
-    <div class="a-trans-countdown ${cls}" id="a-countdown">${remaining}s</div>
+    <div class="a-trans-icon">${artemisGemSVG(mode, 22, 26)}</div>
   </div>`;
 }
 
@@ -9511,7 +9478,7 @@ function spShowSection(id, force) {
         ${spDevicesSection()}
         <div class="sp-group" style="margin-top:16px">
           <div class="sp-group-lbl">Rooms</div>
-          ${spRoomEditor()}
+          <div id="sp-sec-rooms">${spRoomEditor()}</div>
         </div>
         <div style="margin-top:20px">
           <button class="ob-trigger-btn" onclick="launchOnboarding()">↺ Re-run setup wizard</button>
@@ -9622,10 +9589,19 @@ function spRemoveRoom(ri) {
   if (sec) sec.innerHTML = spRoomEditor();
 }
 
+let _spAddRoomBusy = false;
 function spAddRoom() {
+  if (_spAddRoomBusy) return;
+  _spAddRoomBusy = true;
+  setTimeout(() => _spAddRoomBusy = false, 400);
   rooms.push({ id: 'room' + Date.now(), name: 'New Room', short: 'New', switches: [], dimmers: [], fans: [], shades: [], colors: [], colortemps: [], therms: [], placeholders: [] });
   const sec = document.getElementById('sp-sec-rooms');
-  if (sec) { sec.innerHTML = spRoomEditor(); spOpenRoom(rooms.length - 1); }
+  if (sec) {
+    sec.innerHTML = spRoomEditor();
+    spOpenRoom(rooms.length - 1);
+    const el = document.getElementById('sp-rbody-' + (rooms.length - 1));
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 }
 
 function spToggleRoom(ri) {
@@ -10475,7 +10451,7 @@ function connectWebSocket() {
 
       // Motion auto-clear — start a 30s timer when a sensor goes active,
       // clear the visual once the sensor goes inactive (Ring inactivity window)
-      if (DEVICE_TYPE[id] === 'motion' || DEVICE_TYPE[id] === 'camera') {
+      if (DEVICE_TYPE[id] === 'motion') {
         if (S[id] && S[id].active) {
           clearTimeout(_motionClearTimers[id]);
           _motionClearTimers[id] = setTimeout(() => {
