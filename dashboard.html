@@ -1435,7 +1435,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
   <div class="sp-body-wrap">
     <!-- Left nav -->
     <div class="sp-nav" id="sp-nav">
-      <div class="sp-nav-group">System</div>
+      <div class="sp-nav-group">Configuration</div>
       <div class="sp-nav-item active" id="spn-hub"      onclick="spShowSection('hub')">      <span class="sp-nav-icon">🔗</span>Hub Connection</div>
       <div class="sp-nav-item"        id="spn-panel"    onclick="spShowSection('panel')">    <span class="sp-nav-icon">🎛</span>Panel Behavior</div>
       <div class="sp-nav-item"        id="spn-security" onclick="spShowSection('security')"> <span class="sp-nav-icon">🔒</span>Security &amp; PIN</div>
@@ -1448,6 +1448,8 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
       <div class="sp-nav-group">Modules</div>
       <div class="sp-nav-item"        id="spn-artemis"  onclick="spShowSection('artemis')">  <span class="sp-nav-icon">🛡</span>Artemis Security</div>
       <div class="sp-nav-item"        id="spn-athena"   onclick="spShowSection('athena')">   <span class="sp-nav-icon">◈</span>Athena Voice<span class="sp-nav-badge" style="display:none" id="spn-athena-badge">New</span></div>
+      <div class="sp-nav-group">System</div>
+      <div class="sp-nav-item"        id="spn-system"   onclick="spShowSection('system')">   <span class="sp-nav-icon">🔧</span>System Tools</div>
     </div>
     <!-- Right content — filled by spShowSection() -->
     <div class="sp-content" id="sp-content"></div>
@@ -1469,11 +1471,6 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
     </div>
     <div id="sp-saved" class="sp-saved"></div>
     <button class="sp-btn sp-btn-primary" onclick="saveSettings()">Save &amp; Apply</button>
-    <div class="sp-btn-row">
-      <button class="sp-btn sp-btn-secondary" onclick="exportSettings()">Export JSON</button>
-      <button class="sp-btn sp-btn-secondary" onclick="importSettings()">Import JSON</button>
-    </div>
-    <button class="sp-btn sp-btn-danger" onclick="resetSettings()">Factory Reset</button>
   </div>
 </div>
 <input type="file" id="sp-import-file" accept=".json" style="display:none" onchange="handleImport(event)">
@@ -2414,9 +2411,6 @@ function applyAttrs(id, attrs) {
 
   }
 
-  // Dual-capability: if the device has a switch attr and S[id] exists, always track on/off
-  if (attrs.switch != null && S[id]) S[id].on = attrs.switch === 'on';
-
   return JSON.stringify(S[id]) !== prev;
 }
 
@@ -2524,14 +2518,15 @@ async function fetchAllDevices() {
       if (cmds.includes('createChildDevices')) alarmOfficial = id;
       else if (!alarmOfficial) alarmUnofficial = id;
     }
-    // Dual-capability devices (e.g. floodlight cams): register as motion sensor for Artemis,
-    // switch capability is available for room assignment via the normal device picker
-    if (/MotionSensor/i.test(caps) && /\bSwitch\b/i.test(caps)) {
-      if (!DEVICE_TYPE[id]) {
-        DEVICE_TYPE[id] = 'motion';
-        if (!S[id]) S[id] = { active: false };
-        DEVICE_REGISTRY.add(id);
-      }
+    // Dual-capability devices (e.g. floodlight cams): virtual IDs for each capability
+    if (isDualCapability(device.capabilities)) {
+      const mid = id + ':motion', sid = id + ':switch';
+      if (!DEVICE_TYPE[mid]) { DEVICE_TYPE[mid] = 'motion'; S[mid] = S[mid] || { active: false }; DEVICE_REGISTRY.add(mid); }
+      if (!DEVICE_TYPE[sid]) { DEVICE_TYPE[sid] = 'switch'; S[sid] = S[sid] || { on: false }; DEVICE_REGISTRY.add(sid); }
+      const attrs = parseAttrs(device);
+      if (attrs.motion != null) applyAttrs(mid, attrs);
+      if (attrs.switch != null) applyAttrs(sid, attrs);
+      return;
     }
     // Allow if known type OR if it's a registered Artemis sensor
     if (!DEVICE_TYPE[id] && !DEVICE_REGISTRY.has(id)) return;
@@ -2568,6 +2563,7 @@ async function fetchAllDevices() {
 
 /* Fire a command. arg is optional (e.g. setSpeed needs 'low', on/off doesn't). */
 async function cmd(id, command, arg) {
+  id = realDeviceId(id);
   const path = arg !== undefined
     ? `/devices/${id}/${command}/${encodeURIComponent(arg)}`
     : `/devices/${id}/${command}`;
@@ -9481,9 +9477,6 @@ function spShowSection(id, force) {
         <div class="sp-group" style="margin-top:16px">
           <div class="sp-group-lbl">Rooms</div>
           <div id="sp-sec-rooms">${spRoomEditor()}</div>
-        </div>
-        <div style="margin-top:20px">
-          <button class="ob-trigger-btn" onclick="launchOnboarding()">↺ Re-run setup wizard</button>
         </div>`;
       break;
 
@@ -9538,6 +9531,36 @@ function spShowSection(id, force) {
         athenaCheckMicPermission().then(() => athenaUpdateMicStatusDot());
         if (CONFIG.athenaGoogleTTS && CONFIG.athenaGoogleApiKey) athenaVoicePickerRefresh();
       });
+      break;
+
+    case 'system':
+      html = `<div class="sp-content-hdr"><span class="sp-content-icon">🔧</span>System Tools</div>
+        <div class="sp-group">
+          <div class="sp-group-lbl">Device Management</div>
+          <button class="sp-btn sp-btn-secondary" style="width:100%;justify-content:center;margin-bottom:6px" onclick="spScanDevices()">⟳ Scan for new devices</button>
+          <span class="sp-hint">Checks Maker API for unassigned switches, dimmers, fans, and security sensors.</span>
+        </div>
+        <div class="sp-sep"></div>
+        <div class="sp-group">
+          <div class="sp-group-lbl">Setup</div>
+          <button class="ob-trigger-btn" onclick="launchOnboarding()">↺ Re-run setup wizard</button>
+          <span class="sp-hint" style="margin-top:4px">Walks through hub connection, room layout, devices, and module setup from scratch.</span>
+        </div>
+        <div class="sp-sep"></div>
+        <div class="sp-group">
+          <div class="sp-group-lbl">Configuration Backup</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="sp-btn sp-btn-secondary" style="flex:1;justify-content:center" onclick="exportSettings()">↓ Export JSON</button>
+            <button class="sp-btn sp-btn-secondary" style="flex:1;justify-content:center" onclick="importSettings()">↑ Import JSON</button>
+          </div>
+          <span class="sp-hint" style="margin-top:4px">Export saves all settings, rooms, and device assignments. Import restores from a previous backup.</span>
+        </div>
+        <div class="sp-sep"></div>
+        <div class="sp-group">
+          <div class="sp-group-lbl">Danger Zone</div>
+          <button class="sp-btn sp-btn-danger" style="width:100%;justify-content:center" onclick="resetSettings()">⚠ Factory Reset</button>
+          <span class="sp-hint" style="margin-top:4px;color:var(--conn-err)">Erases all settings and returns to the onboarding wizard. This cannot be undone.</span>
+        </div>`;
       break;
 
     default:
@@ -9795,6 +9818,31 @@ function resetSettings() {
   rooms.length = 0;       DEFAULTS.rooms.forEach(r => rooms.push(deepClone(r)));
   applyConfig();
   closeSettings();
+}
+
+async function spScanDevices() {
+  if (!CONFIG.hub || !CONFIG.appId || !CONFIG.token) {
+    showDeviceToast('Hub not configured — connect to your hub first');
+    return;
+  }
+  const btn = document.querySelector('[onclick="spScanDevices()"]');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Scanning…'; }
+  try {
+    const res = await fetch(apiUrl('/devices/all'));
+    if (!res.ok) throw new Error('API error');
+    const devices = await res.json();
+    const prevStaging = staging.length;
+    detectNewDevices(devices);
+    if (CONFIG.artemisEnabled) detectNewSecurityDevices(devices);
+    const newCount = staging.length - prevStaging;
+    const msg = newCount > 0
+      ? newCount + ' new device' + (newCount > 1 ? 's' : '') + ' found — check Rooms & Devices'
+      : 'No new devices found';
+    showDeviceToast(msg);
+  } catch(e) {
+    showDeviceToast('Scan failed — check hub connection');
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '⟳ Scan for new devices'; }
 }
 
 
@@ -10417,6 +10465,39 @@ function connectWebSocket() {
       // Hubitat WS event shape: {deviceId, name, value, displayName, ...}
       const id = msg.deviceId ? String(msg.deviceId) : null;
       if (!id) return;
+
+      // Build a minimal attrs object from the single changed attribute
+      const attrs = {};
+      attrs[msg.name] = msg.value;
+      if (msg.data) {
+        try { const extra = JSON.parse(msg.data); Object.assign(attrs, extra); } catch(e) {}
+      }
+
+      // Fan-out to virtual IDs for dual-capability devices
+      const mid = id + ':motion', sid = id + ':switch';
+      if (DEVICE_TYPE[mid] || DEVICE_TYPE[sid]) {
+        if (DEVICE_TYPE[mid] && (attrs.motion != null || attrs.battery != null)) applyAttrs(mid, attrs);
+        if (DEVICE_TYPE[sid] && attrs.switch != null) applyAttrs(sid, attrs);
+        // Motion auto-clear for virtual motion ID
+        if (DEVICE_TYPE[mid] === 'motion') {
+          if (S[mid] && S[mid].active) {
+            clearTimeout(_motionClearTimers[mid]);
+            _motionClearTimers[mid] = setTimeout(() => {
+              if (S[mid]) S[mid].active = false;
+              delete _motionClearTimers[mid];
+              patchView();
+              patchSidebarSecurity();
+            }, 30000);
+          } else {
+            clearTimeout(_motionClearTimers[mid]);
+            delete _motionClearTimers[mid];
+          }
+        }
+        patchView();
+        if (CONFIG.artemisEnabled) patchSidebarSecurity();
+        return;
+      }
+
       // Auto-type Artemis sensors on first WS event if not yet typed
       if (!DEVICE_TYPE[id] && DEVICE_REGISTRY.has(id)) {
         const caps = (msg.capabilities || []).join ? (msg.capabilities||[]).join(',') : '';
@@ -10425,7 +10506,6 @@ function connectWebSocket() {
         else if (/GlassBreak|ShockSensor/i.test(caps))           DEVICE_TYPE[id]='glass';
         else if (/MotionSensor/i.test(caps))                     DEVICE_TYPE[id]='motion';
         else if (/ContactSensor/i.test(caps))                    DEVICE_TYPE[id]='contact';
-        // Also type by known attribute names
         if (!DEVICE_TYPE[id]) {
           if (msg.name==='contact')       DEVICE_TYPE[id]='contact';
           else if (msg.name==='motion')   DEVICE_TYPE[id]='motion';
@@ -10435,18 +10515,6 @@ function connectWebSocket() {
         }
       }
       if (!DEVICE_TYPE[id]) return;
-
-      // Build a minimal attrs object from the single changed attribute
-      const attrs = {};
-      attrs[msg.name] = msg.value;
-
-      // Also carry along companion attributes Hubitat includes in the event
-      if (msg.data) {
-        try {
-          const extra = JSON.parse(msg.data);
-          Object.assign(attrs, extra);
-        } catch(e) {}
-      }
 
       applyAttrs(id, attrs);
 
@@ -10603,13 +10671,12 @@ function detectNewDevices(devices) {
   let found = 0;
   devices.forEach(d => {
     const id = String(d.id);
-    const caps = Array.isArray(d.capabilities) ? d.capabilities.join(',') : String(d.capabilities || '');
-    // Dual-capability: security sensor + switch (e.g. floodlight camera)
-    // Register the switch side in staging so it can be assigned to a room
-    if (isSecurityCapable(d.capabilities) && /\bSwitch\b/i.test(caps)) {
-      if (!assigned.has(id)) {
-        staging.push({ id, name: d.label || d.name || ('Device ' + id), type: 'switch' });
-        DEVICE_REGISTRY.add(id);
+    // Dual-capability: virtual switch ID for room assignment
+    if (isDualCapability(d.capabilities)) {
+      const sid = id + ':switch';
+      if (!assigned.has(sid)) {
+        staging.push({ id: sid, name: (d.label || d.name || 'Device ' + id) + ' (Light)', type: 'switch' });
+        DEVICE_REGISTRY.add(sid);
         found++;
       }
       return;
@@ -10653,16 +10720,17 @@ function detectNewSecurityDevices(devices) {
   let found = 0;
   devices.forEach(d => {
     const id = String(d.id);
-    if (!isSecurityCapable(d.capabilities)) return; // not a security device
-    if (assigned.has(id)) return; // already in Artemis
+    if (!isSecurityCapable(d.capabilities)) return;
+    // Dual-capability: use virtual motion ID
+    const vid = isDualCapability(d.capabilities) ? id + ':motion' : id;
+    if (assigned.has(vid)) return;
     const type = capToType(d.capabilities);
     const cat  = typeToCat[type];
-    if (!cat) return; // unrecognised security capability
-    // Auto-assign to the right category
+    if (!cat) return;
     if (!CONFIG.artemisSensors[cat]) CONFIG.artemisSensors[cat] = [];
     const name = d.label || d.name || ('Device ' + id);
-    CONFIG.artemisSensors[cat].push({ id, name });
-    assigned.add(id);
+    CONFIG.artemisSensors[cat].push({ id: vid, name });
+    assigned.add(vid);
     found++;
   });
 
@@ -10916,6 +10984,17 @@ function isSecurityCapable(caps) {
   if (!caps) return false;
   const c = Array.isArray(caps) ? caps.join(',') : String(caps);
   return /SmokeDetector|CarbonMonoxideDetector|WaterSensor|MoistureSensor|GlassBreakSensor|ShockSensor|MotionSensor|ContactSensor/i.test(c);
+}
+
+function realDeviceId(vid) {
+  const i = vid.indexOf(':');
+  return i === -1 ? vid : vid.substring(0, i);
+}
+
+function isDualCapability(caps) {
+  if (!caps) return false;
+  const c = Array.isArray(caps) ? caps.join(',') : String(caps);
+  return isSecurityCapable(caps) && /\bSwitch\b/i.test(c);
 }
 
 /* ── Render shell ── */
