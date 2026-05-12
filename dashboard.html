@@ -514,7 +514,7 @@ html[data-display-desktop] .tb-date{display:block !important}
 .a-alarm-btn.a-amber{color:var(--amber);border:1px solid rgba(245,158,11,.3)}
 /* Transition ring around gem (arming / entry delay) */
 .a-trans-ring{position:relative;width:50px;height:50px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.a-trans-ring svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
+.a-trans-ring>svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
 .a-trans-ring-bg{fill:none;stroke:var(--border);stroke-width:3}
 .a-trans-ring-fg{fill:none;stroke-width:3;stroke-linecap:round;stroke-dasharray:289;stroke-dashoffset:0;animation:a-trans-deplete linear forwards}
 .a-trans-ring-fg.a-arming{stroke:var(--amber)}
@@ -6544,6 +6544,8 @@ function artemisClearTransition() {
   artemisArmingTarget = null;
   artemisCountdownEnd = null;
   if (artemisCountdownInterval) { clearInterval(artemisCountdownInterval); artemisCountdownInterval = null; }
+  const ring = document.querySelector('.a-trans-ring');
+  if (ring) ring.remove();
 }
 
 function artemisTickCountdown() {
