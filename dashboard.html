@@ -2414,6 +2414,9 @@ function applyAttrs(id, attrs) {
 
   }
 
+  // Dual-capability: if the device has a switch attr and S[id] exists, always track on/off
+  if (attrs.switch != null && S[id]) S[id].on = attrs.switch === 'on';
+
   return JSON.stringify(S[id]) !== prev;
 }
 
@@ -6424,9 +6427,8 @@ async function artemisHsmSync() {
     if (ready) {
       const isArming = /arming\s*away|arming\s*home|delayed\s*arming/i.test(hsm);
       if (isArming) {
-        if (!artemisTransition) {
-          const target = /away/i.test(hsm) ? 'away' : 'home';
-          artemisSetTransition('arming', target);
+        if (!artemisTransition && /away|delayed/i.test(hsm)) {
+          artemisSetTransition('arming', 'away');
         }
         return;
       }
@@ -6481,7 +6483,7 @@ function artemisSetMode(m) {
   artemisClearAlarm();
   if (m === 'home' || m === 'away') {
     artemisHsmCmd(m === 'home' ? 'armHome' : 'armAway');
-    artemisSetTransition('arming', m);
+    if (m === 'away') artemisSetTransition('arming', m);
     return;
   }
   artemisMode = m;
@@ -10338,9 +10340,8 @@ function connectWebSocket() {
           const raw = String(msg.value || '').toLowerCase();
           // Detect arming transitional states
           if (/arming\s*away|arming\s*home|delayed\s*arming/i.test(raw)) {
-            if (!artemisTransition) {
-              const target = /away/i.test(raw) ? 'away' : 'home';
-              artemisSetTransition('arming', target);
+            if (!artemisTransition && /away|delayed/i.test(raw)) {
+              artemisSetTransition('arming', 'away');
             }
             return;
           }
@@ -10602,14 +10603,22 @@ function detectNewDevices(devices) {
   let found = 0;
   devices.forEach(d => {
     const id = String(d.id);
-    // Security-capable devices belong to Artemis, never to Hestia staging
+    const caps = Array.isArray(d.capabilities) ? d.capabilities.join(',') : String(d.capabilities || '');
+    // Dual-capability: security sensor + switch (e.g. floodlight camera)
+    // Register the switch side in staging so it can be assigned to a room
+    if (isSecurityCapable(d.capabilities) && /\bSwitch\b/i.test(caps)) {
+      if (!assigned.has(id)) {
+        staging.push({ id, name: d.label || d.name || ('Device ' + id), type: 'switch' });
+        DEVICE_REGISTRY.add(id);
+        found++;
+      }
+      return;
+    }
     if (isSecurityCapable(d.capabilities)) return;
     const type = capToType(d.capabilities);
-    if (!type) return; // unsupported capability — skip
-    // New if not in registry at all, OR in registry but not assigned/staged anywhere
+    if (!type) return;
     if (DEVICE_REGISTRY.has(id) && assigned.has(id)) return;
-    if (assigned.has(id)) return; // already staged/assigned, just missing from registry
-    // Truly untracked — add to staging
+    if (assigned.has(id)) return;
     if (!assigned.has(id)) {
       staging.push({ id, name: d.label || d.name || ('Device ' + id), type });
       DEVICE_REGISTRY.add(id);
