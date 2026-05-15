@@ -76,8 +76,8 @@ Hestia is a single-page smart home dashboard for Hubitat Elevation C8 Pro. It co
 - **GitHub:** https://github.com/h4ven88/hestia-dashboard
 - **Live URL:** https://hestari.com (Cloudflare Pages, auto-deploys from GitHub main)
 - **Hub IP:** (user-specific) | Maker API App ID: (user-specific) | Hestia App ID: (user-specific)
-- **Current version:** v1.5.0
-- **Target milestone:** v1.5.0 community release
+- **Current version:** v1.5.1
+- **Target milestone:** v1.5.1
 
 ---
 
