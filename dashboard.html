@@ -4921,6 +4921,9 @@ For creating a routine (a named sequence of device commands):
 For running an existing routine:
 {"type":"run_routine","speech":"Running movie mode now.","routine":{"name":"Movie Mode"}}
 
+For editing/updating an existing routine (replaces all steps):
+{"type":"routine","speech":"Movie mode updated — now 4 steps.","routine":{"name":"Movie Mode","steps":[{"deviceName":"Living Room Lights","room":"Living Room","command":"setLevel","value":10},{"deviceName":"Living Room Shades","room":"Living Room","command":"close"},{"deviceName":"Ceiling Fan","room":"Living Room","command":"setSpeed","value":"low"},{"deviceName":"TV Backlight","room":"Living Room","command":"on"}]}}
+
 For listing routines:
 {"type":"list_routines","speech":"You have 2 routines: Movie Mode with 3 steps, and Good Night with 5 steps."}
 
@@ -4938,6 +4941,8 @@ ROUTINE RULES:
 - Use exact device names from the room layout above.
 - When creating a routine, always include the room name for each step.
 - To run a routine, match by name (case-insensitive partial match is fine).
+- To EDIT a routine, use type "routine" with the SAME name — the system automatically updates the existing routine instead of creating a duplicate. Include the complete updated steps array (it replaces all existing steps).
+- When the user says "modify," "update," "change," or "edit" a routine, update the existing one — NEVER create a second routine with the same name.
 
 Available commands: on, off, setLevel (value 0-100), setColorTemperature (value 2700-6500), setColor (JSON: {"hue":0-100,"saturation":0-100,"level":0-100}), setSpeed (off/low/medium-low/medium/medium-high/high), open, close, setPosition (value 0-100 for shades), lock, unlock, armHome, armAway, setHeatingSetpoint (value in °F), setCoolingSetpoint (value in °F), setThermostatMode (heat/cool/auto/off), setThermostatFanMode (auto/on/circulate)
 
@@ -5489,20 +5494,44 @@ async function routineRun(id) {
 }
 
 function routineCreate(name, steps) {
+  const cleanSteps = (steps || []).map(s => ({
+    deviceName: s.deviceName || '',
+    room: s.room || '',
+    deviceId: s.deviceId || '',
+    command: s.command || 'on',
+    value: s.value !== undefined ? s.value : undefined
+  }));
+  CONFIG.routines = CONFIG.routines || [];
+  const existing = CONFIG.routines.find(r => r.name.toLowerCase() === name.toLowerCase());
+  if (existing) {
+    existing.steps = cleanSteps;
+    saveConfig();
+    return existing;
+  }
   const rtn = {
     id: 'rtn_' + Date.now(),
     name: name,
-    steps: (steps || []).map(s => ({
+    steps: cleanSteps,
+    createdAt: Date.now()
+  };
+  CONFIG.routines.push(rtn);
+  saveConfig();
+  return rtn;
+}
+
+function routineUpdate(id, name, steps) {
+  const rtn = (CONFIG.routines || []).find(r => r.id === id);
+  if (!rtn) return null;
+  if (name) rtn.name = name;
+  if (steps) {
+    rtn.steps = steps.map(s => ({
       deviceName: s.deviceName || '',
       room: s.room || '',
       deviceId: s.deviceId || '',
       command: s.command || 'on',
       value: s.value !== undefined ? s.value : undefined
-    })),
-    createdAt: Date.now()
-  };
-  CONFIG.routines = CONFIG.routines || [];
-  CONFIG.routines.push(rtn);
+    }));
+  }
   saveConfig();
   return rtn;
 }
@@ -5684,9 +5713,11 @@ async function athenaHandleResponse(rawText) {
       athenaAddBubble('user', lastUserMsg);
       const rt = parsed.routine;
       if (rt && rt.name && rt.steps?.length) {
+        const existed = (CONFIG.routines || []).some(r => r.name.toLowerCase() === rt.name.toLowerCase());
         routineCreate(rt.name, rt.steps);
-        athenaAddBubble('athena', parsed.speech || 'Routine saved.');
-        athenaShowChip('green', `Routine: ${rt.name}`);
+        const verb = existed ? 'updated' : 'saved';
+        athenaAddBubble('athena', parsed.speech || `Routine ${verb}.`);
+        athenaShowChip('green', `${existed ? 'Updated' : 'Routine'}: ${rt.name}`);
       } else {
         athenaAddBubble('athena', parsed.speech || 'Routine saved.');
       }
@@ -6954,10 +6985,11 @@ async function artemisHsmSync() {
     artemisHsmReady = ready;
 
     if (ready) {
-      const isArming = /arming\s*away|arming\s*home|delayed\s*arming/i.test(hsm);
+      const isArming = /arming\s*away|arming\s*home|arming\s*night|delayed\s*arming/i.test(hsm);
       if (isArming) {
-        if (!artemisTransition && /away|delayed/i.test(hsm)) {
-          artemisSetTransition('arming', 'away');
+        if (!artemisTransition) {
+          const target = /home|night/i.test(hsm) ? 'home' : 'away';
+          artemisSetTransition('arming', target);
         }
         return;
       }
@@ -10510,6 +10542,7 @@ function spRoutineListHtml() {
       <div class="sp-rtn-name">${r.name}</div>
       <ol class="sp-rtn-steps">${steps}</ol>
       <div class="sp-rtn-actions">
+        <button class="sp-rtn-btn" onclick="spRoutineEdit('${r.id}')">✎ Edit</button>
         <button class="sp-rtn-btn" onclick="spRoutineTest('${r.id}')">▶ Test</button>
         <button class="sp-rtn-btn danger" onclick="spRoutineDelete('${r.id}')">Delete</button>
       </div>
@@ -10571,6 +10604,8 @@ function spRoutineAddStep() {
   container.appendChild(div);
 }
 
+let _spRtnEditId = null;
+
 function spRoutineSave() {
   const name = document.getElementById('sp-rtn-name')?.value?.trim();
   if (!name) { showDeviceToast('Enter a routine name'); return; }
@@ -10588,10 +10623,56 @@ function spRoutineSave() {
     }
   });
   if (steps.length === 0) { showDeviceToast('Add at least one step'); return; }
-  routineCreate(name, steps);
+  if (_spRtnEditId) {
+    routineUpdate(_spRtnEditId, name, steps);
+    _spRtnEditId = null;
+    showDeviceToast('Routine updated');
+  } else {
+    routineCreate(name, steps);
+    showDeviceToast('Routine created');
+  }
   document.getElementById('sp-rtn-form-area').innerHTML = '';
   spRoutineRefresh();
-  showDeviceToast('Routine created');
+}
+
+function spRoutineEdit(id) {
+  const rtn = (CONFIG.routines || []).find(r => r.id === id);
+  if (!rtn) return;
+  _spRtnEditId = id;
+  _spRtnStepCount = 0;
+  const area = document.getElementById('sp-rtn-form-area');
+  if (!area) return;
+  area.innerHTML = `<div class="sp-rem-form">
+    <div class="sp-field"><label class="sp-label">Routine Name</label>
+      <input class="sp-input" id="sp-rtn-name" value="${rtn.name}"></div>
+    <div class="sp-group-lbl" style="margin-top:8px">Steps</div>
+    <div id="sp-rtn-steps"></div>
+    <button class="sp-btn sp-btn-secondary" style="width:100%;justify-content:center;margin-top:6px;font-size:10px" onclick="spRoutineAddStep()">+ Add Step</button>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="sp-btn sp-btn-secondary" style="flex:1;justify-content:center" onclick="_spRtnEditId=null;document.getElementById('sp-rtn-form-area').innerHTML=''">Cancel</button>
+      <button class="sp-btn" style="flex:1;justify-content:center;background:var(--amber);color:#000" onclick="spRoutineSave()">Save Changes</button>
+    </div>
+  </div>`;
+  (rtn.steps || []).forEach(s => spRoutineAddStepWithData(s));
+  area.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function spRoutineAddStepWithData(step) {
+  const container = document.getElementById('sp-rtn-steps');
+  if (!container) return;
+  const idx = _spRtnStepCount++;
+  const roomOpts = rooms.map(r => `<option value="${r.name}"${r.name === step.room ? ' selected' : ''}>${r.name}</option>`).join('');
+  const cmds = ['on','off','setLevel','setSpeed','open','close','setPosition','setColorTemperature','lock','unlock'];
+  const cmdOpts = cmds.map(c => `<option value="${c}"${c === step.command ? ' selected' : ''}>${c}</option>`).join('');
+  const div = document.createElement('div');
+  div.className = 'sp-rtn-step-row';
+  div.style.cssText = 'display:flex;gap:4px;margin-bottom:4px;flex-wrap:wrap;align-items:center';
+  div.innerHTML = `<select class="sp-input" style="flex:1;min-width:80px;font-size:10px" id="sp-rtn-room-${idx}">${roomOpts}</select>
+    <input class="sp-input" style="flex:2;min-width:100px;font-size:10px" id="sp-rtn-dev-${idx}" placeholder="Device name" value="${step.deviceName || ''}">
+    <select class="sp-input" style="flex:1;min-width:70px;font-size:10px" id="sp-rtn-cmd-${idx}">${cmdOpts}</select>
+    <input class="sp-input" style="width:50px;font-size:10px" id="sp-rtn-val-${idx}" placeholder="Value" value="${step.value !== undefined && step.value !== null ? step.value : ''}">
+    <span style="font-size:10px;color:var(--t3);cursor:pointer;padding:0 4px" onclick="this.parentElement.remove()">✕</span>`;
+  container.appendChild(div);
 }
 
 async function spScanDevices() {
@@ -11161,18 +11242,19 @@ function connectWebSocket() {
         if (msg.name === 'hsmStatus' || msg.name === 'hsmSetArm') {
           const raw = String(msg.value || '').toLowerCase();
           // Detect arming transitional states
-          if (/arming\s*away|arming\s*home|delayed\s*arming/i.test(raw)) {
-            if (!artemisTransition && /away|delayed/i.test(raw)) {
-              artemisSetTransition('arming', 'away');
-            }
+          if (/arming\s*away|delayed\s*arming/i.test(raw)) {
+            if (!artemisTransition) artemisSetTransition('arming', 'away');
+            return;
+          }
+          if (/arming\s*home|arming\s*night/i.test(raw)) {
+            if (!artemisTransition) artemisSetTransition('arming', 'home');
             return;
           }
           // Final armed/disarmed state — clear transition, update mode
           let newMode = 'disarm';
-          if (raw === 'armedaway')                    newMode = 'away';
-          else if (raw === 'armedhome')               newMode = 'home';
-          else if (raw === 'armednight')              newMode = 'home';
-          else if (/disarm|alldisarmed/i.test(raw))  newMode = 'disarm';
+          if      (/armed\s*away/i.test(raw))                newMode = 'away';
+          else if (/armed\s*home|armed\s*night/i.test(raw))  newMode = 'home';
+          else if (/disarm|alldisarmed/i.test(raw))          newMode = 'disarm';
           const wsChanged = newMode !== artemisMode || artemisTransition;
           if (artemisTransition) artemisClearTransition();
           if (wsChanged) {
@@ -11208,24 +11290,32 @@ function connectWebSocket() {
 
       // ── Alarm base station events (Ring or any integration) ────────
       if (CONFIG.artemisRingDeviceId && msg.deviceId && String(msg.deviceId) === CONFIG.artemisRingDeviceId) {
-        const attrName = String(msg.name || '');
+        const attrName = String(msg.name || '').toLowerCase();
         const attrVal = String(msg.value || '').toLowerCase();
-        console.log(`[Artemis] Alarm device ${msg.deviceId}: ${attrName}=${attrVal}`);
-        if (attrName === 'alarmMode' || attrName === 'alarm') {
-          if (/off|none|disarmed/i.test(attrVal) && (artemisMode !== 'disarm' || artemisTransition)) {
+        console.log(`[Artemis] Ring device ${msg.deviceId}: ${attrName}=${attrVal}`);
+
+        // Entry delay / intrusion from Ring (securityKeypad, alarmStatus, status attributes)
+        if (/entry.?delay|alarming|siren|intrusion/i.test(attrVal) && !artemisTransition) {
+          artemisSetTransition('entry-delay', null);
+          if (isMobile()) artemisOpenSheet();
+          return;
+        }
+
+        if (/alarmmode|alarm|mode/i.test(attrName)) {
+          if (/^(off|none|disarmed)$/i.test(attrVal) && (artemisMode !== 'disarm' || artemisTransition)) {
             artemisClearTransition();
             artemisMode = 'disarm';
             if (isMobile() ? activeTab === 'security' : activeRoom === 'security') renderSecurity();
             renderSidebar();
             updateArmedStatus();
             artemisHsmCmd('disarm');
-          } else if (/away/i.test(attrVal) && artemisMode !== 'away') {
+          } else if (/away/i.test(attrVal) && !/disarm/i.test(attrVal) && artemisMode !== 'away') {
             if (artemisTransition) artemisClearTransition();
             artemisMode = 'away';
             if (isMobile() ? activeTab === 'security' : activeRoom === 'security') renderSecurity();
             renderSidebar();
             updateArmedStatus();
-          } else if (/home/i.test(attrVal) && artemisMode !== 'home') {
+          } else if (/home/i.test(attrVal) && !/disarm/i.test(attrVal) && artemisMode !== 'home') {
             if (artemisTransition) artemisClearTransition();
             artemisMode = 'home';
             if (isMobile() ? activeTab === 'security' : activeRoom === 'security') renderSecurity();
