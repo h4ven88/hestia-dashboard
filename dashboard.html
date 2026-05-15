@@ -3772,7 +3772,7 @@ async function owwStart() {
   try {
     OWW.ctx    = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
     OWW.stream = await navigator.mediaDevices.getUserMedia({
-      audio: { autoGainControl: true, noiseSuppression: false, echoCancellation: false },
+      audio: { autoGainControl: true, noiseSuppression: false, echoCancellation: true },
       video: false
     });
     athenaMicPermission = true;
@@ -4642,7 +4642,7 @@ function athenaStartListening() {
       if (lbl) lbl.textContent = 'Listening\u2026';
       athenaSetRecHint(true);
 
-      // Start silence detection — auto-stop after 3.5s of silence
+      // Adaptive silence detection — calibrates ambient noise floor, then auto-stops
       _athenaStartSilenceDetection(analyser, recorder);
 
       // Hard cap: stop recording after 15s regardless
@@ -4670,45 +4670,78 @@ function athenaStartListening() {
 
 // ── Silence detection ─────────────────────────────────────────────────
 function _athenaStartSilenceDetection(analyser, recorder) {
-  const dataArr    = new Uint8Array(analyser.frequencyBinCount);
-  const THRESHOLD  = 10;   // RMS amplitude below which we consider silence
-  const SILENCE_MS = 2000; // ms of continuous silence AFTER speech before auto-stop
+  const dataArr      = new Uint8Array(analyser.frequencyBinCount);
+  const CALIBRATE_MS = 600;
+  const SILENCE_MS   = 2200;
+  const MIN_SPEECH   = 4;
+  const FLOOR_MULT   = 2.8;
+  const FLOOR_MIN    = 6;
+  const FLOOR_MAX    = 30;
+
+  let calibrating  = true;
+  let calSamples   = [];
+  let calStart     = Date.now();
+  let noiseFloor   = 0;
+  let speechThresh = MIN_SPEECH;
   let silentSince  = 0;
-  let speechHeard  = false; // gate: don't count silence until user has spoken
+  let speechHeard  = false;
+  let peakRms      = 0;
 
-  function check() {
-    if (recorder.state !== 'recording') return;
+  function getRms() {
     analyser.getByteTimeDomainData(dataArr);
-
-    // Calculate RMS amplitude
     let sum = 0;
     for (let i = 0; i < dataArr.length; i++) {
       const v = dataArr[i] - 128;
       sum += v * v;
     }
-    const rms = Math.sqrt(sum / dataArr.length);
+    return Math.sqrt(sum / dataArr.length);
+  }
 
-    if (rms >= THRESHOLD) {
-      speechHeard = true; // user is speaking
-      silentSince = 0;    // reset silence timer
+  function check() {
+    if (recorder.state !== 'recording') return;
+    const rms = getRms();
+
+    if (calibrating) {
+      calSamples.push(rms);
+      if (Date.now() - calStart >= CALIBRATE_MS) {
+        calibrating = false;
+        const sorted = calSamples.slice().sort((a, b) => a - b);
+        const median = sorted[Math.floor(sorted.length * 0.5)] || 0;
+        noiseFloor = median;
+        speechThresh = Math.max(FLOOR_MIN, Math.min(FLOOR_MAX, noiseFloor * FLOOR_MULT));
+        console.log(`[Athena] Ambient calibrated — floor: ${noiseFloor.toFixed(1)}, speech threshold: ${speechThresh.toFixed(1)}`);
+      }
+      _athenaSilenceTimer = requestAnimationFrame(check);
+      return;
+    }
+
+    if (rms > peakRms) peakRms = rms;
+
+    if (rms >= speechThresh) {
+      speechHeard = true;
+      silentSince = 0;
     } else if (speechHeard) {
       if (!silentSince) silentSince = Date.now();
       else if (Date.now() - silentSince > SILENCE_MS) {
+        if (peakRms < speechThresh * 1.5) {
+          speechHeard = false;
+          silentSince = 0;
+          _athenaSilenceTimer = requestAnimationFrame(check);
+          return;
+        }
         if (recorder.state === 'recording') {
-          console.log('[Athena] Silence detected — stopping recording');
+          console.log(`[Athena] Silence detected — stopping (floor: ${noiseFloor.toFixed(1)}, peak: ${peakRms.toFixed(1)}, thresh: ${speechThresh.toFixed(1)})`);
           clearTimeout(recorder._maxTimer);
           recorder.stop();
         }
         return;
       }
     }
-    // If !speechHeard && rms < THRESHOLD → waiting for user to start speaking, do nothing
 
     _athenaSilenceTimer = requestAnimationFrame(check);
   }
 
-  // Delay silence detection start by 500ms to let mic settle
-  setTimeout(() => { _athenaSilenceTimer = requestAnimationFrame(check); }, 500);
+  _athenaSilenceTimer = requestAnimationFrame(check);
 }
 
 function _athenaClearSilenceDetection() {

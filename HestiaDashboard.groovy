@@ -43,7 +43,7 @@ preferences {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
-@Field static final String APP_VERSION        = "1.4.0"
+@Field static final String APP_VERSION        = "1.5.1"
 @Field static final String TOKEN_FILENAME      = "hestia-token.json"
 @Field static final String CONFIG_FILENAME     = "hestia-config.json"
 @Field static final String DASHBOARD_FILENAME  = "index.html"
@@ -204,8 +204,20 @@ def downloadDashboard(Boolean force) {
 
 // ── Config endpoints ──────────────────────────────────────────────────────
 def getConfig() {
+    def cfg = state.config
+    if (!cfg || cfg == "null") {
+        try {
+            def bytes = downloadHubFile(CONFIG_FILENAME)
+            if (bytes) {
+                cfg = new String(bytes, "UTF-8")
+                state.config = cfg
+                state.configSize = cfg.length()
+                log.info "Hestia: config restored from hub file (${cfg.length()} bytes)"
+            }
+        } catch(e) {}
+    }
     render contentType: "application/json", headers: CORS_HEADERS,
-           data: (state.config ?: "null")
+           data: (cfg ?: "null")
 }
 
 def saveConfig() {
@@ -217,9 +229,15 @@ def saveConfig() {
             return
         }
         new groovy.json.JsonSlurper().parseText(body)
+        try { uploadHubFile(CONFIG_FILENAME, body.getBytes("UTF-8")) } catch(e) {
+            log.warn "Hestia: hub file write failed: ${e.message}"
+        }
         state.config     = body
         state.configSize = body.length()
-        try { uploadHubFile(CONFIG_FILENAME, body.getBytes("UTF-8")) } catch(e) {}
+        def verified = state.config?.length() ?: 0
+        if (verified < body.length()) {
+            log.warn "Hestia: state truncated (wrote ${body.length()}, stored ${verified}) — hub file is primary"
+        }
         writeDiscovery()
         log.info "Hestia: config saved (${body.length()} bytes)"
         render contentType: "application/json", headers: CORS_HEADERS,
