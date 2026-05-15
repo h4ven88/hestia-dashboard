@@ -441,8 +441,10 @@ footer{border-top:1px solid var(--border);padding:40px 0}
 
 <div class="wrap preview">
   <div class="preview-toggle">
-    <button class="active" onclick="switchPreview('desktop')">Desktop View</button>
-    <button onclick="switchPreview('mobile')">Mobile View</button>
+    <button class="active" onclick="switchPreview('desktop')">Dashboard</button>
+    <button onclick="switchPreview('security')">Security</button>
+    <button onclick="switchPreview('athena')">Athena</button>
+    <button onclick="switchPreview('mobile')">Mobile</button>
   </div>
   <div id="preview-desktop">
     <div class="preview-frame">
@@ -453,9 +455,41 @@ footer{border-top:1px solid var(--border);padding:40px 0}
         <span class="preview-url">hestari.com</span>
       </div>
       <div class="preview-inner">
-        <img src="hestari-preview-desktop.png?v=2" alt="Hestia dashboard — desktop view with rooms, climate, weather, and Artemis security" loading="eager" class="preview-img"
+        <img src="hestari-preview-desktop.png?v=2" alt="Hestia dashboard — desktop view with rooms, climate, weather, and device controls" loading="eager" class="preview-img"
           onerror="this.style.display='none';this.nextElementSibling.style.display='block'"
         ><div class="preview-placeholder" style="display:none">Dashboard preview — <a href="/app" style="color:var(--amber)">open the live dashboard</a> to see it in action.</div>
+      </div>
+    </div>
+  </div>
+  <div id="preview-security" style="display:none">
+    <div class="preview-frame">
+      <div class="preview-chrome">
+        <span class="preview-dot"></span>
+        <span class="preview-dot"></span>
+        <span class="preview-dot"></span>
+        <span class="preview-url">hestari.com</span>
+      </div>
+      <div class="preview-inner">
+        <img src="hestari-preview-desktop-artemis.png" alt="Artemis security panel — entry sensors, locks, smoke and water monitoring, arm/disarm keypad" loading="eager" class="preview-img"
+          onerror="this.style.display='none';this.nextElementSibling.style.display='block'"
+        ><div class="preview-placeholder" style="display:none">Security preview — <a href="/app" style="color:var(--amber)">open the live dashboard</a> to see Artemis in action.</div>
+      </div>
+    </div>
+  </div>
+  <div id="preview-athena" style="display:none">
+    <div class="preview-mobile-frame">
+      <div class="preview-frame">
+        <div class="preview-chrome">
+          <span class="preview-dot"></span>
+          <span class="preview-dot"></span>
+          <span class="preview-dot"></span>
+          <span class="preview-url">hestari.com</span>
+        </div>
+        <div class="preview-inner">
+          <img src="hestari-preview-athena.png" alt="Athena voice assistant — DNA helix animation, conversation flow, and natural language input" loading="lazy" class="preview-img"
+            onerror="this.style.display='none';this.nextElementSibling.style.display='block'"
+          ><div class="preview-placeholder" style="display:none">Athena preview — <a href="/app" style="color:var(--amber)">open the live dashboard</a> to try it.</div>
+        </div>
       </div>
     </div>
   </div>
@@ -476,7 +510,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
       </div>
     </div>
   </div>
-  <p class="preview-caption">Hestia running in Dark theme — rooms, climate, weather, and Artemis security at a glance.</p>
+  <p class="preview-caption" id="preview-caption">Hestia running in Dark theme — rooms, climate, weather, and device controls at a glance.</p>
 </div>
 
 <!-- ════ MODULES ════ -->
@@ -536,11 +570,11 @@ footer{border-top:1px solid var(--border);padding:40px 0}
       </div>
       <div class="mod-name">Athena<span class="mod-tm">&#8482;</span></div>
       <div class="mod-role">The Voice</div>
-      <p class="mod-desc">Speak naturally and Athena understands. Powered by Claude AI, she controls every device, sets timers, holds conversations, and remembers context.</p>
-      <div class="mod-feat"><span class="mfd" style="background:var(--amber)"></span>"Athena, set the heat to 72 and lock up"</div>
-      <div class="mod-feat"><span class="mfd" style="background:var(--amber)"></span>Timers, follow-up conversations, memory</div>
-      <div class="mod-feat"><span class="mfd" style="background:var(--amber)"></span>Choose your wake word: Athena, Artemis, or Hestia</div>
-      <div class="mod-feat"><span class="mfd" style="background:var(--amber)"></span>Configurable personality and tone</div>
+      <p class="mod-desc">Speak naturally and Athena understands. Powered by Claude AI, she controls every device, builds automations, sets reminders, and remembers context — all without leaving the dashboard.</p>
+      <div class="mod-feat"><span class="mfd" style="background:var(--amber)"></span>"Create a good morning routine that opens the blinds and sets the heat to 72"</div>
+      <div class="mod-feat"><span class="mfd" style="background:var(--amber)"></span>"Remind me to take my medicine every day at 8 AM"</div>
+      <div class="mod-feat"><span class="mfd" style="background:var(--amber)"></span>No Rule Machine, no complex triggers — just say what you want</div>
+      <div class="mod-feat"><span class="mfd" style="background:var(--amber)"></span>Scheduled routines, timers, wake words, and personality presets</div>
     </div>
 
     <!-- Artemis -->
@@ -587,11 +621,11 @@ footer{border-top:1px solid var(--border);padding:40px 0}
     </div>
     <div class="voice-text">
       <h3>Talk to your home like you would talk to <em>anyone.</em></h3>
-      <p>"Make it warmer upstairs." "Set a timer for 12 minutes." "Lock everything and turn off the lights." Athena controls every device — lights, thermostats, shades, locks, fans — and holds natural conversations on any topic.</p>
-      <p>She remembers what you said earlier, sets timers with live countdowns, follows up without re-waking, and adapts her tone to your preference. More assistant than command parser.</p>
+      <p>"Create a movie mode routine that dims the lights and closes the shades." "Remind me every Tuesday at 7 PM to take out the trash." "Run good night." No Rule Machine, no visual builders — just describe what you want and Athena handles the rest.</p>
+      <p>She remembers what you said earlier, runs scheduled automations, follows up without re-waking, and adapts her tone to your preference. Everything stays in the dashboard — no jumping between apps.</p>
       <div class="voice-ex">
         <span class="vdot"></span>
-        "Athena, set the heat to 72, dim the lights, and start a 20-minute timer."
+        "Athena, create a morning routine that opens the blinds and turns on the lights every day at 7 AM."
       </div>
       <div class="voice-flow">
         <span class="voice-step"><span class="voice-step-num">1</span>Wake</span>
@@ -619,7 +653,7 @@ footer{border-top:1px solid var(--border);padding:40px 0}
       <div class="feat-card">
         <div class="feat-num">01</div>
         <h3>Natural language voice control</h3>
-        <p>Athena uses Claude AI to understand what you mean, not just what you say. Multi-device commands, thermostat modes, timers, follow-up conversations, and persistent memory across sessions.</p>
+        <p>Athena uses Claude AI to understand what you mean, not just what you say. Multi-device commands, routines, recurring reminders, timers, follow-up conversations, and persistent memory across sessions.</p>
       </div>
       <div class="feat-card">
         <div class="feat-num">02</div>
@@ -645,6 +679,11 @@ footer{border-top:1px solid var(--border);padding:40px 0}
         <div class="feat-num">06</div>
         <h3>Wall panel ready</h3>
         <p>Designed for always-on wall-mounted displays. Auto-boots, stays connected, and listens for wake words continuously. Like a smart speaker with a screen.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-num">07</div>
+        <h3>Automations without the complexity</h3>
+        <p>Create routines by voice or in Settings — no Rule Machine, no visual rule builders, no trigger chains. "Create a good night routine that locks the door and turns off the lights." Done. Schedule them daily, weekly, or monthly. Everything stays in the dashboard.</p>
       </div>
     </div>
   </div>
@@ -887,6 +926,10 @@ footer{border-top:1px solid var(--border);padding:40px 0}
       <div class="tl-phase-label now">Just Shipped</div>
       <div class="tl-items">
         <div class="tl-item">
+          <h3>Reminders and routines</h3>
+          <p>Persistent recurring reminders (daily, weekly, monthly, and more) and named routines you create by voice. "Create a movie mode routine" — then "run movie mode" anytime. Routines can run on a schedule too.</p>
+        </div>
+        <div class="tl-item">
           <h3>Timers, memory, and conversation mode</h3>
           <p>Set timers by voice with live countdowns. Athena remembers your conversation across page refreshes and keeps listening for follow-ups without re-waking.</p>
         </div>
@@ -933,10 +976,6 @@ footer{border-top:1px solid var(--border);padding:40px 0}
         <div class="tl-item">
           <h3>Multi-provider AI support</h3>
           <p>Choose your preferred AI provider. ChatGPT by OpenAI and Gemini by Google will join Claude as options — use whichever you prefer or already have an API key for.</p>
-        </div>
-        <div class="tl-item">
-          <h3>Reminders and routines</h3>
-          <p>Persistent reminders that survive page refreshes and named routines — "run movie mode" to execute a sequence of commands with one phrase.</p>
         </div>
         <div class="tl-item">
           <h3>Calendar integration</h3>
@@ -1024,16 +1063,16 @@ if (location.search && /[?&](hub|appId|token)=/.test(location.search)) {
 
 // Preview toggle
 function switchPreview(mode){
-  var d=document.getElementById('preview-desktop');
-  var m=document.getElementById('preview-mobile');
+  var panels=['desktop','security','athena','mobile'];
   var btns=document.querySelectorAll('.preview-toggle button');
-  if(mode==='mobile'){
-    d.style.display='none';m.style.display='block';
-    btns[0].classList.remove('active');btns[1].classList.add('active');
-  }else{
-    d.style.display='block';m.style.display='none';
-    btns[0].classList.add('active');btns[1].classList.remove('active');
-  }
+  var cap=document.getElementById('preview-caption');
+  var captions={desktop:'Hestia running in Dark theme — rooms, climate, weather, and device controls at a glance.',security:'Artemis security module — entry sensors, locks, smoke/CO and water monitoring with PIN keypad.',athena:'Athena voice assistant — natural conversation, device control, routines, and reminders built in.',mobile:'Responsive mobile layout — full device control from any phone or tablet.'};
+  panels.forEach(function(p,i){
+    var el=document.getElementById('preview-'+p);
+    if(el) el.style.display=p===mode?'block':'none';
+    btns[i].classList.toggle('active',p===mode);
+  });
+  if(cap) cap.textContent=captions[mode]||captions.desktop;
 }
 
 // Accordion toggle
