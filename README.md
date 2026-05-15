@@ -4,7 +4,7 @@
 
 A fast, elegant smart home dashboard for [Hubitat Elevation](https://hubitat.com). Built for wall tablets, desktops, laptops, and phones. All your rooms, all your devices, at a glance -- no subscriptions, no compromises.
 
-**Version:** v1.4.1 | **Live:** [https://hestari.com](https://hestari.com) | **License:** CC BY-NC 4.0
+**Version:** v1.5.1 | **Live:** [https://hestari.com](https://hestari.com) | **License:** CC BY-NC 4.0
 
 ---
 

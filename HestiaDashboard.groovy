@@ -1,5 +1,5 @@
 /**
- * Hestia™ Home Dashboard v1.4.0
+ * Hestia™ Home Dashboard v1.5.1
  * ════════════════════════════════════════════════════════════════
  * Lightweight companion app — discovery helper and config store.
  *
