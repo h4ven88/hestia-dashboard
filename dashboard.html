@@ -662,6 +662,14 @@ html[data-display-mobile] .ath-timer-float{display:none}
 .sp-rtn-btn{font-size:10px;padding:4px 10px;border-radius:5px;border:1px solid var(--border);background:none;color:var(--t2);cursor:pointer;transition:border-color .15s,color .15s}
 .sp-rtn-btn:hover{border-color:var(--amber-bdr);color:var(--amber)}
 .sp-rtn-btn.danger:hover{border-color:#F87171;color:#F87171}
+.sp-rtn-card-hdr{display:flex;align-items:center;gap:8px;cursor:pointer;padding:2px 0}
+.sp-rtn-chevron{font-size:14px;color:var(--t3);transition:transform .2s;flex-shrink:0;margin-left:auto}
+.sp-rtn-card.expanded .sp-rtn-chevron{transform:rotate(90deg)}
+.sp-rtn-summary{font-size:10px;color:var(--t3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sp-rtn-body{display:none;margin-top:8px}
+.sp-rtn-card.expanded .sp-rtn-body{display:block}
+.sp-rtn-sched-line{font-size:10px;color:var(--amber);margin-bottom:4px}
+.sp-rtn-sched-next{font-size:10px;color:var(--t2);margin-bottom:6px}
 .sp-rem-count{background:var(--amber);color:#000;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;margin-left:6px}
 /* Reminder/routine creation form */
 .sp-rem-form{background:var(--bg);border:1px solid var(--amber-bdr);border-radius:10px;padding:14px;margin-bottom:12px}
@@ -4915,8 +4923,14 @@ For cancelling/deleting a reminder:
 For listing reminders:
 {"type":"list_reminders","speech":"You have 3 active reminders: take medicine daily at 8 AM, trash on Tuesdays at 7 PM, and rent on the 1st at 9 AM."}
 
-For creating a routine (a named sequence of device commands):
+For creating an on-demand routine (a named sequence of device commands):
 {"type":"routine","speech":"Movie mode routine saved with 3 steps.","routine":{"name":"Movie Mode","steps":[{"deviceName":"Living Room Lights","room":"Living Room","command":"setLevel","value":20},{"deviceName":"Living Room Shades","room":"Living Room","command":"close"},{"deviceName":"Ceiling Fan","room":"Living Room","command":"setSpeed","value":"low"}]}}
+
+For creating a scheduled routine (runs automatically at set times):
+{"type":"routine","speech":"Good morning routine set for 7 AM daily.","routine":{"name":"Good Morning","steps":[{"deviceName":"Master Bedroom Shades","room":"Master Bedroom","command":"open"},{"deviceName":"Kitchen Lights","room":"Kitchen","command":"on"}],"schedule":{"type":"daily","time":"07:00"}}}
+
+Scheduled routine with weekly schedule:
+{"type":"routine","speech":"Trash night routine set for Mondays at 8 PM.","routine":{"name":"Trash Night","steps":[{"deviceName":"Porch Light","room":"Patio","command":"on"}],"schedule":{"type":"weekly","time":"20:00","daysOfWeek":[1]}}}
 
 For running an existing routine:
 {"type":"run_routine","speech":"Running movie mode now.","routine":{"name":"Movie Mode"}}
@@ -4943,6 +4957,9 @@ ROUTINE RULES:
 - To run a routine, match by name (case-insensitive partial match is fine).
 - To EDIT a routine, use type "routine" with the SAME name — the system automatically updates the existing routine instead of creating a duplicate. Include the complete updated steps array (it replaces all existing steps).
 - When the user says "modify," "update," "change," or "edit" a routine, update the existing one — NEVER create a second routine with the same name.
+- A routine can optionally include a "schedule" object (same format as reminders: type, time, daysOfWeek, dayOfMonth, month, date). If present, the routine runs automatically at those times.
+- If the user says "create a routine that runs every morning at 7am," include both steps AND schedule in the response.
+- If no schedule is mentioned, omit the schedule field — the routine is on-demand only.
 
 Available commands: on, off, setLevel (value 0-100), setColorTemperature (value 2700-6500), setColor (JSON: {"hue":0-100,"saturation":0-100,"level":0-100}), setSpeed (off/low/medium-low/medium/medium-high/high), open, close, setPosition (value 0-100 for shades), lock, unlock, armHome, armAway, setHeatingSetpoint (value in °F), setCoolingSetpoint (value in °F), setThermostatMode (heat/cool/auto/off), setThermostatFanMode (auto/on/circulate)
 
@@ -5193,13 +5210,11 @@ function athenaActiveTimersSummary() {
   }).join('\n');
 }
 
-// ── Reminders Engine ─────────────────────────────────────────────────
-let _reminderTimeouts = {};
-
-function reminderNextFire(rem) {
-  if (!rem || !rem.enabled || !rem.schedule) return null;
-  const s = rem.schedule;
-  const tz = rem.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+// ── Shared Recurrence Engine ─────────────────────────────────────────
+function computeNextFire(schedule, timezone) {
+  if (!schedule) return null;
+  const s = schedule;
+  const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
   const nowMs = Date.now();
   const nowLocal = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
   const [hh, mm] = (s.time || '08:00').split(':').map(Number);
@@ -5276,6 +5291,14 @@ function reminderNextFire(rem) {
     }
     default: return null;
   }
+}
+
+// ── Reminders Engine ─────────────────────────────────────────────────
+let _reminderTimeouts = {};
+
+function reminderNextFire(rem) {
+  if (!rem || !rem.enabled || !rem.schedule) return null;
+  return computeNextFire(rem.schedule, rem.timezone);
 }
 
 function reminderSchedule(rem) {
@@ -5493,7 +5516,7 @@ async function routineRun(id) {
   return { ok: true, msg: `${rtn.name}: ${executed} done, ${failures.length} failed (${failures.join(', ')}).` };
 }
 
-function routineCreate(name, steps) {
+function routineCreate(name, steps, schedule) {
   const cleanSteps = (steps || []).map(s => ({
     deviceName: s.deviceName || '',
     room: s.room || '',
@@ -5505,6 +5528,12 @@ function routineCreate(name, steps) {
   const existing = CONFIG.routines.find(r => r.name.toLowerCase() === name.toLowerCase());
   if (existing) {
     existing.steps = cleanSteps;
+    if (schedule !== undefined) {
+      existing.schedule = schedule || null;
+      existing.scheduleEnabled = !!schedule;
+      existing.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    }
+    routineScheduleSet(existing);
     saveConfig();
     return existing;
   }
@@ -5512,14 +5541,18 @@ function routineCreate(name, steps) {
     id: 'rtn_' + Date.now(),
     name: name,
     steps: cleanSteps,
+    schedule: schedule || null,
+    scheduleEnabled: !!schedule,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     createdAt: Date.now()
   };
   CONFIG.routines.push(rtn);
+  routineScheduleSet(rtn);
   saveConfig();
   return rtn;
 }
 
-function routineUpdate(id, name, steps) {
+function routineUpdate(id, name, steps, schedule) {
   const rtn = (CONFIG.routines || []).find(r => r.id === id);
   if (!rtn) return null;
   if (name) rtn.name = name;
@@ -5532,11 +5565,19 @@ function routineUpdate(id, name, steps) {
       value: s.value !== undefined ? s.value : undefined
     }));
   }
+  if (schedule !== undefined) {
+    rtn.schedule = schedule || null;
+    rtn.scheduleEnabled = !!schedule;
+    rtn.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  }
+  routineScheduleSet(rtn);
   saveConfig();
   return rtn;
 }
 
 function routineDelete(id) {
+  if (_routineScheduleTimeouts[id]) clearTimeout(_routineScheduleTimeouts[id]);
+  delete _routineScheduleTimeouts[id];
   CONFIG.routines = (CONFIG.routines || []).filter(r => r.id !== id);
   saveConfig();
 }
@@ -5552,9 +5593,76 @@ function routineFormatStep(step) {
 function athenaActiveRoutinesSummary() {
   const rtns = CONFIG.routines || [];
   if (rtns.length === 0) return '';
-  return '\nAVAILABLE ROUTINES:\n' + rtns.map(r =>
-    `- "${r.name}" (${r.steps.length} step${r.steps.length !== 1 ? 's' : ''})`
-  ).join('\n');
+  return '\nAVAILABLE ROUTINES:\n' + rtns.map(r => {
+    const sched = r.schedule && r.scheduleEnabled ? `, ${reminderFormatSchedule({ schedule: r.schedule })}` : ', on-demand';
+    return `- "${r.name}" (${r.steps.length} step${r.steps.length !== 1 ? 's' : ''}${sched})`;
+  }).join('\n');
+}
+
+// ── Routine Scheduling ──────────────────────────────────────────────
+let _routineScheduleTimeouts = {};
+
+function routineNextFire(rtn) {
+  if (!rtn || !rtn.schedule || !rtn.scheduleEnabled) return null;
+  return computeNextFire(rtn.schedule, rtn.timezone);
+}
+
+function routineScheduleSet(rtn) {
+  if (_routineScheduleTimeouts[rtn.id]) clearTimeout(_routineScheduleTimeouts[rtn.id]);
+  delete _routineScheduleTimeouts[rtn.id];
+  if (!rtn.schedule || !rtn.scheduleEnabled) return;
+  const next = routineNextFire(rtn);
+  if (!next) return;
+  const delay = next.getTime() - Date.now();
+  const MAX_TIMEOUT = 12 * 60 * 60 * 1000;
+  if (delay > MAX_TIMEOUT) {
+    _routineScheduleTimeouts[rtn.id] = setTimeout(() => routineScheduleSet(rtn), MAX_TIMEOUT);
+  } else {
+    _routineScheduleTimeouts[rtn.id] = setTimeout(() => routineScheduleFired(rtn.id), Math.max(delay, 100));
+  }
+}
+
+async function routineScheduleFired(id) {
+  delete _routineScheduleTimeouts[id];
+  const rtn = (CONFIG.routines || []).find(r => r.id === id);
+  if (!rtn) return;
+  console.log(`[Routine] Scheduled fire: ${rtn.name}`);
+  const result = await routineRun(id);
+  athenaSpeak(`${rtn.name} complete.`);
+  reminderShowToast(`${rtn.name} — ${result.msg}`);
+  if (rtn.schedule?.type === 'once') rtn.scheduleEnabled = false;
+  routineScheduleSet(rtn);
+  saveConfig();
+}
+
+function routineScheduleInit() {
+  Object.values(_routineScheduleTimeouts).forEach(clearTimeout);
+  _routineScheduleTimeouts = {};
+  (CONFIG.routines || []).filter(r => r.schedule && r.scheduleEnabled).forEach(r => routineScheduleSet(r));
+}
+
+function routineScheduleToggle(id) {
+  const rtn = (CONFIG.routines || []).find(r => r.id === id);
+  if (!rtn || !rtn.schedule) return;
+  rtn.scheduleEnabled = !rtn.scheduleEnabled;
+  routineScheduleSet(rtn);
+  saveConfig();
+}
+
+function routineFormatSchedule(rtn) {
+  if (!rtn.schedule) return 'On-demand';
+  const sched = reminderFormatSchedule({ schedule: rtn.schedule });
+  return rtn.scheduleEnabled ? sched : `${sched} (paused)`;
+}
+
+function routineFormatNext(rtn) {
+  const next = routineNextFire(rtn);
+  if (!next) return rtn.schedule ? (rtn.scheduleEnabled ? 'No upcoming run' : 'Paused') : '';
+  const now = new Date();
+  const diff = next.getTime() - now.getTime();
+  if (diff < 86400000) return 'Next: today at ' + next.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  if (diff < 172800000) return 'Next: tomorrow at ' + next.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return 'Next: ' + next.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' at ' + next.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
 // ── Athena Personality Definitions ───────────────────────────────────
@@ -5714,7 +5822,7 @@ async function athenaHandleResponse(rawText) {
       const rt = parsed.routine;
       if (rt && rt.name && rt.steps?.length) {
         const existed = (CONFIG.routines || []).some(r => r.name.toLowerCase() === rt.name.toLowerCase());
-        routineCreate(rt.name, rt.steps);
+        routineCreate(rt.name, rt.steps, rt.schedule || undefined);
         const verb = existed ? 'updated' : 'saved';
         athenaAddBubble('athena', parsed.speech || `Routine ${verb}.`);
         athenaShowChip('green', `${existed ? 'Updated' : 'Routine'}: ${rt.name}`);
@@ -10537,14 +10645,26 @@ function spRoutineListHtml() {
   const rtns = CONFIG.routines || [];
   if (rtns.length === 0) return '<div style="font-size:11px;color:var(--t3);padding:8px 0">No routines yet. Create one above or ask Athena.</div>';
   return rtns.map(r => {
+    const stepCount = (r.steps || []).length;
+    const schedSummary = r.schedule ? routineFormatSchedule(r) : 'On-demand';
     const steps = (r.steps || []).map(s => `<li class="sp-rtn-step">${routineFormatStep(s)}</li>`).join('');
-    return `<div class="sp-rtn-card">
-      <div class="sp-rtn-name">${r.name}</div>
-      <ol class="sp-rtn-steps">${steps}</ol>
-      <div class="sp-rtn-actions">
-        <button class="sp-rtn-btn" onclick="spRoutineEdit('${r.id}')">✎ Edit</button>
-        <button class="sp-rtn-btn" onclick="spRoutineTest('${r.id}')">▶ Test</button>
-        <button class="sp-rtn-btn danger" onclick="spRoutineDelete('${r.id}')">Delete</button>
+    const schedLine = r.schedule ? `<div class="sp-rtn-sched-line">${schedSummary}</div><div class="sp-rtn-sched-next">${routineFormatNext(r)}</div>` : '';
+    const schedToggle = r.schedule ? `<button class="sp-rtn-btn" onclick="event.stopPropagation();spRoutineSchedToggle('${r.id}')">${r.scheduleEnabled ? '⏸ Pause' : '▶ Enable'}</button>` : '';
+    return `<div class="sp-rtn-card" id="sp-rtn-${r.id}">
+      <div class="sp-rtn-card-hdr" onclick="this.parentElement.classList.toggle('expanded')">
+        <div class="sp-rtn-name">${r.name}</div>
+        <div class="sp-rtn-summary">${stepCount} step${stepCount !== 1 ? 's' : ''} · ${schedSummary}</div>
+        <span class="sp-rtn-chevron">›</span>
+      </div>
+      <div class="sp-rtn-body">
+        ${schedLine}
+        <ol class="sp-rtn-steps">${steps}</ol>
+        <div class="sp-rtn-actions">
+          <button class="sp-rtn-btn" onclick="spRoutineEdit('${r.id}')">✎ Edit</button>
+          ${schedToggle}
+          <button class="sp-rtn-btn" onclick="spRoutineTest('${r.id}')">▶ Test</button>
+          <button class="sp-rtn-btn danger" onclick="spRoutineDelete('${r.id}')">Delete</button>
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -10568,14 +10688,34 @@ function spRoutineDelete(id) {
   spRoutineRefresh();
 }
 
+function spRoutineSchedToggle(id) {
+  routineScheduleToggle(id);
+  spRoutineRefresh();
+}
+
 function spRoutineShowForm() {
   const area = document.getElementById('sp-rtn-form-area');
   if (!area) return;
-  const roomOpts = rooms.map(r => `<option value="${r.name}">${r.name}</option>`).join('');
+  _spRtnStepCount = 0;
   area.innerHTML = `<div class="sp-rem-form">
     <div class="sp-field"><label class="sp-label">Routine Name</label>
       <input class="sp-input" id="sp-rtn-name" placeholder="Movie Mode"></div>
-    <div class="sp-group-lbl" style="margin-top:8px">Steps</div>
+    <div class="sp-sep" style="margin:10px 0"></div>
+    <div class="sp-field"><label class="sp-label">Schedule (optional)</label>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <div class="sp-rem-toggle" id="sp-rtn-sched-toggle" onclick="this.classList.toggle('on');document.getElementById('sp-rtn-sched-fields').style.display=this.classList.contains('on')?'block':'none'"><div class="sp-rem-toggle-knob"></div></div>
+        <span style="font-size:11px;color:var(--t2)">Run on a schedule</span>
+      </div>
+      <div id="sp-rtn-sched-fields" style="display:none">
+        <div class="sp-field"><select class="sp-input" id="sp-rtn-sched-type" onchange="spRoutineSchedTypeChanged()">
+          <option value="daily" selected>Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option>
+        </select></div>
+        <div class="sp-field"><label class="sp-label">Time</label><input class="sp-input" id="sp-rtn-sched-time" type="time" value="07:00"></div>
+        <div id="sp-rtn-sched-extra"></div>
+      </div>
+    </div>
+    <div class="sp-sep" style="margin:10px 0"></div>
+    <div class="sp-group-lbl" style="margin:0 0 6px">Steps</div>
     <div id="sp-rtn-steps"></div>
     <button class="sp-btn sp-btn-secondary" style="width:100%;justify-content:center;margin-top:6px;font-size:10px" onclick="spRoutineAddStep()">+ Add Step</button>
     <div style="display:flex;gap:8px;margin-top:10px">
@@ -10586,22 +10726,56 @@ function spRoutineShowForm() {
   spRoutineAddStep();
 }
 
+function spRoutineSchedTypeChanged() {
+  const type = document.getElementById('sp-rtn-sched-type')?.value;
+  const extra = document.getElementById('sp-rtn-sched-extra');
+  if (!extra) return;
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  if (type === 'weekly') {
+    extra.innerHTML = `<div class="sp-field"><label class="sp-label">Days</label><div class="sp-rem-chips" id="sp-rtn-days">${dayNames.map((n,i)=>`<button class="sp-rem-chip" data-day="${i}" onclick="this.classList.toggle('selected')">${n}</button>`).join('')}</div></div>`;
+  } else if (type === 'monthly') {
+    extra.innerHTML = `<div class="sp-field"><label class="sp-label">Day of month</label><input class="sp-input" id="sp-rtn-dom" type="number" min="1" max="31" value="1"></div>`;
+  } else {
+    extra.innerHTML = '';
+  }
+}
+
+function spRoutineDeviceOpts(roomName) {
+  const room = rooms.find(r => r.name === roomName);
+  const devices = [];
+  if (room) {
+    ['switches','dimmers','fans','shades','colors','colortemps'].forEach(type => {
+      (room[type] || []).forEach(d => devices.push(d.name));
+    });
+  }
+  thermostats.forEach(t => devices.push(t.name));
+  if (CONFIG.lock?.id && CONFIG.lock?.label) devices.push(CONFIG.lock.label);
+  return '<option value="">-- select device --</option>' + devices.map(n => `<option value="${n}">${n}</option>`).join('');
+}
+
 let _spRtnStepCount = 0;
-function spRoutineAddStep() {
+function spRoutineAddStep(preRoom, preDev, preCmd, preVal) {
   const container = document.getElementById('sp-rtn-steps');
   if (!container) return;
   const idx = _spRtnStepCount++;
-  const roomOpts = rooms.map(r => `<option value="${r.name}">${r.name}</option>`).join('');
-  const cmdOpts = ['on','off','setLevel','setSpeed','open','close','setPosition','setColorTemperature','lock','unlock'].map(c => `<option value="${c}">${c}</option>`).join('');
+  const roomOpts = rooms.map(r => `<option value="${r.name}"${r.name === preRoom ? ' selected' : ''}>${r.name}</option>`).join('');
+  const initRoom = preRoom || (rooms[0]?.name || '');
+  const devOpts = spRoutineDeviceOpts(initRoom);
+  const cmds = ['on','off','setLevel','setSpeed','open','close','setPosition','setColorTemperature','lock','unlock'];
+  const cmdOpts = cmds.map(c => `<option value="${c}"${c === preCmd ? ' selected' : ''}>${c}</option>`).join('');
   const div = document.createElement('div');
   div.className = 'sp-rtn-step-row';
   div.style.cssText = 'display:flex;gap:4px;margin-bottom:4px;flex-wrap:wrap;align-items:center';
-  div.innerHTML = `<select class="sp-input" style="flex:1;min-width:80px;font-size:10px" id="sp-rtn-room-${idx}">${roomOpts}</select>
-    <input class="sp-input" style="flex:2;min-width:100px;font-size:10px" id="sp-rtn-dev-${idx}" placeholder="Device name">
+  div.innerHTML = `<select class="sp-input" style="flex:1;min-width:80px;font-size:10px" id="sp-rtn-room-${idx}" onchange="document.getElementById('sp-rtn-dev-${idx}').innerHTML=spRoutineDeviceOpts(this.value)">${roomOpts}</select>
+    <select class="sp-input" style="flex:2;min-width:100px;font-size:10px" id="sp-rtn-dev-${idx}">${devOpts}</select>
     <select class="sp-input" style="flex:1;min-width:70px;font-size:10px" id="sp-rtn-cmd-${idx}">${cmdOpts}</select>
-    <input class="sp-input" style="width:50px;font-size:10px" id="sp-rtn-val-${idx}" placeholder="Value">
+    <input class="sp-input" style="width:50px;font-size:10px" id="sp-rtn-val-${idx}" placeholder="Value" value="${preVal !== undefined && preVal !== null ? preVal : ''}">
     <span style="font-size:10px;color:var(--t3);cursor:pointer;padding:0 4px" onclick="this.parentElement.remove()">✕</span>`;
   container.appendChild(div);
+  if (preDev) {
+    const devSel = document.getElementById(`sp-rtn-dev-${idx}`);
+    if (devSel) devSel.value = preDev;
+  }
 }
 
 let _spRtnEditId = null;
@@ -10613,7 +10787,7 @@ function spRoutineSave() {
   const steps = [];
   stepEls.forEach((el, i) => {
     const room = el.querySelector(`[id^="sp-rtn-room-"]`)?.value || '';
-    const dev = el.querySelector(`[id^="sp-rtn-dev-"]`)?.value?.trim() || '';
+    const dev = el.querySelector(`[id^="sp-rtn-dev-"]`)?.value || '';
     const command = el.querySelector(`[id^="sp-rtn-cmd-"]`)?.value || 'on';
     const val = el.querySelector(`[id^="sp-rtn-val-"]`)?.value?.trim();
     if (dev) {
@@ -10623,12 +10797,27 @@ function spRoutineSave() {
     }
   });
   if (steps.length === 0) { showDeviceToast('Add at least one step'); return; }
+  let schedule = null;
+  const schedToggle = document.getElementById('sp-rtn-sched-toggle');
+  if (schedToggle && schedToggle.classList.contains('on')) {
+    const type = document.getElementById('sp-rtn-sched-type')?.value || 'daily';
+    const time = document.getElementById('sp-rtn-sched-time')?.value || '07:00';
+    schedule = { type, time };
+    if (type === 'weekly') {
+      const days = [];
+      document.querySelectorAll('#sp-rtn-days .sp-rem-chip.selected').forEach(c => days.push(Number(c.dataset.day)));
+      if (days.length === 0) { showDeviceToast('Select at least one day'); return; }
+      schedule.days = days;
+    } else if (type === 'monthly') {
+      schedule.dayOfMonth = Number(document.getElementById('sp-rtn-dom')?.value) || 1;
+    }
+  }
   if (_spRtnEditId) {
-    routineUpdate(_spRtnEditId, name, steps);
+    routineUpdate(_spRtnEditId, name, steps, schedule);
     _spRtnEditId = null;
     showDeviceToast('Routine updated');
   } else {
-    routineCreate(name, steps);
+    routineCreate(name, steps, schedule);
     showDeviceToast('Routine created');
   }
   document.getElementById('sp-rtn-form-area').innerHTML = '';
@@ -10640,12 +10829,30 @@ function spRoutineEdit(id) {
   if (!rtn) return;
   _spRtnEditId = id;
   _spRtnStepCount = 0;
+  const hasSched = rtn.schedule && rtn.scheduleEnabled;
+  const schedTime = rtn.schedule?.time || '07:00';
+  const schedType = rtn.schedule?.type || 'daily';
   const area = document.getElementById('sp-rtn-form-area');
   if (!area) return;
   area.innerHTML = `<div class="sp-rem-form">
     <div class="sp-field"><label class="sp-label">Routine Name</label>
       <input class="sp-input" id="sp-rtn-name" value="${rtn.name}"></div>
-    <div class="sp-group-lbl" style="margin-top:8px">Steps</div>
+    <div class="sp-sep" style="margin:10px 0"></div>
+    <div class="sp-field"><label class="sp-label">Schedule (optional)</label>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <div class="sp-rem-toggle${hasSched ? ' on' : ''}" id="sp-rtn-sched-toggle" onclick="this.classList.toggle('on');document.getElementById('sp-rtn-sched-fields').style.display=this.classList.contains('on')?'block':'none'"><div class="sp-rem-toggle-knob"></div></div>
+        <span style="font-size:11px;color:var(--t2)">Run on a schedule</span>
+      </div>
+      <div id="sp-rtn-sched-fields" style="display:${hasSched ? 'block' : 'none'}">
+        <div class="sp-field"><select class="sp-input" id="sp-rtn-sched-type" onchange="spRoutineSchedTypeChanged()">
+          <option value="daily"${schedType === 'daily' ? ' selected' : ''}>Daily</option><option value="weekdays"${schedType === 'weekdays' ? ' selected' : ''}>Weekdays</option><option value="weekly"${schedType === 'weekly' ? ' selected' : ''}>Weekly</option><option value="monthly"${schedType === 'monthly' ? ' selected' : ''}>Monthly</option>
+        </select></div>
+        <div class="sp-field"><label class="sp-label">Time</label><input class="sp-input" id="sp-rtn-sched-time" type="time" value="${schedTime}"></div>
+        <div id="sp-rtn-sched-extra"></div>
+      </div>
+    </div>
+    <div class="sp-sep" style="margin:10px 0"></div>
+    <div class="sp-group-lbl" style="margin:0 0 6px">Steps</div>
     <div id="sp-rtn-steps"></div>
     <button class="sp-btn sp-btn-secondary" style="width:100%;justify-content:center;margin-top:6px;font-size:10px" onclick="spRoutineAddStep()">+ Add Step</button>
     <div style="display:flex;gap:8px;margin-top:10px">
@@ -10653,26 +10860,24 @@ function spRoutineEdit(id) {
       <button class="sp-btn" style="flex:1;justify-content:center;background:var(--amber);color:#000" onclick="spRoutineSave()">Save Changes</button>
     </div>
   </div>`;
+  if (hasSched) {
+    spRoutineSchedTypeChanged();
+    if (schedType === 'weekly' && rtn.schedule.days) {
+      rtn.schedule.days.forEach(d => {
+        const chip = document.querySelector(`#sp-rtn-days .sp-rem-chip[data-day="${d}"]`);
+        if (chip) chip.classList.add('selected');
+      });
+    } else if (schedType === 'monthly' && rtn.schedule.dayOfMonth) {
+      const dom = document.getElementById('sp-rtn-dom');
+      if (dom) dom.value = rtn.schedule.dayOfMonth;
+    }
+  }
   (rtn.steps || []).forEach(s => spRoutineAddStepWithData(s));
   area.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function spRoutineAddStepWithData(step) {
-  const container = document.getElementById('sp-rtn-steps');
-  if (!container) return;
-  const idx = _spRtnStepCount++;
-  const roomOpts = rooms.map(r => `<option value="${r.name}"${r.name === step.room ? ' selected' : ''}>${r.name}</option>`).join('');
-  const cmds = ['on','off','setLevel','setSpeed','open','close','setPosition','setColorTemperature','lock','unlock'];
-  const cmdOpts = cmds.map(c => `<option value="${c}"${c === step.command ? ' selected' : ''}>${c}</option>`).join('');
-  const div = document.createElement('div');
-  div.className = 'sp-rtn-step-row';
-  div.style.cssText = 'display:flex;gap:4px;margin-bottom:4px;flex-wrap:wrap;align-items:center';
-  div.innerHTML = `<select class="sp-input" style="flex:1;min-width:80px;font-size:10px" id="sp-rtn-room-${idx}">${roomOpts}</select>
-    <input class="sp-input" style="flex:2;min-width:100px;font-size:10px" id="sp-rtn-dev-${idx}" placeholder="Device name" value="${step.deviceName || ''}">
-    <select class="sp-input" style="flex:1;min-width:70px;font-size:10px" id="sp-rtn-cmd-${idx}">${cmdOpts}</select>
-    <input class="sp-input" style="width:50px;font-size:10px" id="sp-rtn-val-${idx}" placeholder="Value" value="${step.value !== undefined && step.value !== null ? step.value : ''}">
-    <span style="font-size:10px;color:var(--t3);cursor:pointer;padding:0 4px" onclick="this.parentElement.remove()">✕</span>`;
-  container.appendChild(div);
+  spRoutineAddStep(step.room, step.deviceName, step.command, step.value);
 }
 
 async function spScanDevices() {
@@ -12632,6 +12837,7 @@ function launchOnboarding() {
   if (CONFIG.artemisEnabled) { artemisHsmSync(); updateArmedStatus(); }
   if (CONFIG.athenaEnabled)  { athenaInit(); }
   reminderInit();
+  routineScheduleInit();
   // Security checks
   checkHttpsEnforcement();
   setTimeout(verifyFileIntegrity, 2000); // slight delay so hub store is ready
