@@ -10740,17 +10740,50 @@ function spRoutineSchedTypeChanged() {
   }
 }
 
+const _spRtnCmdMap = {
+  switches: ['on','off'],
+  dimmers: ['on','off','setLevel'],
+  fans: ['on','off','setSpeed'],
+  shades: ['open','close','setPosition'],
+  colors: ['on','off','setLevel','setColor','setColorTemperature'],
+  colortemps: ['on','off','setLevel','setColorTemperature'],
+  thermostat: ['setThermostatMode','setHeatingSetpoint','setCoolingSetpoint','setThermostatFanMode'],
+  lock: ['lock','unlock']
+};
+
 function spRoutineDeviceOpts(roomName) {
   const room = rooms.find(r => r.name === roomName);
   const devices = [];
   if (room) {
     ['switches','dimmers','fans','shades','colors','colortemps'].forEach(type => {
-      (room[type] || []).forEach(d => devices.push(d.name));
+      (room[type] || []).forEach(d => devices.push({ name: d.name, type }));
     });
   }
-  thermostats.forEach(t => devices.push(t.name));
-  if (CONFIG.lock?.id && CONFIG.lock?.label) devices.push(CONFIG.lock.label);
-  return '<option value="">-- select device --</option>' + devices.map(n => `<option value="${n}">${n}</option>`).join('');
+  thermostats.forEach(t => devices.push({ name: t.name, type: 'thermostat' }));
+  if (CONFIG.lock?.id && CONFIG.lock?.label) devices.push({ name: CONFIG.lock.label, type: 'lock' });
+  return '<option value="">-- select device --</option>' + devices.map(d => `<option value="${d.name}" data-type="${d.type}">${d.name}</option>`).join('');
+}
+
+function spRoutineCmdOpts(devType, preCmd) {
+  const cmds = _spRtnCmdMap[devType] || ['on','off'];
+  return cmds.map(c => `<option value="${c}"${c === preCmd ? ' selected' : ''}>${c}</option>`).join('');
+}
+
+function spRoutineDevChanged(idx) {
+  const devSel = document.getElementById('sp-rtn-dev-' + idx);
+  const cmdSel = document.getElementById('sp-rtn-cmd-' + idx);
+  if (!devSel || !cmdSel) return;
+  const opt = devSel.options[devSel.selectedIndex];
+  const type = opt?.dataset?.type || 'switches';
+  cmdSel.innerHTML = spRoutineCmdOpts(type);
+}
+
+function spRoutineRoomChanged(idx) {
+  const roomSel = document.getElementById('sp-rtn-room-' + idx);
+  const devSel = document.getElementById('sp-rtn-dev-' + idx);
+  if (!roomSel || !devSel) return;
+  devSel.innerHTML = spRoutineDeviceOpts(roomSel.value);
+  spRoutineDevChanged(idx);
 }
 
 let _spRtnStepCount = 0;
@@ -10761,20 +10794,25 @@ function spRoutineAddStep(preRoom, preDev, preCmd, preVal) {
   const roomOpts = rooms.map(r => `<option value="${r.name}"${r.name === preRoom ? ' selected' : ''}>${r.name}</option>`).join('');
   const initRoom = preRoom || (rooms[0]?.name || '');
   const devOpts = spRoutineDeviceOpts(initRoom);
-  const cmds = ['on','off','setLevel','setSpeed','open','close','setPosition','setColorTemperature','lock','unlock'];
-  const cmdOpts = cmds.map(c => `<option value="${c}"${c === preCmd ? ' selected' : ''}>${c}</option>`).join('');
   const div = document.createElement('div');
   div.className = 'sp-rtn-step-row';
   div.style.cssText = 'display:flex;gap:4px;margin-bottom:4px;flex-wrap:wrap;align-items:center';
-  div.innerHTML = `<select class="sp-input" style="flex:1;min-width:80px;font-size:10px" id="sp-rtn-room-${idx}" onchange="document.getElementById('sp-rtn-dev-${idx}').innerHTML=spRoutineDeviceOpts(this.value)">${roomOpts}</select>
-    <select class="sp-input" style="flex:2;min-width:100px;font-size:10px" id="sp-rtn-dev-${idx}">${devOpts}</select>
-    <select class="sp-input" style="flex:1;min-width:70px;font-size:10px" id="sp-rtn-cmd-${idx}">${cmdOpts}</select>
+  div.innerHTML = `<select class="sp-input" style="flex:1;min-width:80px;font-size:10px" id="sp-rtn-room-${idx}" onchange="spRoutineRoomChanged(${idx})">${roomOpts}</select>
+    <select class="sp-input" style="flex:2;min-width:100px;font-size:10px" id="sp-rtn-dev-${idx}" onchange="spRoutineDevChanged(${idx})">${devOpts}</select>
+    <select class="sp-input" style="flex:1;min-width:70px;font-size:10px" id="sp-rtn-cmd-${idx}"><option value="on">on</option></select>
     <input class="sp-input" style="width:50px;font-size:10px" id="sp-rtn-val-${idx}" placeholder="Value" value="${preVal !== undefined && preVal !== null ? preVal : ''}">
     <span style="font-size:10px;color:var(--t3);cursor:pointer;padding:0 4px" onclick="this.parentElement.remove()">✕</span>`;
   container.appendChild(div);
   if (preDev) {
     const devSel = document.getElementById(`sp-rtn-dev-${idx}`);
-    if (devSel) devSel.value = preDev;
+    if (devSel) {
+      devSel.value = preDev;
+      const opt = devSel.options[devSel.selectedIndex];
+      const type = opt?.dataset?.type || 'switches';
+      document.getElementById(`sp-rtn-cmd-${idx}`).innerHTML = spRoutineCmdOpts(type, preCmd);
+    }
+  } else {
+    spRoutineDevChanged(idx);
   }
 }
 
