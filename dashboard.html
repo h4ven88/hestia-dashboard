@@ -626,6 +626,49 @@ html[data-display-mobile] .ath-timer-float{display:none}
 .ath-timer-cd{font-size:12px;font-weight:600;color:var(--amber);font-variant-numeric:tabular-nums;font-family:var(--mono,monospace)}
 .ath-timer-x{font-size:9px;color:var(--t3);cursor:pointer;margin-left:7px;opacity:.5;transition:opacity .15s}
 .ath-timer-x:hover{opacity:1;color:#F87171}
+/* Reminder notification toast */
+.ath-reminder-toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%) translateY(20px);background:rgba(13,13,13,.96);border:1px solid rgba(245,158,11,.25);border-radius:14px;padding:10px 16px 10px 12px;display:none;align-items:center;gap:10px;z-index:200;backdrop-filter:blur(8px);box-shadow:0 4px 20px rgba(0,0,0,.4);max-width:320px;opacity:0;transition:opacity .3s,transform .3s}
+.ath-reminder-toast.show{display:flex;opacity:1;transform:translateX(-50%) translateY(0)}
+.ath-reminder-toast-dot{width:8px;height:8px;border-radius:50%;background:var(--amber);flex-shrink:0;animation:athTimerPulse 1.5s ease-in-out infinite}
+.ath-reminder-toast-text{font-size:12px;color:var(--t1);line-height:1.4}
+.ath-reminder-toast-dismiss{font-size:10px;color:var(--t3);cursor:pointer;opacity:.5;flex-shrink:0;padding:2px 4px}
+.ath-reminder-toast-dismiss:hover{opacity:1;color:#F87171}
+/* Reminder settings cards */
+.sp-rem-card{background:var(--bg-panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px;transition:border-color .2s}
+.sp-rem-card:hover{border-color:var(--amber-bdr)}
+.sp-rem-card-hdr{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.sp-rem-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.sp-rem-dot.active{background:#22c55e}
+.sp-rem-dot.today{background:var(--amber);animation:athTimerPulse 2s ease-in-out infinite}
+.sp-rem-dot.disabled{background:var(--t3);opacity:.4}
+.sp-rem-label{font-size:13px;font-weight:500;color:var(--t1);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sp-rem-toggle{position:relative;width:34px;height:18px;border-radius:9px;background:var(--border);cursor:pointer;flex-shrink:0;transition:background .2s}
+.sp-rem-toggle.on{background:rgba(245,158,11,.5)}
+.sp-rem-toggle-knob{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:left .2s}
+.sp-rem-toggle.on .sp-rem-toggle-knob{left:18px}
+.sp-rem-schedule{font-size:10px;color:var(--t3);margin-bottom:4px}
+.sp-rem-next{font-size:10px;color:var(--t2)}
+.sp-rem-actions{display:flex;justify-content:flex-end;margin-top:6px;gap:6px}
+.sp-rem-del{font-size:10px;color:var(--t3);cursor:pointer;opacity:.5;transition:opacity .15s}
+.sp-rem-del:hover{opacity:1;color:#F87171}
+/* Routine settings cards */
+.sp-rtn-card{background:var(--bg-panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px;transition:border-color .2s}
+.sp-rtn-card:hover{border-color:var(--amber-bdr)}
+.sp-rtn-name{font-size:13px;font-weight:500;color:var(--t1);margin-bottom:8px}
+.sp-rtn-steps{padding:0;margin:0 0 8px;list-style:none;counter-reset:step}
+.sp-rtn-step{counter-increment:step;font-size:11px;color:var(--t2);padding:4px 0;display:flex;align-items:center;gap:6px}
+.sp-rtn-step::before{content:counter(step);font-size:9px;font-weight:700;color:var(--amber);background:rgba(245,158,11,.12);border-radius:4px;width:16px;height:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.sp-rtn-actions{display:flex;gap:8px;justify-content:flex-end}
+.sp-rtn-btn{font-size:10px;padding:4px 10px;border-radius:5px;border:1px solid var(--border);background:none;color:var(--t2);cursor:pointer;transition:border-color .15s,color .15s}
+.sp-rtn-btn:hover{border-color:var(--amber-bdr);color:var(--amber)}
+.sp-rtn-btn.danger:hover{border-color:#F87171;color:#F87171}
+.sp-rem-count{background:var(--amber);color:#000;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;margin-left:6px}
+/* Reminder/routine creation form */
+.sp-rem-form{background:var(--bg);border:1px solid var(--amber-bdr);border-radius:10px;padding:14px;margin-bottom:12px}
+.sp-rem-form .sp-field{margin-bottom:8px}
+.sp-rem-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.sp-rem-chip{font-size:10px;padding:3px 8px;border-radius:12px;border:1px solid var(--border);background:none;color:var(--t2);cursor:pointer;transition:all .15s}
+.sp-rem-chip.selected{border-color:var(--amber);background:rgba(245,158,11,.12);color:var(--amber)}
 /* Error state */
 .ath-error{padding:10px 13px 12px;font-size:11px;color:rgba(248,113,113,.7);line-height:1.5}
 .a-pin-sheet{display:none;position:fixed;bottom:0;left:0;right:0;z-index:300;background:var(--bg-panel);border-top:1px solid var(--border);border-radius:16px 16px 0 0;padding:20px 20px calc(20px + env(safe-area-inset-bottom));flex-direction:column;gap:12px;box-shadow:0 -4px 24px rgba(0,0,0,.3)}
@@ -1283,6 +1326,8 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
   </div>
   <!-- Wake acknowledgement toast -->
   <div class="ath-wake-toast" id="ath-wake-toast">I'm here…</div>
+  <!-- Reminder notification toast -->
+  <div class="ath-reminder-toast" id="ath-reminder-toast"></div>
   <!-- Overlay + panel -->
   <div class="ath-overlay" id="ath-overlay" onclick="athenaOverlayTap(event)">
     <div class="ath-panel" id="ath-panel">
@@ -1462,6 +1507,8 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
       <div class="sp-nav-group">Modules</div>
       <div class="sp-nav-item"        id="spn-artemis"  onclick="spShowSection('artemis')">  <span class="sp-nav-icon">🛡</span>Artemis Security</div>
       <div class="sp-nav-item"        id="spn-athena"   onclick="spShowSection('athena')">   <span class="sp-nav-icon">◈</span>Athena Voice<span class="sp-nav-badge" style="display:none" id="spn-athena-badge">New</span></div>
+      <div class="sp-nav-item"        id="spn-reminders" onclick="spShowSection('reminders')"><span class="sp-nav-icon">🔔</span>Reminders<span class="sp-nav-badge sp-rem-count" style="display:none" id="spn-rem-badge">0</span></div>
+      <div class="sp-nav-item"        id="spn-routines"  onclick="spShowSection('routines')"> <span class="sp-nav-icon">⚡</span>Routines</div>
       <div class="sp-nav-group">System</div>
       <div class="sp-nav-item"        id="spn-system"   onclick="spShowSection('system')">   <span class="sp-nav-icon">🔧</span>System Tools</div>
     </div>
@@ -1495,8 +1542,8 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    Copyright © 2025 Haven. CC BY-NC 4.0.
    First published: 2025-03-27
 ═══════════════════════════════════════════════════════ */
-const HESTIA_VERSION    = '1.4.1';
-const HESTIA_BUILD_DATE = '2026-05-14';
+const HESTIA_VERSION    = '1.5.0';
+const HESTIA_BUILD_DATE = '2026-05-15';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 
 /* ═══════════════════════════════════════════════════════
@@ -1844,6 +1891,9 @@ const CONFIG = {
   // Companion app credentials (cached for cross-origin access from hestari.com)
   hestiaAppId:    '',
   hestiaAppToken: '',
+  // Sprint 9 — Reminders & Routines (hub-synced via HUB_STORE)
+  reminders: [],
+  routines:  [],
 };
 
 /* ═══════════════════════════════════════════════════════
@@ -2087,7 +2137,8 @@ function buildConfigPayload() {
                    athenaPersonality: CONFIG.athenaPersonality, athenaConvoMode: CONFIG.athenaConvoMode,
                    athenaGoogleTTS: CONFIG.athenaGoogleTTS, athenaGoogleApiKey: CONFIG.athenaGoogleApiKey,
                    athenaGoogleVoice: CONFIG.athenaGoogleVoice,
-                   hestiaAppId: CONFIG.hestiaAppId, hestiaAppToken: CONFIG.hestiaAppToken },
+                   hestiaAppId: CONFIG.hestiaAppId, hestiaAppToken: CONFIG.hestiaAppToken,
+                   reminders: CONFIG.reminders || [], routines: CONFIG.routines || [] },
     thermostats: deepClone(thermostats),
     rooms:       deepClone(rooms),
     staging:     deepClone(staging)
@@ -4787,10 +4838,12 @@ function athenaSystemPrompt() {
   }
   if (hints.length) proactiveHints = '\n\nPROACTIVE AWARENESS (mention naturally if relevant to the user\'s request, don\'t volunteer unprompted):\n- ' + hints.join('\n- ');
 
-  // Active timers
+  // Active timers, reminders, routines
   const timerCtx = athenaActiveTimersSummary();
+  const reminderCtx = athenaActiveRemindersSummary();
+  const routineCtx = athenaActiveRoutinesSummary();
 
-  return `You are ${assistantName}, a voice assistant built into the Hestia smart home dashboard for Hubitat Elevation. You control smart home devices, set timers and reminders, and can hold natural conversations on any topic.
+  return `You are ${assistantName}, a voice assistant built into the Hestia smart home dashboard for Hubitat Elevation. You control smart home devices, set timers, reminders and routines, and can hold natural conversations on any topic.
 
 LANGUAGE: Respond only in ${lang}.
 
@@ -4805,6 +4858,9 @@ SPEECH TONE & LENGTH GUIDELINES:
 - Clarifications (type:clarify): One natural question, under 12 words.
 - Conversations (type:conversation): Answer in 1–3 sentences unless the topic genuinely needs more. Be helpful, not verbose.
 - Timers (type:timer): Confirm the timer naturally. "Got it, 12 minutes starting now."
+- Reminders (type:reminder): Confirm naturally. "Reminder set for 3 PM daily."
+- Routines (type:routine): Confirm creation. "Movie mode routine saved with 3 steps."
+- Running routines (type:run_routine): Confirm execution. "Running movie mode now."
 
 HOME LAYOUT:
 ${roomLayout}
@@ -4815,7 +4871,7 @@ ${stateLines}
 THERMOSTATS:
 ${thermLines}
 ${weatherCtx}
-${lockLine ? '\nLOCK:\n'+lockLine : ''}${timerCtx}
+${lockLine ? '\nLOCK:\n'+lockLine : ''}${timerCtx}${reminderCtx}${routineCtx}
 
 CONTEXT:
 - Time: ${timeStr}
@@ -4840,6 +4896,48 @@ For setting a timer or reminder:
 
 For cancelling a timer:
 {"type":"cancel_timer","speech":"Pasta timer cancelled.","timer":{"label":"pasta"}}
+
+For setting a reminder (schedule types: once, daily, weekdays, weekly, monthly, yearly):
+{"type":"reminder","speech":"Reminder set — take medicine daily at 8 AM.","reminder":{"label":"Take medicine","schedule":{"type":"daily","time":"08:00"}}}
+
+Weekly reminder example (daysOfWeek: 0=Sun,1=Mon...6=Sat):
+{"type":"reminder","speech":"Got it, trash reminder every Tuesday at 7 PM.","reminder":{"label":"Take out trash","schedule":{"type":"weekly","time":"19:00","daysOfWeek":[2]}}}
+
+Monthly reminder example:
+{"type":"reminder","speech":"Rent reminder set for the 1st of each month.","reminder":{"label":"Pay rent","schedule":{"type":"monthly","time":"09:00","dayOfMonth":1}}}
+
+One-time reminder example:
+{"type":"reminder","speech":"I'll remind you at 3 PM.","reminder":{"label":"Check the dryer","schedule":{"type":"once","time":"15:00","date":"${new Date().toISOString().slice(0,10)}"}}}
+
+For cancelling/deleting a reminder:
+{"type":"cancel_reminder","speech":"Medicine reminder deleted.","reminder":{"label":"Take medicine"}}
+
+For listing reminders:
+{"type":"list_reminders","speech":"You have 3 active reminders: take medicine daily at 8 AM, trash on Tuesdays at 7 PM, and rent on the 1st at 9 AM."}
+
+For creating a routine (a named sequence of device commands):
+{"type":"routine","speech":"Movie mode routine saved with 3 steps.","routine":{"name":"Movie Mode","steps":[{"deviceName":"Living Room Lights","room":"Living Room","command":"setLevel","value":20},{"deviceName":"Living Room Shades","room":"Living Room","command":"close"},{"deviceName":"Ceiling Fan","room":"Living Room","command":"setSpeed","value":"low"}]}}
+
+For running an existing routine:
+{"type":"run_routine","speech":"Running movie mode now.","routine":{"name":"Movie Mode"}}
+
+For listing routines:
+{"type":"list_routines","speech":"You have 2 routines: Movie Mode with 3 steps, and Good Night with 5 steps."}
+
+REMINDER RULES:
+- For "remind me at 3pm" with no date, assume today if 3pm hasn't passed, otherwise tomorrow. Use type "once".
+- For "remind me every day/morning/night", use type "daily".
+- For "remind me on weekdays", use type "weekdays".
+- For "remind me every Monday and Friday", use type "weekly" with daysOfWeek.
+- For "remind me on the 1st of every month", use type "monthly".
+- Time must be in 24-hour HH:mm format. Date must be YYYY-MM-DD.
+- To cancel, match by label (case-insensitive partial match is fine).
+
+ROUTINE RULES:
+- Steps reference devices by deviceName and room (NOT deviceId) — the system resolves IDs automatically.
+- Use exact device names from the room layout above.
+- When creating a routine, always include the room name for each step.
+- To run a routine, match by name (case-insensitive partial match is fine).
 
 Available commands: on, off, setLevel (value 0-100), setColorTemperature (value 2700-6500), setColor (JSON: {"hue":0-100,"saturation":0-100,"level":0-100}), setSpeed (off/low/medium-low/medium/medium-high/high), open, close, setPosition (value 0-100 for shades), lock, unlock, armHome, armAway, setHeatingSetpoint (value in °F), setCoolingSetpoint (value in °F), setThermostatMode (heat/cool/auto/off), setThermostatFanMode (auto/on/circulate)
 
@@ -5002,9 +5100,11 @@ function athenaCancelTimer(label) {
 let _athenaTimerRAF = null;
 
 function athenaUpdateTimerUI() {
-  // Badge on FAB
+  // Badge on FAB — combined timer + reminder count
+  const activeReminders = (CONFIG.reminders || []).filter(r => r.enabled).length;
+  const totalBadge = _athenaTimers.length + activeReminders;
   let badge = document.getElementById('ath-timer-badge');
-  if (_athenaTimers.length > 0) {
+  if (totalBadge > 0) {
     if (!badge) {
       badge = document.createElement('div');
       badge.id = 'ath-timer-badge';
@@ -5012,7 +5112,7 @@ function athenaUpdateTimerUI() {
       const fab = document.getElementById('ath-fab');
       if (fab) fab.appendChild(badge);
     }
-    badge.textContent = _athenaTimers.length;
+    badge.textContent = totalBadge;
   } else if (badge) {
     badge.remove();
   }
@@ -5086,6 +5186,346 @@ function athenaActiveTimersSummary() {
     const secs = remaining % 60;
     return `- ${t.label || 'Timer'}: ${mins}m ${secs}s remaining`;
   }).join('\n');
+}
+
+// ── Reminders Engine ─────────────────────────────────────────────────
+let _reminderTimeouts = {};
+
+function reminderNextFire(rem) {
+  if (!rem || !rem.enabled || !rem.schedule) return null;
+  const s = rem.schedule;
+  const tz = rem.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const nowMs = Date.now();
+  const nowLocal = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
+  const [hh, mm] = (s.time || '08:00').split(':').map(Number);
+
+  function makeDate(year, month, day) {
+    const d = new Date(new Date(year, month, day, hh, mm, 0).toLocaleString('en-US', { timeZone: tz }));
+    const target = new Date(year, month, day, hh, mm, 0);
+    const tzOffset = target.getTime() - d.getTime();
+    return new Date(target.getTime() + tzOffset);
+  }
+
+  function todayAt() {
+    return makeDate(nowLocal.getFullYear(), nowLocal.getMonth(), nowLocal.getDate());
+  }
+
+  function tomorrowAt() {
+    const t = new Date(nowLocal); t.setDate(t.getDate() + 1);
+    return makeDate(t.getFullYear(), t.getMonth(), t.getDate());
+  }
+
+  switch (s.type) {
+    case 'once': {
+      if (!s.date) return null;
+      const [y, m, d] = s.date.split('-').map(Number);
+      const target = makeDate(y, m - 1, d);
+      return target.getTime() > nowMs ? target : null;
+    }
+    case 'daily': {
+      const t = todayAt();
+      return t.getTime() > nowMs ? t : tomorrowAt();
+    }
+    case 'weekdays': {
+      for (let i = 0; i < 8; i++) {
+        const d = new Date(nowLocal); d.setDate(d.getDate() + i);
+        const dow = d.getDay();
+        if (dow >= 1 && dow <= 5) {
+          const target = makeDate(d.getFullYear(), d.getMonth(), d.getDate());
+          if (target.getTime() > nowMs) return target;
+        }
+      }
+      return null;
+    }
+    case 'weekly': {
+      const days = s.daysOfWeek || [1];
+      for (let i = 0; i < 8; i++) {
+        const d = new Date(nowLocal); d.setDate(d.getDate() + i);
+        if (days.includes(d.getDay())) {
+          const target = makeDate(d.getFullYear(), d.getMonth(), d.getDate());
+          if (target.getTime() > nowMs) return target;
+        }
+      }
+      return null;
+    }
+    case 'monthly': {
+      const dom = s.dayOfMonth || 1;
+      for (let i = 0; i < 13; i++) {
+        const d = new Date(nowLocal.getFullYear(), nowLocal.getMonth() + i, 1);
+        const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+        const clampedDay = Math.min(dom, lastDay);
+        const target = makeDate(d.getFullYear(), d.getMonth(), clampedDay);
+        if (target.getTime() > nowMs) return target;
+      }
+      return null;
+    }
+    case 'yearly': {
+      const mo = (s.month || 1) - 1;
+      const dom = s.dayOfMonth || 1;
+      for (let y = nowLocal.getFullYear(); y <= nowLocal.getFullYear() + 2; y++) {
+        const lastDay = new Date(y, mo + 1, 0).getDate();
+        const target = makeDate(y, mo, Math.min(dom, lastDay));
+        if (target.getTime() > nowMs) return target;
+      }
+      return null;
+    }
+    default: return null;
+  }
+}
+
+function reminderSchedule(rem) {
+  if (_reminderTimeouts[rem.id]) clearTimeout(_reminderTimeouts[rem.id]);
+  delete _reminderTimeouts[rem.id];
+  if (!rem.enabled) return;
+  const next = reminderNextFire(rem);
+  if (!next) return;
+  const delay = next.getTime() - Date.now();
+  const MAX_TIMEOUT = 12 * 60 * 60 * 1000;
+  if (delay > MAX_TIMEOUT) {
+    _reminderTimeouts[rem.id] = setTimeout(() => reminderSchedule(rem), MAX_TIMEOUT);
+  } else {
+    _reminderTimeouts[rem.id] = setTimeout(() => reminderFired(rem.id), Math.max(delay, 100));
+  }
+}
+
+function reminderFired(id) {
+  delete _reminderTimeouts[id];
+  const rem = (CONFIG.reminders || []).find(r => r.id === id);
+  if (!rem) return;
+  const msg = rem.label || 'Reminder';
+  athenaSpeak(`Reminder: ${msg}`);
+  reminderShowToast(msg);
+  const overlay = document.getElementById('ath-overlay');
+  if (!overlay?.classList.contains('open')) {
+    const fab = document.getElementById('ath-fab');
+    if (fab) fab.classList.add('ath-timer-alert');
+    setTimeout(() => fab?.classList.remove('ath-timer-alert'), 4000);
+  }
+  if (rem.schedule?.type === 'once') {
+    rem.enabled = false;
+  }
+  reminderSchedule(rem);
+  reminderUpdateBadge();
+  saveConfig();
+}
+
+function reminderShowToast(text) {
+  const el = document.getElementById('ath-reminder-toast');
+  if (!el) return;
+  el.innerHTML = `<div class="ath-reminder-toast-dot"></div><div class="ath-reminder-toast-text">${text}</div><div class="ath-reminder-toast-dismiss" onclick="reminderDismissToast()">✕</div>`;
+  el.classList.add('show');
+  clearTimeout(el._dismissTimeout);
+  el._dismissTimeout = setTimeout(() => reminderDismissToast(), 30000);
+}
+
+function reminderDismissToast() {
+  const el = document.getElementById('ath-reminder-toast');
+  if (el) { el.classList.remove('show'); clearTimeout(el._dismissTimeout); }
+}
+
+function reminderInit() {
+  Object.values(_reminderTimeouts).forEach(clearTimeout);
+  _reminderTimeouts = {};
+  (CONFIG.reminders || []).forEach(rem => reminderSchedule(rem));
+  reminderUpdateBadge();
+}
+
+function reminderUpdateBadge() {
+  const active = (CONFIG.reminders || []).filter(r => r.enabled).length;
+  const totalBadge = _athenaTimers.length + active;
+  let badge = document.getElementById('ath-timer-badge');
+  if (totalBadge > 0) {
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.id = 'ath-timer-badge';
+      badge.style.cssText = 'position:absolute;top:-4px;right:-4px;background:var(--amber);color:#000;font-size:10px;font-weight:700;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:91';
+      const fab = document.getElementById('ath-fab');
+      if (fab) fab.appendChild(badge);
+    }
+    badge.textContent = totalBadge;
+  } else if (badge) {
+    badge.remove();
+  }
+  const navBadge = document.getElementById('spn-rem-badge');
+  if (navBadge) {
+    navBadge.textContent = active;
+    navBadge.style.display = active > 0 ? 'inline' : 'none';
+  }
+}
+
+function reminderCreate(label, schedule) {
+  const rem = {
+    id: 'rem_' + Date.now(),
+    label: label,
+    schedule: schedule,
+    enabled: true,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    createdAt: Date.now()
+  };
+  CONFIG.reminders = CONFIG.reminders || [];
+  CONFIG.reminders.push(rem);
+  reminderSchedule(rem);
+  reminderUpdateBadge();
+  saveConfig();
+  return rem;
+}
+
+function reminderDelete(id) {
+  if (_reminderTimeouts[id]) clearTimeout(_reminderTimeouts[id]);
+  delete _reminderTimeouts[id];
+  CONFIG.reminders = (CONFIG.reminders || []).filter(r => r.id !== id);
+  reminderUpdateBadge();
+  saveConfig();
+}
+
+function reminderToggle(id) {
+  const rem = (CONFIG.reminders || []).find(r => r.id === id);
+  if (!rem) return;
+  rem.enabled = !rem.enabled;
+  reminderSchedule(rem);
+  reminderUpdateBadge();
+  saveConfig();
+}
+
+function reminderFormatSchedule(rem) {
+  const s = rem.schedule;
+  if (!s) return '';
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  switch (s.type) {
+    case 'once': return `Once — ${s.date || 'unknown'} at ${s.time || '08:00'}`;
+    case 'daily': return `Daily at ${s.time || '08:00'}`;
+    case 'weekdays': return `Weekdays at ${s.time || '08:00'}`;
+    case 'weekly': return `${(s.daysOfWeek||[]).map(d=>dayNames[d]).join(', ')} at ${s.time || '08:00'}`;
+    case 'monthly': return `Monthly on the ${s.dayOfMonth||1}${['','st','nd','rd'][s.dayOfMonth]||'th'} at ${s.time || '08:00'}`;
+    case 'yearly': return `Yearly ${monthNames[(s.month||1)-1]} ${s.dayOfMonth||1} at ${s.time || '08:00'}`;
+    default: return s.type;
+  }
+}
+
+function reminderFormatNext(rem) {
+  const next = reminderNextFire(rem);
+  if (!next) return rem.enabled ? 'No upcoming fire' : 'Disabled';
+  const now = new Date();
+  const diff = next.getTime() - now.getTime();
+  if (diff < 86400000) {
+    return 'Today at ' + next.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+  if (diff < 172800000) {
+    return 'Tomorrow at ' + next.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+  return next.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' at ' +
+    next.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+function reminderDotClass(rem) {
+  if (!rem.enabled) return 'disabled';
+  const next = reminderNextFire(rem);
+  if (!next) return 'disabled';
+  const now = new Date();
+  const todayStr = now.toLocaleDateString('en-US');
+  const nextStr = next.toLocaleDateString('en-US');
+  return todayStr === nextStr ? 'today' : 'active';
+}
+
+function athenaActiveRemindersSummary() {
+  const active = (CONFIG.reminders || []).filter(r => r.enabled);
+  if (active.length === 0) return '';
+  return '\nACTIVE REMINDERS:\n' + active.map(r => {
+    const next = reminderNextFire(r);
+    const nextStr = next ? next.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'none scheduled';
+    return `- ${r.label}: ${reminderFormatSchedule(r)} (next: ${nextStr})`;
+  }).join('\n');
+}
+
+// ── Routines Engine ─────────────────────────────────────────────────
+
+function routineResolveDevice(step) {
+  if (step.deviceId && DEVICE_REGISTRY.has(String(step.deviceId))) {
+    return String(step.deviceId);
+  }
+  const name = (step.deviceName || '').toLowerCase();
+  const room = (step.room || '').toLowerCase();
+  for (const r of rooms) {
+    if (room && r.name.toLowerCase() !== room) continue;
+    for (const type of ['switches','dimmers','fans','shades','colors','colortemps']) {
+      for (const d of (r[type] || [])) {
+        if (d.name.toLowerCase() === name) return String(d.id);
+      }
+    }
+  }
+  for (const r of rooms) {
+    for (const type of ['switches','dimmers','fans','shades','colors','colortemps']) {
+      for (const d of (r[type] || [])) {
+        if (d.name.toLowerCase() === name) return String(d.id);
+      }
+    }
+  }
+  return null;
+}
+
+async function routineRun(id) {
+  const rtn = (CONFIG.routines || []).find(r => r.id === id);
+  if (!rtn || !rtn.steps?.length) return { ok: false, msg: 'Routine not found.' };
+  let executed = 0;
+  const failures = [];
+  for (const step of rtn.steps) {
+    const devId = routineResolveDevice(step);
+    if (!devId) {
+      failures.push(step.deviceName || 'Unknown device');
+      continue;
+    }
+    step.deviceId = devId;
+    try {
+      await cmd(devId, step.command, step.value !== undefined ? step.value : undefined);
+      executed++;
+    } catch (e) {
+      failures.push(step.deviceName || devId);
+    }
+  }
+  if (executed > 0) setTimeout(scheduleNextPoll, 400);
+  if (failures.length === 0) return { ok: true, msg: `${rtn.name} complete — ${executed} commands.` };
+  return { ok: true, msg: `${rtn.name}: ${executed} done, ${failures.length} failed (${failures.join(', ')}).` };
+}
+
+function routineCreate(name, steps) {
+  const rtn = {
+    id: 'rtn_' + Date.now(),
+    name: name,
+    steps: (steps || []).map(s => ({
+      deviceName: s.deviceName || '',
+      room: s.room || '',
+      deviceId: s.deviceId || '',
+      command: s.command || 'on',
+      value: s.value !== undefined ? s.value : undefined
+    })),
+    createdAt: Date.now()
+  };
+  CONFIG.routines = CONFIG.routines || [];
+  CONFIG.routines.push(rtn);
+  saveConfig();
+  return rtn;
+}
+
+function routineDelete(id) {
+  CONFIG.routines = (CONFIG.routines || []).filter(r => r.id !== id);
+  saveConfig();
+}
+
+function routineFormatStep(step) {
+  let desc = step.deviceName || 'Unknown';
+  if (step.room) desc += ` (${step.room})`;
+  desc += ` → ${step.command}`;
+  if (step.value !== undefined && step.value !== null) desc += ` ${step.value}`;
+  return desc;
+}
+
+function athenaActiveRoutinesSummary() {
+  const rtns = CONFIG.routines || [];
+  if (rtns.length === 0) return '';
+  return '\nAVAILABLE ROUTINES:\n' + rtns.map(r =>
+    `- "${r.name}" (${r.steps.length} step${r.steps.length !== 1 ? 's' : ''})`
+  ).join('\n');
 }
 
 // ── Athena Personality Definitions ───────────────────────────────────
@@ -5197,6 +5637,87 @@ async function athenaHandleResponse(rawText) {
       athenaSetState('responding');
       athenaShowChip('green', cancelled ? `Cancelled: ${cancelled}` : 'No timer found');
       athenaSpeak(speech);
+      break;
+    }
+    case 'reminder': {
+      athenaAddBubble('user', lastUserMsg);
+      const rd = parsed.reminder;
+      if (rd && rd.label && rd.schedule) {
+        const rem = reminderCreate(rd.label, rd.schedule);
+        athenaAddBubble('athena', parsed.speech || 'Reminder set.');
+        athenaShowChip('green', `Reminder: ${rd.label}`);
+      } else {
+        athenaAddBubble('athena', parsed.speech || 'Reminder set.');
+      }
+      athenaSetState('responding');
+      athenaSpeak(parsed.speech || 'Reminder set.');
+      break;
+    }
+    case 'cancel_reminder': {
+      athenaAddBubble('user', lastUserMsg);
+      const rl = (parsed.reminder?.label || '').toLowerCase();
+      const found = (CONFIG.reminders || []).find(r => r.label.toLowerCase().includes(rl));
+      if (found) {
+        const name = found.label;
+        reminderDelete(found.id);
+        const speech = parsed.speech || `${name} reminder deleted.`;
+        athenaAddBubble('athena', speech);
+        athenaShowChip('green', `Deleted: ${name}`);
+        athenaSpeak(speech);
+      } else {
+        const speech = parsed.speech || 'No matching reminder found.';
+        athenaAddBubble('athena', speech);
+        athenaShowChip('red', 'No reminder found');
+        athenaSpeak(speech);
+      }
+      athenaSetState('responding');
+      break;
+    }
+    case 'list_reminders': {
+      athenaAddBubble('user', lastUserMsg);
+      athenaAddBubble('athena', parsed.speech || 'No reminders set.');
+      athenaSetState('responding');
+      athenaSpeak(parsed.speech || 'No reminders set.');
+      break;
+    }
+    case 'routine': {
+      athenaAddBubble('user', lastUserMsg);
+      const rt = parsed.routine;
+      if (rt && rt.name && rt.steps?.length) {
+        routineCreate(rt.name, rt.steps);
+        athenaAddBubble('athena', parsed.speech || 'Routine saved.');
+        athenaShowChip('green', `Routine: ${rt.name}`);
+      } else {
+        athenaAddBubble('athena', parsed.speech || 'Routine saved.');
+      }
+      athenaSetState('responding');
+      athenaSpeak(parsed.speech || 'Routine saved.');
+      break;
+    }
+    case 'run_routine': {
+      athenaAddBubble('user', lastUserMsg);
+      const rname = (parsed.routine?.name || '').toLowerCase();
+      const rtn = (CONFIG.routines || []).find(r => r.name.toLowerCase().includes(rname));
+      if (rtn) {
+        athenaAddBubble('athena', parsed.speech || `Running ${rtn.name}.`);
+        athenaSetState('responding');
+        athenaSpeak(parsed.speech || `Running ${rtn.name}.`);
+        const result = await routineRun(rtn.id);
+        if (result.msg) athenaShowChip(result.ok ? 'green' : 'red', result.msg);
+      } else {
+        const speech = parsed.speech || 'No matching routine found.';
+        athenaAddBubble('athena', speech);
+        athenaShowChip('red', 'Routine not found');
+        athenaSetState('responding');
+        athenaSpeak(speech);
+      }
+      break;
+    }
+    case 'list_routines': {
+      athenaAddBubble('user', lastUserMsg);
+      athenaAddBubble('athena', parsed.speech || 'No routines saved.');
+      athenaSetState('responding');
+      athenaSpeak(parsed.speech || 'No routines saved.');
       break;
     }
     default: {
@@ -9545,6 +10066,38 @@ function spShowSection(id, force) {
       });
       break;
 
+    case 'reminders':
+      html = `<div class="sp-content-hdr"><span class="sp-content-icon">🔔</span>Reminders</div>
+        <div class="sp-group">
+          <span class="sp-hint">Set reminders with your voice — "Remind me to take medicine daily at 8 AM" — or create one below.</span>
+        </div>
+        <div class="sp-sep"></div>
+        <div class="sp-group">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div class="sp-group-lbl" style="margin:0">Active Reminders</div>
+            <button class="sp-btn sp-btn-secondary" style="font-size:10px;padding:4px 10px" onclick="spReminderShowForm()">+ New Reminder</button>
+          </div>
+          <div id="sp-rem-form-area"></div>
+          <div id="sp-rem-list">${spReminderListHtml()}</div>
+        </div>`;
+      break;
+
+    case 'routines':
+      html = `<div class="sp-content-hdr"><span class="sp-content-icon">⚡</span>Routines</div>
+        <div class="sp-group">
+          <span class="sp-hint">Create routines with your voice — "Create a movie mode routine that dims the living room lights to 20%, closes the shades, and sets the fan to low." Or add one manually below.</span>
+        </div>
+        <div class="sp-sep"></div>
+        <div class="sp-group">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div class="sp-group-lbl" style="margin:0">Saved Routines</div>
+            <button class="sp-btn sp-btn-secondary" style="font-size:10px;padding:4px 10px" onclick="spRoutineShowForm()">+ New Routine</button>
+          </div>
+          <div id="sp-rtn-form-area"></div>
+          <div id="sp-rtn-list">${spRoutineListHtml()}</div>
+        </div>`;
+      break;
+
     case 'system':
       html = `<div class="sp-content-hdr"><span class="sp-content-icon">🔧</span>System Tools</div>
         <div class="sp-group">
@@ -9830,6 +10383,215 @@ function resetSettings() {
   rooms.length = 0;       DEFAULTS.rooms.forEach(r => rooms.push(deepClone(r)));
   applyConfig();
   closeSettings();
+}
+
+// ── Reminder Settings Helpers ──────────────────────────────────────
+function spReminderListHtml() {
+  const rems = CONFIG.reminders || [];
+  if (rems.length === 0) return '<div style="font-size:11px;color:var(--t3);padding:8px 0">No reminders yet. Create one above or ask Athena.</div>';
+  return rems.map(r => {
+    const dot = reminderDotClass(r);
+    const sched = reminderFormatSchedule(r);
+    const next = reminderFormatNext(r);
+    return `<div class="sp-rem-card">
+      <div class="sp-rem-card-hdr">
+        <div class="sp-rem-dot ${dot}"></div>
+        <div class="sp-rem-label">${r.label}</div>
+        <div class="sp-rem-toggle ${r.enabled ? 'on' : ''}" onclick="spReminderToggle('${r.id}')"><div class="sp-rem-toggle-knob"></div></div>
+      </div>
+      <div class="sp-rem-schedule">${sched}</div>
+      <div class="sp-rem-next">${next}</div>
+      <div class="sp-rem-actions"><span class="sp-rem-del" onclick="spReminderDelete('${r.id}')">Delete</span></div>
+    </div>`;
+  }).join('');
+}
+
+function spReminderRefresh() {
+  const el = document.getElementById('sp-rem-list');
+  if (el) el.innerHTML = spReminderListHtml();
+}
+
+function spReminderToggle(id) {
+  reminderToggle(id);
+  spReminderRefresh();
+}
+
+function spReminderDelete(id) {
+  reminderDelete(id);
+  spReminderRefresh();
+}
+
+function spReminderShowForm() {
+  const area = document.getElementById('sp-rem-form-area');
+  if (!area) return;
+  area.innerHTML = `<div class="sp-rem-form">
+    <div class="sp-field"><label class="sp-label">Label</label>
+      <input class="sp-input" id="sp-rem-label" placeholder="Take medicine"></div>
+    <div class="sp-field"><label class="sp-label">Schedule</label>
+      <select class="sp-input" id="sp-rem-type" onchange="spReminderTypeChanged()">
+        <option value="once">Once</option>
+        <option value="daily" selected>Daily</option>
+        <option value="weekdays">Weekdays</option>
+        <option value="weekly">Weekly</option>
+        <option value="monthly">Monthly</option>
+        <option value="yearly">Yearly</option>
+      </select></div>
+    <div class="sp-field"><label class="sp-label">Time</label>
+      <input class="sp-input" id="sp-rem-time" type="time" value="08:00"></div>
+    <div id="sp-rem-extra"></div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="sp-btn sp-btn-secondary" style="flex:1;justify-content:center" onclick="document.getElementById('sp-rem-form-area').innerHTML=''">Cancel</button>
+      <button class="sp-btn" style="flex:1;justify-content:center;background:var(--amber);color:#000" onclick="spReminderSave()">Save Reminder</button>
+    </div>
+  </div>`;
+}
+
+function spReminderTypeChanged() {
+  const type = document.getElementById('sp-rem-type')?.value;
+  const extra = document.getElementById('sp-rem-extra');
+  if (!extra) return;
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  switch (type) {
+    case 'once':
+      extra.innerHTML = `<div class="sp-field"><label class="sp-label">Date</label><input class="sp-input" id="sp-rem-date" type="date" value="${new Date().toISOString().slice(0,10)}"></div>`;
+      break;
+    case 'weekly':
+      extra.innerHTML = `<div class="sp-field"><label class="sp-label">Days</label><div class="sp-rem-chips" id="sp-rem-days">${dayNames.map((n,i)=>`<button class="sp-rem-chip" data-day="${i}" onclick="this.classList.toggle('selected')">${n}</button>`).join('')}</div></div>`;
+      break;
+    case 'monthly':
+      extra.innerHTML = `<div class="sp-field"><label class="sp-label">Day of month</label><input class="sp-input" id="sp-rem-dom" type="number" min="1" max="31" value="1"></div>`;
+      break;
+    case 'yearly':
+      extra.innerHTML = `<div class="sp-field"><label class="sp-label">Month</label><select class="sp-input" id="sp-rem-month">${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((m,i)=>`<option value="${i+1}">${m}</option>`).join('')}</select></div>
+        <div class="sp-field"><label class="sp-label">Day of month</label><input class="sp-input" id="sp-rem-dom" type="number" min="1" max="31" value="1"></div>`;
+      break;
+    default:
+      extra.innerHTML = '';
+  }
+}
+
+function spReminderSave() {
+  const label = document.getElementById('sp-rem-label')?.value?.trim();
+  if (!label) { showDeviceToast('Enter a label for the reminder'); return; }
+  const type = document.getElementById('sp-rem-type')?.value || 'daily';
+  const time = document.getElementById('sp-rem-time')?.value || '08:00';
+  const schedule = { type, time };
+  switch (type) {
+    case 'once':
+      schedule.date = document.getElementById('sp-rem-date')?.value || new Date().toISOString().slice(0,10);
+      break;
+    case 'weekly': {
+      const chips = document.querySelectorAll('#sp-rem-days .sp-rem-chip.selected');
+      schedule.daysOfWeek = Array.from(chips).map(c => parseInt(c.dataset.day));
+      if (schedule.daysOfWeek.length === 0) { showDeviceToast('Select at least one day'); return; }
+      break;
+    }
+    case 'monthly':
+      schedule.dayOfMonth = parseInt(document.getElementById('sp-rem-dom')?.value) || 1;
+      break;
+    case 'yearly':
+      schedule.month = parseInt(document.getElementById('sp-rem-month')?.value) || 1;
+      schedule.dayOfMonth = parseInt(document.getElementById('sp-rem-dom')?.value) || 1;
+      break;
+  }
+  reminderCreate(label, schedule);
+  document.getElementById('sp-rem-form-area').innerHTML = '';
+  spReminderRefresh();
+  showDeviceToast('Reminder created');
+}
+
+// ── Routine Settings Helpers ──────────────────────────────────────
+function spRoutineListHtml() {
+  const rtns = CONFIG.routines || [];
+  if (rtns.length === 0) return '<div style="font-size:11px;color:var(--t3);padding:8px 0">No routines yet. Create one above or ask Athena.</div>';
+  return rtns.map(r => {
+    const steps = (r.steps || []).map(s => `<li class="sp-rtn-step">${routineFormatStep(s)}</li>`).join('');
+    return `<div class="sp-rtn-card">
+      <div class="sp-rtn-name">${r.name}</div>
+      <ol class="sp-rtn-steps">${steps}</ol>
+      <div class="sp-rtn-actions">
+        <button class="sp-rtn-btn" onclick="spRoutineTest('${r.id}')">▶ Test</button>
+        <button class="sp-rtn-btn danger" onclick="spRoutineDelete('${r.id}')">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function spRoutineRefresh() {
+  const el = document.getElementById('sp-rtn-list');
+  if (el) el.innerHTML = spRoutineListHtml();
+}
+
+async function spRoutineTest(id) {
+  const btn = document.querySelector(`[onclick="spRoutineTest('${id}')"]`);
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Running…'; }
+  const result = await routineRun(id);
+  showDeviceToast(result.msg);
+  if (btn) { btn.disabled = false; btn.textContent = '▶ Test'; }
+}
+
+function spRoutineDelete(id) {
+  routineDelete(id);
+  spRoutineRefresh();
+}
+
+function spRoutineShowForm() {
+  const area = document.getElementById('sp-rtn-form-area');
+  if (!area) return;
+  const roomOpts = rooms.map(r => `<option value="${r.name}">${r.name}</option>`).join('');
+  area.innerHTML = `<div class="sp-rem-form">
+    <div class="sp-field"><label class="sp-label">Routine Name</label>
+      <input class="sp-input" id="sp-rtn-name" placeholder="Movie Mode"></div>
+    <div class="sp-group-lbl" style="margin-top:8px">Steps</div>
+    <div id="sp-rtn-steps"></div>
+    <button class="sp-btn sp-btn-secondary" style="width:100%;justify-content:center;margin-top:6px;font-size:10px" onclick="spRoutineAddStep()">+ Add Step</button>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="sp-btn sp-btn-secondary" style="flex:1;justify-content:center" onclick="document.getElementById('sp-rtn-form-area').innerHTML=''">Cancel</button>
+      <button class="sp-btn" style="flex:1;justify-content:center;background:var(--amber);color:#000" onclick="spRoutineSave()">Save Routine</button>
+    </div>
+  </div>`;
+  spRoutineAddStep();
+}
+
+let _spRtnStepCount = 0;
+function spRoutineAddStep() {
+  const container = document.getElementById('sp-rtn-steps');
+  if (!container) return;
+  const idx = _spRtnStepCount++;
+  const roomOpts = rooms.map(r => `<option value="${r.name}">${r.name}</option>`).join('');
+  const cmdOpts = ['on','off','setLevel','setSpeed','open','close','setPosition','setColorTemperature','lock','unlock'].map(c => `<option value="${c}">${c}</option>`).join('');
+  const div = document.createElement('div');
+  div.className = 'sp-rtn-step-row';
+  div.style.cssText = 'display:flex;gap:4px;margin-bottom:4px;flex-wrap:wrap;align-items:center';
+  div.innerHTML = `<select class="sp-input" style="flex:1;min-width:80px;font-size:10px" id="sp-rtn-room-${idx}">${roomOpts}</select>
+    <input class="sp-input" style="flex:2;min-width:100px;font-size:10px" id="sp-rtn-dev-${idx}" placeholder="Device name">
+    <select class="sp-input" style="flex:1;min-width:70px;font-size:10px" id="sp-rtn-cmd-${idx}">${cmdOpts}</select>
+    <input class="sp-input" style="width:50px;font-size:10px" id="sp-rtn-val-${idx}" placeholder="Value">
+    <span style="font-size:10px;color:var(--t3);cursor:pointer;padding:0 4px" onclick="this.parentElement.remove()">✕</span>`;
+  container.appendChild(div);
+}
+
+function spRoutineSave() {
+  const name = document.getElementById('sp-rtn-name')?.value?.trim();
+  if (!name) { showDeviceToast('Enter a routine name'); return; }
+  const stepEls = document.querySelectorAll('#sp-rtn-steps .sp-rtn-step-row');
+  const steps = [];
+  stepEls.forEach((el, i) => {
+    const room = el.querySelector(`[id^="sp-rtn-room-"]`)?.value || '';
+    const dev = el.querySelector(`[id^="sp-rtn-dev-"]`)?.value?.trim() || '';
+    const command = el.querySelector(`[id^="sp-rtn-cmd-"]`)?.value || 'on';
+    const val = el.querySelector(`[id^="sp-rtn-val-"]`)?.value?.trim();
+    if (dev) {
+      const step = { deviceName: dev, room, command };
+      if (val) step.value = isNaN(Number(val)) ? val : Number(val);
+      steps.push(step);
+    }
+  });
+  if (steps.length === 0) { showDeviceToast('Add at least one step'); return; }
+  routineCreate(name, steps);
+  document.getElementById('sp-rtn-form-area').innerHTML = '';
+  spRoutineRefresh();
+  showDeviceToast('Routine created');
 }
 
 async function spScanDevices() {
@@ -11779,6 +12541,7 @@ function launchOnboarding() {
   migrateSensorMeta();
   if (CONFIG.artemisEnabled) { artemisHsmSync(); updateArmedStatus(); }
   if (CONFIG.athenaEnabled)  { athenaInit(); }
+  reminderInit();
   // Security checks
   checkHttpsEnforcement();
   setTimeout(verifyFileIntegrity, 2000); // slight delay so hub store is ready

@@ -76,8 +76,8 @@ Hestia is a single-page smart home dashboard for Hubitat Elevation C8 Pro. It co
 - **GitHub:** https://github.com/h4ven88/hestia-dashboard
 - **Live URL:** https://hestari.com (Cloudflare Pages, auto-deploys from GitHub main)
 - **Hub IP:** (user-specific) | Maker API App ID: (user-specific) | Hestia App ID: (user-specific)
-- **Current version:** v1.4.1
-- **Target milestone:** v1.4.1 community release
+- **Current version:** v1.5.0
+- **Target milestone:** v1.5.0 community release
 
 ---
 
@@ -193,10 +193,10 @@ Free tier: TTS 1M chars/month, STT 60 min/month
 - ✅ Gem inner shields — Option A (stroke shield + filled icons)
 - ✅ Theme-aware selects, gem fills, interaction feedback
 
-### Current — Sprint 9 (Athena Scheduled Features)
-- ⬜ **Reminders** — absolute-time alerts, localStorage persistence. "Remind me to check the dryer at 3pm."
-- ⬜ **Routines** — named command sequences stored in CONFIG. "Run movie mode" → dims lights, closes shades, sets fan to low.
-- ⬜ **Calendar** — Google Calendar API integration. Upcoming events in Athena panel, voice announcements.
+### Completed — Sprint 9 (Athena Scheduled Features)
+- ✅ **Reminders** — recurring reminders (once/daily/weekdays/weekly/monthly/yearly) with timezone-aware recurrence engine, hub-synced persistence, notification toasts, voice control via 3 new Claude response types
+- ✅ **Routines** — named command sequences stored in CONFIG, hub-agnostic device resolution (name+room fallback), Settings UI with inline creation/test/delete, voice control via 3 new Claude response types
+- ⬜ **Calendar** — Google Calendar API integration. Deferred to future sprint.
 
 ### Blocked / Deferred
 - ⏸ **Ring integration migration** — blocked by known Hubitat issue: child devices won't create outside of Beta
