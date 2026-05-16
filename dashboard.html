@@ -5436,7 +5436,12 @@ let _reminderTimeouts = {};
 
 function reminderNextFire(rem) {
   if (!rem || !rem.enabled || !rem.schedule) return null;
-  return computeNextFire(rem.schedule, rem.timezone);
+  const next = computeNextFire(rem.schedule, rem.timezone);
+  if (next && rem.schedule.endDate) {
+    const [ey, em, ed] = rem.schedule.endDate.split('-').map(Number);
+    if (next > new Date(ey, em - 1, ed, 23, 59, 59)) return null;
+  }
+  return next;
 }
 
 function reminderSchedule(rem) {
@@ -5500,7 +5505,7 @@ function reminderInit() {
 
 function reminderUpdateBadge() {
   const active = (CONFIG.reminders || []).filter(r => r.enabled).length;
-  const totalBadge = _athenaTimers.length + active;
+  const totalBadge = _athenaTimers.length;
   let badge = document.getElementById('ath-timer-badge');
   if (totalBadge > 0) {
     if (!badge) {
@@ -5560,15 +5565,21 @@ function reminderFormatSchedule(rem) {
   if (!s) return '';
   const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  let base;
   switch (s.type) {
-    case 'once': return `Once — ${s.date || 'unknown'} at ${s.time || '08:00'}`;
-    case 'daily': return `Daily at ${s.time || '08:00'}`;
-    case 'weekdays': return `Weekdays at ${s.time || '08:00'}`;
-    case 'weekly': return `${(s.daysOfWeek||[]).map(d=>dayNames[d]).join(', ')} at ${s.time || '08:00'}`;
-    case 'monthly': return `Monthly on the ${s.dayOfMonth||1}${['','st','nd','rd'][s.dayOfMonth]||'th'} at ${s.time || '08:00'}`;
-    case 'yearly': return `Yearly ${monthNames[(s.month||1)-1]} ${s.dayOfMonth||1} at ${s.time || '08:00'}`;
-    default: return s.type;
+    case 'once': base = `Once — ${s.date || 'unknown'} at ${s.time || '08:00'}`; break;
+    case 'daily': base = `Daily at ${s.time || '08:00'}`; break;
+    case 'weekdays': base = `Weekdays at ${s.time || '08:00'}`; break;
+    case 'weekly': base = `${(s.daysOfWeek||[]).map(d=>dayNames[d]).join(', ')} at ${s.time || '08:00'}`; break;
+    case 'monthly': base = `Monthly on the ${s.dayOfMonth||1}${['','st','nd','rd'][s.dayOfMonth]||'th'} at ${s.time || '08:00'}`; break;
+    case 'yearly': base = `Yearly ${monthNames[(s.month||1)-1]} ${s.dayOfMonth||1} at ${s.time || '08:00'}`; break;
+    default: base = s.type;
   }
+  if (s.endDate) {
+    const [ey, em, ed] = s.endDate.split('-').map(Number);
+    base += ` · until ${monthNames[em-1]} ${ed}, ${ey}`;
+  }
+  return base;
 }
 
 function reminderFormatNext(rem) {
@@ -5821,6 +5832,7 @@ function _calEventsForDate(d) {
     const s = rem.schedule;
     const created = rem.createdAt ? new Date(rem.createdAt) : null;
     if (created && d < new Date(created.toISOString().split('T')[0])) return;
+    if (s.endDate && dateStr > s.endDate) return;
     let matches = false;
     switch (s.type) {
       case 'once':
@@ -5848,7 +5860,7 @@ function _calEventsForDate(d) {
       const [hh, mm] = evTime.split(':').map(Number);
       const evDate = new Date(d); evDate.setHours(hh, mm, 0, 0);
       const isPast = evDate < now || (rem.fired && s.type === 'once');
-      events.push({ type: 'reminder', name: rem.label || 'Reminder', time: evTime, meta: _calSchedLabel(s), past: isPast, fired: rem.fired, enabled: rem.enabled });
+      events.push({ type: 'reminder', id: rem.id, name: rem.label || 'Reminder', time: evTime, meta: _calSchedLabel(s), past: isPast, fired: rem.fired, enabled: rem.enabled });
     }
   });
 
@@ -5857,6 +5869,7 @@ function _calEventsForDate(d) {
     const s = rtn.schedule;
     const created = rtn.createdAt ? new Date(rtn.createdAt) : null;
     if (created && d < new Date(created.toISOString().split('T')[0])) return;
+    if (s.endDate && dateStr > s.endDate) return;
     let matches = false;
     switch (s.type) {
       case 'once':
@@ -5885,7 +5898,7 @@ function _calEventsForDate(d) {
       const [hh, mm] = evTime.split(':').map(Number);
       const evDate = new Date(d); evDate.setHours(hh, mm, 0, 0);
       const isPast = evDate < now;
-      events.push({ type: 'routine', name: rtn.name || 'Routine', time: evTime, meta: `Routine · ${(rtn.steps||[]).length} steps`, past: isPast });
+      events.push({ type: 'routine', id: rtn.id, name: rtn.name || 'Routine', time: evTime, meta: `Routine · ${(rtn.steps||[]).length} steps`, past: isPast });
     }
   });
 
@@ -5925,11 +5938,19 @@ function _calEventHTML(ev, mobile) {
   const cls = mobile ? 'm-cal-ev' : 'cal-event';
   const iconCls = mobile ? 'm-cal-ev-icon' : 'cal-ev-icon';
   const icon = ev.type === 'reminder' ? `<svg width="${mobile?11:13}" height="${mobile?11:13}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>` : `<svg width="${mobile?11:13}" height="${mobile?11:13}" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
-  return `<div class="${cls}${ev.past ? ' past' : ''}">
+  const section = ev.type === 'reminder' ? 'reminders' : 'routines';
+  const clickAttr = ev.id ? ` onclick="_calOpenSettings('${section}')" style="cursor:pointer"` : '';
+  return `<div class="${cls}${ev.past ? ' past' : ''}"${clickAttr}>
     <div class="${iconCls} ${ev.type}">${icon}</div>
     <div class="${pfx}-body"><div class="${pfx}-name">${ev.name}</div><div class="${pfx}-meta">${ev.meta}</div></div>
     <div class="${pfx}-time">${_calFormatTime(ev.time)}</div>
   </div>`;
+}
+
+function _calOpenSettings(section) {
+  document.getElementById('settings-overlay')?.classList.add('open');
+  document.getElementById('settings-panel')?.classList.add('open');
+  if (typeof spShowSection === 'function') spShowSection(section);
 }
 
 function _calAddBtnHTML(mobile) {
@@ -5946,6 +5967,7 @@ function _calAddFormHTML(mobile) {
       <option value="once">Once (today)</option><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option>
     </select></div>
     <div class="${p}-row" id="${p}-days-row" style="display:none"><span class="${p}-lbl">Days</span><div class="${p}-days" id="${p}-days">${['S','M','T','W','T','F','S'].map((d,i) => `<button type="button" class="${p}-day-btn" data-day="${i}" onclick="this.classList.toggle('active')">${d}</button>`).join('')}</div></div>
+    <div class="${p}-row" id="${p}-end-row" style="display:none"><span class="${p}-lbl">Until</span><input type="date" class="${p}-input" id="${p}-end" style="flex:0 0 auto;width:140px"></div>
     <div class="${p}-actions"><button class="${p}-cancel" onclick="_calCancelAdd(${mobile})">Cancel</button><button class="${p}-save" onclick="_calSaveReminder(${mobile})">Save</button></div>
   </div>`;
 }
@@ -5965,6 +5987,8 @@ function _calAddTypeChanged(mobile) {
   const type = document.getElementById(p + '-type')?.value;
   const daysRow = document.getElementById(p + '-days-row');
   if (daysRow) daysRow.style.display = type === 'weekly' ? 'flex' : 'none';
+  const endRow = document.getElementById(p + '-end-row');
+  if (endRow) endRow.style.display = type === 'once' ? 'none' : 'flex';
 }
 
 function _calCancelAdd(mobile) {
@@ -5990,6 +6014,8 @@ function _calSaveReminder(mobile) {
   } else if (type === 'monthly') {
     schedule.dayOfMonth = new Date().getDate();
   }
+  const endDate = document.getElementById(p + '-end')?.value;
+  if (endDate && type !== 'once') schedule.endDate = endDate;
   reminderCreate(label, schedule);
   reminderInit();
   _calRefresh();
@@ -9811,6 +9837,7 @@ function restoreAppearanceState() {
 function closeSettings() {
   document.getElementById('settings-overlay').classList.remove('open');
   document.getElementById('settings-panel').classList.remove('open');
+  if (document.getElementById('cal-card') || document.getElementById('m-cal-card')) _calRefresh();
 }
 
 function spSection(id, title, bodyHTML, startOpen) {
@@ -11061,6 +11088,8 @@ function spReminderShowForm() {
     <div class="sp-field"><label class="sp-label">Time</label>
       <input class="sp-input" id="sp-rem-time" type="time" value="08:00"></div>
     <div id="sp-rem-extra"></div>
+    <div class="sp-field" id="sp-rem-end-row"><label class="sp-label">End date <span style="color:var(--t4);font-weight:300">(optional)</span></label>
+      <input class="sp-input" id="sp-rem-end" type="date" placeholder="No end date"></div>
     <div style="display:flex;gap:8px;margin-top:10px">
       <button class="sp-btn sp-btn-secondary" style="flex:1;justify-content:center" onclick="document.getElementById('sp-rem-form-area').innerHTML=''">Cancel</button>
       <button class="sp-btn" style="flex:1;justify-content:center;background:var(--amber);color:#000" onclick="spReminderSave()">Save Reminder</button>
@@ -11072,6 +11101,8 @@ function spReminderTypeChanged() {
   const type = document.getElementById('sp-rem-type')?.value;
   const extra = document.getElementById('sp-rem-extra');
   if (!extra) return;
+  const endRow = document.getElementById('sp-rem-end-row');
+  if (endRow) endRow.style.display = type === 'once' ? 'none' : '';
   const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   switch (type) {
     case 'once':
@@ -11116,6 +11147,8 @@ function spReminderSave() {
       schedule.dayOfMonth = parseInt(document.getElementById('sp-rem-dom')?.value) || 1;
       break;
   }
+  const endDate = document.getElementById('sp-rem-end')?.value;
+  if (endDate && type !== 'once') schedule.endDate = endDate;
   reminderCreate(label, schedule);
   document.getElementById('sp-rem-form-area').innerHTML = '';
   spReminderRefresh();
