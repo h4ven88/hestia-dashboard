@@ -233,6 +233,9 @@ Override auto-detection in **Settings > Panel Behavior > Display Mode**. The ove
 | 5 | Athena voice AI -- wake word detection, Google Neural2 TTS | Complete |
 | 6 | Cloud Speech-to-Text, config sync, Artemis security | Complete |
 | 7 | Wake word pipeline fix, Groovy app v1.4.0 | Complete |
+| 8 | Athena v2 -- persistent memory, conversation mode, timers, personality presets, full device control | Complete |
+| 9 | Reminders, routines, adaptive silence detection | Complete |
+| 10 | Built-in calendar widget, inline reminder creation | Complete |
 
 ---
 

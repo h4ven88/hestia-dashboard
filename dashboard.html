@@ -947,6 +947,25 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 .cal-event.past .cal-ev-name{text-decoration:line-through;color:var(--t3)}
 .cal-event.past .cal-ev-time{color:var(--t4)}
 .cal-empty{font-size:11px;color:var(--t4);font-style:italic;padding:4px 10px}
+.cal-add-btn{display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:8px;border:1px solid var(--amber-bdr);background:var(--amber-dim);color:var(--amber);font-size:11px;font-weight:600;font-family:inherit;cursor:pointer;transition:all .15s;margin-top:4px}
+.cal-add-btn:hover{background:var(--amber);color:#000;border-color:var(--amber)}
+.cal-add-form{margin-top:10px;padding:12px 14px;border-radius:10px;border:1px solid var(--border);background:var(--bg)}
+.cal-add-row{display:flex;gap:8px;margin-bottom:8px;align-items:center}
+.cal-add-row:last-child{margin-bottom:0}
+.cal-add-lbl{font-size:10px;font-weight:600;color:var(--t3);min-width:52px;letter-spacing:.03em}
+.cal-add-input{flex:1;background:var(--bg-card);border:1px solid var(--border);border-radius:7px;padding:7px 10px;font-size:12px;color:var(--t1);font-family:inherit;outline:none}
+.cal-add-input:focus{border-color:var(--amber)}
+.cal-add-input::placeholder{color:var(--t4)}
+.cal-add-sel{background:var(--bg-card);border:1px solid var(--border);border-radius:7px;padding:7px 10px;font-size:12px;color:var(--t1);font-family:inherit;outline:none;cursor:pointer}
+.cal-add-sel:focus{border-color:var(--amber)}
+.cal-add-actions{display:flex;gap:6px;justify-content:flex-end;margin-top:10px}
+.cal-add-save{padding:6px 16px;border-radius:7px;border:none;background:var(--amber);color:#000;font-size:11px;font-weight:600;font-family:inherit;cursor:pointer;transition:all .15s}
+.cal-add-save:hover{filter:brightness(1.1)}
+.cal-add-cancel{padding:6px 12px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--t3);font-size:11px;font-family:inherit;cursor:pointer;transition:all .15s}
+.cal-add-cancel:hover{color:var(--t2);background:var(--bg-hover)}
+.cal-add-days{display:flex;gap:4px;flex-wrap:wrap}
+.cal-add-day-btn{width:30px;height:26px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--t3);font-size:10px;font-weight:600;font-family:inherit;cursor:pointer;transition:all .12s}
+.cal-add-day-btn.active{background:var(--amber);color:#000;border-color:var(--amber)}
 
 /* ── SETTINGS GEAR BUTTON ── */
 
@@ -1225,6 +1244,21 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
   .m-cal-ev.past .m-cal-ev-name{text-decoration:line-through;color:var(--t3)}
   .m-cal-ev.past .m-cal-ev-time{color:var(--t4)}
   .m-cal-empty{font-size:10px;color:var(--t4);font-style:italic;padding:4px 8px}
+  .m-cal-add-btn{display:inline-flex;align-items:center;gap:4px;padding:5px 12px;border-radius:7px;border:1px solid var(--amber-bdr);background:var(--amber-dim);color:var(--amber);font-size:10px;font-weight:600;font-family:inherit;cursor:pointer;margin-top:4px}
+  .m-cal-add-form{margin-top:8px;padding:10px 12px;border-radius:9px;border:1px solid var(--border);background:var(--bg)}
+  .m-cal-add-row{display:flex;gap:6px;margin-bottom:6px;align-items:center}
+  .m-cal-add-row:last-child{margin-bottom:0}
+  .m-cal-add-lbl{font-size:9px;font-weight:600;color:var(--t3);min-width:44px}
+  .m-cal-add-input{flex:1;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:11px;color:var(--t1);font-family:inherit;outline:none}
+  .m-cal-add-input:focus{border-color:var(--amber)}
+  .m-cal-add-input::placeholder{color:var(--t4)}
+  .m-cal-add-sel{background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:11px;color:var(--t1);font-family:inherit;outline:none}
+  .m-cal-add-actions{display:flex;gap:5px;justify-content:flex-end;margin-top:8px}
+  .m-cal-add-save{padding:5px 14px;border-radius:6px;border:none;background:var(--amber);color:#000;font-size:10px;font-weight:600;font-family:inherit;cursor:pointer}
+  .m-cal-add-cancel{padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--t3);font-size:10px;font-family:inherit;cursor:pointer}
+  .m-cal-add-days{display:flex;gap:3px;flex-wrap:wrap}
+  .m-cal-add-day-btn{width:26px;height:22px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--t3);font-size:9px;font-weight:600;font-family:inherit;cursor:pointer}
+  .m-cal-add-day-btn.active{background:var(--amber);color:#000;border-color:var(--amber)}
   .m-climate-row{display:flex;flex-direction:column;padding:8px 0;border-bottom:1px solid var(--border-s)}
   .m-climate-row:last-child{border-bottom:none}
   .m-climate-name{font-size:11px;font-weight:600;color:var(--t2);letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px}
@@ -1619,7 +1653,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.5.2';
-const HESTIA_BUILD_DATE = '2026-05-15';
+const HESTIA_BUILD_DATE = '2026-05-16';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 
 /* ═══════════════════════════════════════════════════════
@@ -3126,7 +3160,7 @@ function renderHome() {
   <span style="font-size:10px;color:var(--t4);letter-spacing:.04em">© 2026 Haven &nbsp;·&nbsp; CC BY-NC 4.0 &nbsp;·&nbsp; Personal use only</span>
 </div>
       </div>`;
-    if (_calHasEvents()) setTimeout(_calInitSwipe, 50);
+    setTimeout(_calInitSwipe, 50);
     return;
   }
 
@@ -5898,8 +5932,71 @@ function _calEventHTML(ev, mobile) {
   </div>`;
 }
 
+function _calAddBtnHTML(mobile) {
+  const cls = mobile ? 'm-cal-add-btn' : 'cal-add-btn';
+  return `<button class="${cls}" onclick="_calShowAddForm(${mobile})"><svg width="${mobile?10:12}" height="${mobile?10:12}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add Reminder</button>`;
+}
+
+function _calAddFormHTML(mobile) {
+  const p = mobile ? 'm-cal-add' : 'cal-add';
+  return `<div class="${p}-form" id="${p}-form">
+    <div class="${p}-row"><span class="${p}-lbl">Label</span><input class="${p}-input" id="${p}-label" placeholder="e.g. Take medicine" maxlength="80"></div>
+    <div class="${p}-row"><span class="${p}-lbl">Time</span><input type="time" class="${p}-input" id="${p}-time" value="08:00" style="flex:0 0 auto;width:110px"></div>
+    <div class="${p}-row"><span class="${p}-lbl">Repeat</span><select class="${p}-sel" id="${p}-type" onchange="_calAddTypeChanged(${mobile})">
+      <option value="once">Once (today)</option><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option>
+    </select></div>
+    <div class="${p}-row" id="${p}-days-row" style="display:none"><span class="${p}-lbl">Days</span><div class="${p}-days" id="${p}-days">${['S','M','T','W','T','F','S'].map((d,i) => `<button type="button" class="${p}-day-btn" data-day="${i}" onclick="this.classList.toggle('active')">${d}</button>`).join('')}</div></div>
+    <div class="${p}-actions"><button class="${p}-cancel" onclick="_calCancelAdd(${mobile})">Cancel</button><button class="${p}-save" onclick="_calSaveReminder(${mobile})">Save</button></div>
+  </div>`;
+}
+
+function _calShowAddForm(mobile) {
+  const p = mobile ? 'm-cal-add' : 'cal-add';
+  const container = mobile ? document.getElementById('m-cal-card') : document.getElementById('cal-card');
+  if (!container || document.getElementById(p + '-form')) return;
+  const target = mobile ? container.querySelector('.m-cal-events') : container.querySelectorAll('.cal-events-col')[0];
+  if (target) target.insertAdjacentHTML('beforeend', _calAddFormHTML(mobile));
+  const labelInput = document.getElementById(p + '-label');
+  if (labelInput) labelInput.focus();
+}
+
+function _calAddTypeChanged(mobile) {
+  const p = mobile ? 'm-cal-add' : 'cal-add';
+  const type = document.getElementById(p + '-type')?.value;
+  const daysRow = document.getElementById(p + '-days-row');
+  if (daysRow) daysRow.style.display = type === 'weekly' ? 'flex' : 'none';
+}
+
+function _calCancelAdd(mobile) {
+  const p = mobile ? 'm-cal-add' : 'cal-add';
+  const form = document.getElementById(p + '-form');
+  if (form) form.remove();
+}
+
+function _calSaveReminder(mobile) {
+  const p = mobile ? 'm-cal-add' : 'cal-add';
+  const label = document.getElementById(p + '-label')?.value?.trim();
+  if (!label) { document.getElementById(p + '-label')?.focus(); return; }
+  const time = document.getElementById(p + '-time')?.value || '08:00';
+  const type = document.getElementById(p + '-type')?.value || 'once';
+  const schedule = { type, time };
+  if (type === 'once') {
+    const today = new Date();
+    schedule.date = today.toISOString().split('T')[0];
+  } else if (type === 'weekly') {
+    const dayBtns = document.querySelectorAll(`#${p}-days .${p}-day-btn.active`);
+    schedule.daysOfWeek = Array.from(dayBtns).map(b => parseInt(b.dataset.day));
+    if (schedule.daysOfWeek.length === 0) schedule.daysOfWeek = [new Date().getDay()];
+  } else if (type === 'monthly') {
+    schedule.dayOfMonth = new Date().getDate();
+  }
+  reminderCreate(label, schedule);
+  reminderInit();
+  _calRefresh();
+  if (typeof renderHome === 'function' && document.getElementById('cal-card') || document.getElementById('m-cal-card')) _calRefresh();
+}
+
 function calendarDesktopHTML() {
-  if (!_calHasEvents()) return '';
   const today = new Date(); today.setHours(0,0,0,0);
   const sel = _calState.selDate || today;
   const y = _calState.year, m = _calState.month;
@@ -5925,7 +6022,7 @@ function calendarDesktopHTML() {
   const selDate = new Date(sel); selDate.setHours(0,0,0,0);
   const selEvents = _calEventsForDate(selDate);
   const selLabel = selDate.getTime() === today.getTime() ? 'Today' : selDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  let selEvHTML = selEvents.length === 0 ? '<div class="cal-empty">No events</div>' : selEvents.map(ev => _calEventHTML(ev, false)).join('');
+  let selEvHTML = selEvents.length === 0 ? '<div class="cal-empty">No events</div>' + _calAddBtnHTML(false) : selEvents.map(ev => _calEventHTML(ev, false)).join('') + _calAddBtnHTML(false);
 
   const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
   const upcoming = [];
@@ -5962,7 +6059,6 @@ function calendarDesktopHTML() {
 }
 
 function calendarMobileHTML() {
-  if (!_calHasEvents()) return '';
   const today = new Date(); today.setHours(0,0,0,0);
   const sel = _calState.selDate || today;
   const weekStart = new Date(today);
@@ -5992,7 +6088,7 @@ function calendarMobileHTML() {
   const selDate = new Date(sel); selDate.setHours(0,0,0,0);
   const selEvents = _calEventsForDate(selDate);
   const selLabel = selDate.getTime() === today.getTime() ? 'Today' : selDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  let evListHTML = selEvents.length === 0 ? '<div class="m-cal-empty">No events</div>' : selEvents.map(ev => _calEventHTML(ev, true)).join('');
+  let evListHTML = selEvents.length === 0 ? '<div class="m-cal-empty">No events</div>' + _calAddBtnHTML(true) : selEvents.map(ev => _calEventHTML(ev, true)).join('') + _calAddBtnHTML(true);
 
   return `<div class="m-cal-card" id="m-cal-card">
     <div class="m-cal-header">
