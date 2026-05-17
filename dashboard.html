@@ -2343,7 +2343,7 @@ function cloudSyncPush(payload) {
     if (!ip) return;
     return _cloudEncrypt(inner, ip).then(encrypted => {
       const body = JSON.stringify({ encrypted: true, payload: encrypted });
-      if (body.length > 16384) return;
+      if (body.length > 65536) return;
       return fetch(CLOUD_SYNC_API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
     }).then(r => { if (r && r.ok) { _lastCloudPushAt = Date.now(); console.log('[CloudSync] Encrypted push to cloud'); } });
   }).catch(e => console.warn('[CloudSync] Push failed:', e.message));

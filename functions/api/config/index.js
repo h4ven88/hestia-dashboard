@@ -15,7 +15,7 @@ export async function onRequestPut({ request, env }) {
   }
 
   const raw = JSON.stringify(body);
-  if (raw.length > 10240) {
+  if (raw.length > 65536) {
     return Response.json({ status: 'error', message: 'payload too large' }, { status: 413 });
   }
 
