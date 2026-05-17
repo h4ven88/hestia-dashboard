@@ -12582,16 +12582,10 @@ function scheduleNextPoll() {
       pollDelay  = Math.min(pollDelay * 2, 60000);
       _pollFailCount = (_pollFailCount || 0) + 1;
       if (_pollFailCount >= 3 && !wsConnected) setConn('err');
-      // Stop polling if mixed content is the cause — no point retrying
-      if (_pollFailCount >= 3 && window.location.protocol === 'https:' && CONFIG.hub && CONFIG.hub.startsWith('http://')) {
-        _mixedContentMode = true;
-        const hubHost = CONFIG.hub.replace(/^https?:\/\//, '').replace(/\/+$/, '');
-        const banner = document.getElementById('offline-banner');
-        if (banner) banner.innerHTML =
-          'Can\'t reach hub over HTTP from this HTTPS page — ' +
-          '<a href="http://' + hubHost + '/local/index.html" style="color:inherit;text-decoration:underline">open the local dashboard</a>' +
-          ' or switch hub URL to HTTPS in Settings';
-        return;
+      // Mixed content: HTTPS page can't reach HTTP hub — slow down but keep retrying
+      // (some browsers intermittently allow local IP mixed content)
+      if (_pollFailCount >= 5 && window.location.protocol === 'https:' && CONFIG.hub && CONFIG.hub.startsWith('http://')) {
+        pollDelay = 30000;
       }
     }
     scheduleNextPoll();
@@ -13438,18 +13432,6 @@ function launchOnboarding() {
     setConn('ok'); // Mark online immediately after devices load — before any secondary tasks
   } catch (e) {
     lastConnOk = false;
-    // Mixed content: HTTPS page can't reach HTTP hub. Show actionable guidance
-    // instead of the generic "Hub unreachable" banner.
-    if (window.location.protocol === 'https:' && CONFIG.hub && CONFIG.hub.startsWith('http://')) {
-      _mixedContentMode = true;
-      const hubHost = CONFIG.hub.replace(/^https?:\/\//, '').replace(/\/+$/, '');
-      const banner = document.getElementById('offline-banner');
-      if (banner) banner.innerHTML =
-        'Can’t reach hub over HTTP from this HTTPS page — ' +
-        '<a href="http://' + hubHost + '/local/index.html" style="color:inherit;text-decoration:underline">open the local dashboard</a>' +
-        ' or switch hub URL to HTTPS in Settings';
-      console.warn('[Boot] Mixed content blocked — HTTPS page cannot fetch from HTTP hub. Use the local URL for full functionality.');
-    }
     setConn('err');
   }
 
