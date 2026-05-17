@@ -54,7 +54,7 @@ npm install --save-dev clean-css terser
 
 ### Windows (Claude Code)
 
-Node.js is available as `node`. Python is NOT installed — do not use `build.py`.
+Node.js is available as `node`. Python is available as `python`. Do not use `build.py` (use `build.js`).
 Working directory: `C:\Users\rbodd\hestia-dashboard\`
 
 Build on Windows:
@@ -91,6 +91,7 @@ Hestia is a single-page smart home dashboard for Hubitat Elevation C8 Pro. It co
 - Google Cloud TTS (Neural2) for Athena voice output
 - Web Speech Synthesis as TTS fallback
 - Cloudflare Pages for hosting
+- Cloudflare Pages Functions + KV for cloud config sync
 
 ---
 
@@ -200,9 +201,9 @@ Free tier: TTS 1M chars/month, STT 60 min/month
 
 ### Blocked / Deferred
 - ⏸ **Ring integration migration** — blocked by known Hubitat issue: child devices won't create outside of Beta
-- ⏸ **Wake word model training** — training additional models in Colab; environment unstable (session resets on shared Colab)
+- ⏸ **Wake word model training** — v2 pipeline (augmented MLP) ready; 369 URLs across 10 words; scraping in progress; Colab saved to personal Drive
 - ⬜ OWW diagnostic logging — keeping verbose logs until wake word is reliable in noisy environments
-- ⬜ Community release on Hubitat Forum
+- ✅ Community v1.5.2 post published on Hubitat Forum
 
 ### Wake Word Status
 Three models trained and deployed: Athena (0.6–0.8), Artemis (0.94–0.96), Hestia (untested). Seven more names in picklist as "Coming Soon" (Apollo, Achilles, Andromeda, Hermes, Odin, Osiris, Anubis). Threshold 0.40, CONSEC_HITS 3, COOLDOWN_MS 3000, grace period 25 chunks (~2s).

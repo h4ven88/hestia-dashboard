@@ -1653,8 +1653,11 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.5.2';
-const HESTIA_BUILD_DATE = '2026-05-16';
+const HESTIA_BUILD_DATE = '2026-05-17';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
+const CLOUD_SYNC_API    = '/api/config';
+let _cloudSyncDebounce  = null;
+let _lastCloudPushAt    = 0;
 
 /* ═══════════════════════════════════════════════════════
    THEME
@@ -2296,6 +2299,35 @@ async function saveConfig() {
   }
 
   await saveConfigToHub(payload); // await so hub is up to date before next load
+  cloudSyncPush(payload);
+}
+
+/* ── Cloud Config Sync ──────────────────────────────────────────────── */
+function cloudSyncPush(payload) {
+  if (Date.now() - _lastCloudPushAt < 30000) {
+    clearTimeout(_cloudSyncDebounce);
+    _cloudSyncDebounce = setTimeout(() => cloudSyncPush(payload), 30000);
+    return;
+  }
+  const body = JSON.stringify({ config: payload, savedAt: Date.now(), version: HESTIA_VERSION });
+  if (body.length > 10240) return;
+  fetch(CLOUD_SYNC_API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
+    .then(r => { if (r.ok) { _lastCloudPushAt = Date.now(); console.log('[CloudSync] Pushed to cloud'); } })
+    .catch(e => console.warn('[CloudSync] Push failed:', e.message));
+}
+
+async function cloudSyncDiscover() {
+  try {
+    const res = await fetch(CLOUD_SYNC_API + '/discover');
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data || !data.found || !data.config) return null;
+    console.log('[CloudSync] Config discovered from cloud');
+    return data.config;
+  } catch(e) {
+    console.warn('[CloudSync] Discovery failed:', e.message);
+    return null;
+  }
 }
 
 /* Re-seed S{} and DEVICE_TYPE{} from current rooms/thermostats */
@@ -13289,13 +13321,26 @@ function launchOnboarding() {
         renderOnboarding();
         return;
       }
-    } else if (_hubHint) {
-      OB.hub = _hubHint;
-      renderOnboarding();
-      return;
     } else {
-      renderOnboarding();
-      return;
+      // No HUB_STORE, no full URL params — try cloud auto-discovery
+      const cloudCfg = await cloudSyncDiscover();
+      if (cloudCfg) {
+        const ok = applyParsedConfig(cloudCfg);
+        if (ok) {
+          applyConfig();
+          try { localStorage.setItem('dashboard-config', JSON.stringify(cloudCfg)); } catch(e) {}
+          console.log('[Boot] Auto-configured from cloud sync');
+          // Fall through to normal boot
+        } else {
+          if (_hubHint) OB.hub = _hubHint;
+          renderOnboarding();
+          return;
+        }
+      } else {
+        if (_hubHint) OB.hub = _hubHint;
+        renderOnboarding();
+        return;
+      }
     }
   } else {
     // Has localStorage config — sync with hub
