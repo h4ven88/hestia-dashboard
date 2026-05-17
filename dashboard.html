@@ -13343,7 +13343,10 @@ function launchOnboarding() {
       }
     }
   } else {
-    // Has localStorage config — sync with hub
+    // Has localStorage config — push to cloud so other devices can discover
+    cloudSyncPush(buildConfigPayload());
+
+    // Sync with hub
     if (!HUB_STORE && CONFIG.hub && isLocalHubUrl(CONFIG.hub)) {
       // Page-origin discovery failed (e.g. loaded from hestari.com) —
       // try using the known hub IP from localStorage config
