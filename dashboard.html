@@ -2302,28 +2302,68 @@ async function saveConfig() {
   cloudSyncPush(payload);
 }
 
-/* ── Cloud Config Sync ──────────────────────────────────────────────── */
+/* ── Cloud Config Sync (AES-256-GCM, keyed by public IP) ────────────── */
+async function _cloudGetIp() {
+  try {
+    const r = await fetch(CLOUD_SYNC_API + '/whoami');
+    if (!r.ok) return null;
+    const d = await r.json();
+    return d.ip || null;
+  } catch { return null; }
+}
+
+async function _cloudDeriveKey(ip) {
+  const raw = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(ip + ':hestia-cloud-sync'));
+  return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
+}
+
+async function _cloudEncrypt(obj, ip) {
+  const key = await _cloudDeriveKey(ip);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(obj)));
+  return { iv: btoa(String.fromCharCode(...iv)), data: btoa(String.fromCharCode(...new Uint8Array(ct))) };
+}
+
+async function _cloudDecrypt(blob, ip) {
+  const key = await _cloudDeriveKey(ip);
+  const iv = Uint8Array.from(atob(blob.iv), c => c.charCodeAt(0));
+  const ct = Uint8Array.from(atob(blob.data), c => c.charCodeAt(0));
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+
 function cloudSyncPush(payload) {
   if (Date.now() - _lastCloudPushAt < 30000) {
     clearTimeout(_cloudSyncDebounce);
     _cloudSyncDebounce = setTimeout(() => cloudSyncPush(payload), 30000);
     return;
   }
-  const body = JSON.stringify({ config: payload, savedAt: Date.now(), version: HESTIA_VERSION });
-  if (body.length > 10240) return;
-  fetch(CLOUD_SYNC_API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
-    .then(r => { if (r.ok) { _lastCloudPushAt = Date.now(); console.log('[CloudSync] Pushed to cloud'); } })
-    .catch(e => console.warn('[CloudSync] Push failed:', e.message));
+  const inner = { config: payload, savedAt: Date.now(), version: HESTIA_VERSION };
+  _cloudGetIp().then(ip => {
+    if (!ip) return;
+    return _cloudEncrypt(inner, ip).then(encrypted => {
+      const body = JSON.stringify({ encrypted: true, payload: encrypted });
+      if (body.length > 16384) return;
+      return fetch(CLOUD_SYNC_API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
+    }).then(r => { if (r && r.ok) { _lastCloudPushAt = Date.now(); console.log('[CloudSync] Encrypted push to cloud'); } });
+  }).catch(e => console.warn('[CloudSync] Push failed:', e.message));
 }
 
 async function cloudSyncDiscover() {
   try {
+    const ip = await _cloudGetIp();
+    if (!ip) return null;
     const res = await fetch(CLOUD_SYNC_API + '/discover');
     if (!res.ok) return null;
     const data = await res.json();
-    if (!data || !data.found || !data.config) return null;
-    console.log('[CloudSync] Config discovered from cloud');
-    return data.config;
+    if (!data || !data.found) return null;
+    if (data.encrypted && data.payload) {
+      const decrypted = await _cloudDecrypt(data.payload, ip);
+      console.log('[CloudSync] Encrypted config discovered from cloud');
+      return decrypted.config || null;
+    }
+    if (data.config) return data.config;
+    return null;
   } catch(e) {
     console.warn('[CloudSync] Discovery failed:', e.message);
     return null;
