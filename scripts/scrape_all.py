@@ -14,6 +14,9 @@ import time
 from pathlib import Path
 
 WORDS = [
+    ('athena',    'urls_athena.txt'),
+    ('artemis',   'urls_artemis.txt'),
+    ('hestia',    'urls_hestia.txt'),
     ('apollo',    'urls_apollo.txt'),
     ('achilles',  'urls_achilles.txt'),
     ('andromeda', 'urls_andromeda.txt'),
