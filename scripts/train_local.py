@@ -47,7 +47,7 @@ def check_setup():
         sys.exit(1)
 
 
-def train_word(word, n_examples, n_steps, fa_penalty, skip_generate=False):
+def train_word(word, n_examples, n_steps, fa_penalty, skip_generate=False, phrase=None):
     training_data = SCRIPTS_DIR / f'training_data_{word}'
     if not training_data.exists():
         print(f'ERROR: {training_data} not found')
@@ -68,7 +68,7 @@ def train_word(word, n_examples, n_steps, fa_penalty, skip_generate=False):
     default_config = oww_dir / 'examples' / 'custom_model.yml'
     config = yaml.load(open(default_config, 'r').read(), yaml.Loader)
 
-    config['target_phrase'] = [word]
+    config['target_phrase'] = [phrase or word]
     config['model_name'] = word.replace(' ', '_')
     config['n_samples'] = n_examples
     config['n_samples_val'] = max(500, n_examples // 10)
@@ -260,13 +260,19 @@ def main():
     parser.add_argument('--examples', type=int, default=50000, help='Synthetic examples to generate (default: 50000)')
     parser.add_argument('--steps', type=int, default=50000, help='Training steps (default: 50000)')
     parser.add_argument('--fa-penalty', type=int, default=2500, help='False activation penalty (default: 2500)')
+    parser.add_argument('--phrase', default=None,
+                        help='Phonetic phrase for TTS (e.g., "uh thee nuh"). Model still named after --word.')
     parser.add_argument('--skip-generate', action='store_true',
                         help='Skip clip generation/augmentation, only retrain')
     args = parser.parse_args()
 
+    phrase = args.phrase or args.word
+
     print('Hestia Wake Word — Local Model Trainer')
     print('=' * 60)
     print(f'  Word:       {args.word}')
+    if args.phrase:
+        print(f'  Phrase:     {args.phrase}')
     print(f'  Examples:   {args.examples:,}')
     print(f'  Steps:      {args.steps:,}')
     print(f'  FA penalty: {args.fa_penalty:,}')
@@ -282,7 +288,7 @@ def main():
         print('PyTorch not found')
 
     check_setup()
-    train_word(args.word, args.examples, args.steps, args.fa_penalty, args.skip_generate)
+    train_word(args.word, args.examples, args.steps, args.fa_penalty, args.skip_generate, phrase)
 
 
 if __name__ == '__main__':
