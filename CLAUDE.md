@@ -76,8 +76,8 @@ Hestia is a single-page smart home dashboard for Hubitat Elevation C8 Pro. It co
 - **GitHub:** https://github.com/h4ven88/hestia-dashboard
 - **Live URL:** https://hestari.com (Cloudflare Pages, auto-deploys from GitHub main)
 - **Hub IP:** (user-specific) | Maker API App ID: (user-specific) | Hestia App ID: (user-specific)
-- **Current version:** v1.5.3
-- **Target milestone:** v1.5.3
+- **Current version:** v1.5.4
+- **Target milestone:** v1.5.4
 
 ---
 
@@ -199,9 +199,13 @@ Free tier: TTS 1M chars/month, STT 60 min/month
 - ✅ **Routines** — named command sequences stored in CONFIG, hub-agnostic device resolution (name+room fallback), Settings UI with inline creation/test/delete, voice control via 3 new Claude response types
 - ✅ **Calendar** — Built-in calendar widget on home view. Mini-month (desktop) and swipeable week strip (mobile). Displays reminders and scheduled routines. Inline "Add Reminder" form. One-time reminders preserved as history.
 
+### Completed — Sprint 10 (Announcements & Training)
+- ✅ **Announcements** — TTS announcements for device events (doors, windows, locks, motion, smoke/CO, water/freeze, HSM status). Settings panel with per-category toggles, motion sensor picker, open/close event type control. 3-second debounce, Athena-aware queueing.
+- ✅ **Mobile intrusion delay fix** — entry-delay countdown ring now renders on mobile by switching to security tab before opening PIN sheet
+- ✅ **Local training pipeline** — full OWW training on Windows with RTX 3080 (setup_training.py + train_local.py), all Python 3.14/PyTorch 2.12 compatibility patches applied
+
 ### Blocked / Deferred
 - ⏸ **Ring integration migration** — blocked by known Hubitat issue: child devices won't create outside of Beta
-- ⏸ **Wake word model training** — v2 pipeline (augmented MLP) ready; 369 URLs across 10 words; scraping in progress; Colab saved to personal Drive
 - ⬜ OWW diagnostic logging — keeping verbose logs until wake word is reliable in noisy environments
 - ✅ Community v1.5.2 post published on Hubitat Forum
 

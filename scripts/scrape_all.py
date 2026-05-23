@@ -4,6 +4,7 @@ Batch scrape all wake words in sequence.
 
 Usage:
   python scrape_all.py              # scrape all words
+  python scrape_all.py --retry      # retry only failed URLs
   python scrape_all.py --dry-run    # transcript scan only
   python scrape_all.py --only apollo odin   # scrape specific words
 """
@@ -14,20 +15,13 @@ import time
 from pathlib import Path
 
 WORDS = [
-    ('athena',    'urls_athena.txt'),
-    ('artemis',   'urls_artemis.txt'),
-    ('hestia',    'urls_hestia.txt'),
-    ('apollo',    'urls_apollo.txt'),
-    ('achilles',  'urls_achilles.txt'),
-    ('andromeda', 'urls_andromeda.txt'),
-    ('hermes',    'urls_hermes.txt'),
-    ('odin',      'urls_odin.txt'),
-    ('osiris',    'urls_osiris.txt'),
-    ('anubis',    'urls_anubis.txt'),
+    'athena', 'artemis', 'hestia', 'apollo', 'achilles',
+    'andromeda', 'hermes', 'odin', 'osiris', 'anubis',
 ]
 
 def main():
     dry_run = '--dry-run' in sys.argv
+    retry = '--retry' in sys.argv
     only = []
     if '--only' in sys.argv:
         idx = sys.argv.index('--only')
@@ -35,12 +29,19 @@ def main():
 
     script = Path(__file__).parent / 'scrape_wakeword.py'
 
-    for word, urls_file in WORDS:
+    for word in WORDS:
         if only and word not in only:
             continue
 
+        if retry:
+            urls_file = f'urls_{word}_retry.txt'
+        else:
+            urls_file = f'urls_{word}.txt'
+
         urls_path = Path(__file__).parent / urls_file
         if not urls_path.exists():
+            if retry:
+                continue
             print(f'\n⚠ Skipping {word} — {urls_file} not found')
             continue
 
@@ -63,7 +64,7 @@ def main():
     print('ALL DONE')
     print(f'{"=" * 60}')
 
-    for word, _ in WORDS:
+    for word in WORDS:
         if only and word not in only:
             continue
         d = Path(__file__).parent / f'training_data_{word}'

@@ -59,8 +59,10 @@ TEST_SPLIT = 0.15
 
 # MLP architecture: 96 → 384 → 256 → 128 → 64 → 1
 HIDDEN_LAYERS = (384, 256, 128, 64)
-MAX_ITER = 2000
+MAX_ITER = 30000
 LEARNING_RATE = 0.0003
+NUM_EXAMPLES = 25000
+FALSE_ACTIVATION_PENALTY = 1500
 
 # ── Augmentation config ────────────────────────────────────────────────
 AUG_COPIES_PER_POSITIVE = 8
@@ -188,20 +190,29 @@ def pitch_shift(signal, semitones, sr=SAMPLE_RATE):
     return resampled.astype(np.float32)
 
 
-def augment_positives(positives, noise_clips, rng):
+def augment_positives(positives, noise_clips, rng, target_total=None):
     """
     Generate augmented copies of positive samples.
+    If target_total is set, generates enough copies to reach that count
+    (including originals). Otherwise uses AUG_COPIES_PER_POSITIVE.
     Returns list of augmented audio arrays.
     """
     augmented = []
-    total = len(positives) * AUG_COPIES_PER_POSITIVE
-    print(f'  Generating {total} augmented positives ({AUG_COPIES_PER_POSITIVE}x per clip)...')
+    if target_total and target_total > len(positives):
+        num_to_generate = target_total - len(positives)
+    else:
+        num_to_generate = len(positives) * AUG_COPIES_PER_POSITIVE
+    print(f'  Generating {num_to_generate} augmented positives (target total: {num_to_generate + len(positives)})...')
+
+    copies_per = max(1, num_to_generate // len(positives))
+    remainder = num_to_generate % len(positives)
 
     for idx, clip in enumerate(positives):
         if (idx + 1) % 100 == 0:
             print(f'    Augmenting {idx+1}/{len(positives)}...')
 
-        for aug_i in range(AUG_COPIES_PER_POSITIVE):
+        n_copies = copies_per + (1 if idx < remainder else 0)
+        for aug_i in range(n_copies):
             augmented_clip = clip.copy()
 
             # Each augmentation applies a random combination of transforms
@@ -248,7 +259,7 @@ def augment_positives(positives, noise_clips, rng):
 
             augmented.append(augmented_clip)
 
-    print(f'  ✓ Generated {len(augmented)} augmented clips')
+    print(f'  ✓ Generated {len(augmented)} augmented clips (total with originals: {len(augmented) + len(positives)})')
     return augmented
 
 
@@ -385,6 +396,8 @@ def export_mlp_to_onnx(model, scaler, output_path, input_dim, word_name):
 # ── Main ───────────────────────────────────────────────────────────────
 
 def main():
+    global AUG_COPIES_PER_POSITIVE, NUM_EXAMPLES, MAX_ITER, FALSE_ACTIVATION_PENALTY
+
     parser = argparse.ArgumentParser(
         description='Hestia Wake Word — Model Trainer v4 (Augmented MLP)')
     parser.add_argument('--word', required=True,
@@ -399,11 +412,19 @@ def main():
                         help='Generate augmented clips to disk and exit')
     parser.add_argument('--aug-copies', type=int, default=AUG_COPIES_PER_POSITIVE,
                         help=f'Augmented copies per positive (default: {AUG_COPIES_PER_POSITIVE})')
+    parser.add_argument('--num-examples', type=int, default=NUM_EXAMPLES,
+                        help=f'Target total positive examples (default: {NUM_EXAMPLES})')
+    parser.add_argument('--max-iter', type=int, default=MAX_ITER,
+                        help=f'Max training iterations (default: {MAX_ITER})')
+    parser.add_argument('--fp-penalty', type=int, default=FALSE_ACTIVATION_PENALTY,
+                        help=f'False activation penalty (default: {FALSE_ACTIVATION_PENALTY})')
     args = parser.parse_args()
 
     word = args.word.lower()
-    global AUG_COPIES_PER_POSITIVE
     AUG_COPIES_PER_POSITIVE = args.aug_copies
+    NUM_EXAMPLES = args.num_examples
+    MAX_ITER = args.max_iter
+    FALSE_ACTIVATION_PENALTY = args.fp_penalty
 
     # Resolve directories
     if args.training_dir:
@@ -421,8 +442,10 @@ def main():
     print(f'  Word:         {word}')
     print(f'  Training dir: {training_dir}/')
     print(f'  Models dir:   {models_dir}/')
-    print(f'  Augmentation: {"OFF" if args.no_augment else f"ON ({AUG_COPIES_PER_POSITIVE}x per positive)"}')
+    print(f'  Augmentation: {"OFF" if args.no_augment else f"ON (target {NUM_EXAMPLES} examples)"}')
     print(f'  Architecture: 96 → {" → ".join(str(h) for h in HIDDEN_LAYERS)} → 1')
+    print(f'  Max iterations:  {MAX_ITER}')
+    print(f'  FA penalty:      {FALSE_ACTIVATION_PENALTY}')
 
     # Find backbone models
     mel_path = models_dir / 'melspectrogram.onnx'
@@ -464,7 +487,7 @@ def main():
     if not args.no_augment:
         print(f'\n{"─" * 60}')
         print(f'Augmenting positives...')
-        aug_pos = augment_positives(pos, noise, rng)
+        aug_pos = augment_positives(pos, noise, rng, target_total=NUM_EXAMPLES)
 
         if args.augment_only:
             aug_dir = training_dir / 'augmented'
@@ -530,12 +553,19 @@ def main():
     )
     print(f'  Train: {len(X_train)}  Test: {len(X_test)}')
 
+    # Compute sample weights: penalize false activations
+    sample_weights = np.ones(len(y_train))
+    sample_weights[y_train == 0] = FALSE_ACTIVATION_PENALTY / 1000.0
+    sample_weights[y_train == 1] = 1.0
+
     # Train MLP
     print(f'\n{"─" * 60}')
     print(f'Training MLP (96 → {" → ".join(str(h) for h in HIDDEN_LAYERS)} → 1)...')
-    print(f'  Max iterations: {MAX_ITER}')
-    print(f'  Learning rate:  {LEARNING_RATE}')
-    print(f'  Early stopping: patience 30 epochs')
+    print(f'  Max iterations:          {MAX_ITER}')
+    print(f'  Learning rate:           {LEARNING_RATE}')
+    print(f'  False activation penalty: {FALSE_ACTIVATION_PENALTY} (neg weight: {FALSE_ACTIVATION_PENALTY/1000:.1f}x)')
+    print(f'  Num examples target:     {NUM_EXAMPLES}')
+    print(f'  Early stopping:          patience 30 epochs')
     print()
 
     model = MLPClassifier(
@@ -550,7 +580,7 @@ def main():
         n_iter_no_change=30,
         verbose=True
     )
-    model.fit(X_train, y_train)
+    model.fit(X_train, y_train, sample_weight=sample_weights)
 
     # Evaluate
     print(f'\n{"=" * 60}')

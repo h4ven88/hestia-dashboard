@@ -1617,6 +1617,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
       <div class="sp-nav-group">Modules</div>
       <div class="sp-nav-item"        id="spn-artemis"  onclick="spShowSection('artemis')">  <span class="sp-nav-icon">🛡</span>Artemis Security</div>
       <div class="sp-nav-item"        id="spn-athena"   onclick="spShowSection('athena')">   <span class="sp-nav-icon">◈</span>Athena Voice<span class="sp-nav-badge" style="display:none" id="spn-athena-badge">New</span></div>
+      <div class="sp-nav-item"        id="spn-announce"  onclick="spShowSection('announce')"> <span class="sp-nav-icon">🔊</span>Announcements</div>
       <div class="sp-nav-item"        id="spn-reminders" onclick="spShowSection('reminders')"><span class="sp-nav-icon">🔔</span>Reminders<span class="sp-nav-badge sp-rem-count" style="display:none" id="spn-rem-badge">0</span></div>
       <div class="sp-nav-item"        id="spn-routines"  onclick="spShowSection('routines')"> <span class="sp-nav-icon">⚡</span>Routines</div>
       <div class="sp-nav-group">System</div>
@@ -1652,8 +1653,8 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    Copyright © 2026 Haven. CC BY-NC 4.0.
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
-const HESTIA_VERSION    = '1.5.3';
-const HESTIA_BUILD_DATE = '2026-05-17';
+const HESTIA_VERSION    = '1.5.4';
+const HESTIA_BUILD_DATE = '2026-05-23';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 let _cloudSyncDebounce  = null;
@@ -2001,6 +2002,18 @@ const CONFIG = {
   athenaGoogleTTS:  false,      // use Google Cloud TTS for premium voices
   athenaGoogleApiKey: '',       // Google Cloud API key
   athenaGoogleVoice: '',        // specific Google voice name e.g. en-GB-Neural2-C
+  // Announcements — speak device events via TTS
+  announceEnabled:  false,
+  announceDoors:    true,
+  announceWindows:  true,
+  announceLocks:    true,
+  announceMotion:   false,
+  announceMotionDevices: [],
+  announceHsm:      true,
+  announceSmoke:    true,
+  announceWater:    true,
+  announceOpen:     true,
+  announceClose:    true,
   // Companion app credentials (cached for cross-origin access from hestari.com)
   hestiaAppId:    '',
   hestiaAppToken: '',
@@ -2053,7 +2066,18 @@ const DEFAULTS = {
     athenaConvoMode:  true,
     athenaGoogleTTS: false,
     athenaGoogleApiKey: '',
-    athenaGoogleVoice: ''
+    athenaGoogleVoice: '',
+    announceEnabled: false,
+    announceDoors: true,
+    announceWindows: true,
+    announceLocks: true,
+    announceMotion: false,
+    announceMotionDevices: [],
+    announceHsm: true,
+    announceSmoke: true,
+    announceWater: true,
+    announceOpen: true,
+    announceClose: true
   },
   thermostats: [],
   rooms: []
@@ -2250,6 +2274,11 @@ function buildConfigPayload() {
                    athenaPersonality: CONFIG.athenaPersonality, athenaConvoMode: CONFIG.athenaConvoMode,
                    athenaGoogleTTS: CONFIG.athenaGoogleTTS, athenaGoogleApiKey: CONFIG.athenaGoogleApiKey,
                    athenaGoogleVoice: CONFIG.athenaGoogleVoice,
+                   announceEnabled: CONFIG.announceEnabled, announceDoors: CONFIG.announceDoors,
+                   announceWindows: CONFIG.announceWindows, announceLocks: CONFIG.announceLocks,
+                   announceMotion: CONFIG.announceMotion, announceMotionDevices: CONFIG.announceMotionDevices || [],
+                   announceHsm: CONFIG.announceHsm, announceSmoke: CONFIG.announceSmoke, announceWater: CONFIG.announceWater,
+                   announceOpen: CONFIG.announceOpen, announceClose: CONFIG.announceClose,
                    hestiaAppId: CONFIG.hestiaAppId, hestiaAppToken: CONFIG.hestiaAppToken,
                    reminders: CONFIG.reminders || [], routines: CONFIG.routines || [] },
     thermostats: deepClone(thermostats),
@@ -6872,6 +6901,37 @@ function athenaStartFollowUp() {
   }, 1000);
 }
 
+// ── Announcements — speak device events ──────────────────────────────
+const _announceLastEvent = {};
+function announceEvent(key, text) {
+  if (!CONFIG.announceEnabled) return;
+  const panel = document.getElementById('ath-panel');
+  if (_athenaRecorder || (panel && panel.classList.contains('open'))) return;
+  const now = Date.now();
+  if (now - (_announceLastEvent[key] || 0) < 3000) return;
+  _announceLastEvent[key] = now;
+  console.log('[Announce] ' + text);
+  athenaSpeak(text);
+}
+
+function announceContactEvent(id, displayName, value) {
+  if (!CONFIG.announceEnabled) return;
+  const isOpen = value === 'open';
+  if (isOpen && !CONFIG.announceOpen) return;
+  if (!isOpen && !CONFIG.announceClose) return;
+  const sensor = (CONFIG.artemisSensors && CONFIG.artemisSensors.contacts || []).find(d => String(d.id) === String(id));
+  const isWindow = sensor ? sensor.subtype === 'window' : /window/i.test(displayName);
+  if (isWindow && !CONFIG.announceWindows) return;
+  if (!isWindow && !CONFIG.announceDoors) return;
+  const name = displayName || (isWindow ? 'Window' : 'Door');
+  announceEvent('contact-' + id, name + (isOpen ? ' opened' : ' closed'));
+}
+
+function announceHsmEvent(text) {
+  if (!CONFIG.announceEnabled || !CONFIG.announceHsm) return;
+  announceEvent('hsm', text);
+}
+
 async function athenaSpeak(text, onEnd) {
   if (!text) { if (onEnd) onEnd(); return; }
 
@@ -8290,6 +8350,165 @@ function spAthenaBody() {
         <span class="sp-hint" style="margin-top:4px;display:block">Required for voice commands. If denied, go to your browser's address bar → site settings → allow microphone.</span>
       </div>
     </div>`;
+}
+
+// ── Settings Announcements body ──────────────────────────────────────
+function spAnnouncementsBody() {
+  const en = CONFIG.announceEnabled;
+  const dim = en ? '' : 'opacity:.45;pointer-events:none';
+  const motionSensors = CONFIG.artemisSensors && CONFIG.artemisSensors.motions || [];
+  const motionDevices = CONFIG.announceMotionDevices || [];
+  const motionDim = CONFIG.announceMotion ? '' : 'opacity:.35;pointer-events:none';
+
+  let motionPickerHtml = '';
+  if (motionSensors.length) {
+    motionPickerHtml = `<div style="margin-top:8px;padding:10px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;max-height:180px;overflow-y:auto;${motionDim}">
+      ${motionSensors.map(d => {
+        const checked = motionDevices.includes(String(d.id)) ? 'checked' : '';
+        const rm = d.room ? (rooms.find(r => r.id === d.room) || {}).name || '' : '';
+        return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border-s)">
+          <span style="font-size:11px;color:var(--t2);flex:1">${h(d.name || d.id)}</span>
+          ${rm ? '<span style="font-size:10px;color:var(--t4);margin-right:10px">' + h(rm) + '</span>' : ''}
+          <label class="sp-toggle"><input type="checkbox" ${checked}
+            onchange="announceToggleMotionDev('${d.id}',this.checked)"><span class="sp-toggle-track"></span></label>
+        </div>`;
+      }).join('')}
+    </div>`;
+  } else if (CONFIG.announceMotion) {
+    motionPickerHtml = '<span class="sp-hint" style="display:block;margin-top:6px">No motion sensors configured. Add them in Artemis Security settings first.</span>';
+  }
+
+  return `
+    <div class="sp-toggle-row">
+      <div class="sp-toggle-info">
+        <div class="sp-toggle-name">Enable Announcements</div>
+        <div class="sp-toggle-desc">Speak device events aloud using Google TTS</div>
+      </div>
+      <label class="sp-toggle">
+        <input type="checkbox" ${en?'checked':''}
+          onchange="CONFIG.announceEnabled=this.checked;saveConfig();spShowSection('announce')">
+        <span class="sp-toggle-track"></span>
+      </label>
+    </div>
+
+    <div style="${dim}">
+      <div class="sp-sep"></div>
+      <div class="sp-group">
+        <div class="sp-group-lbl">Categories</div>
+        <div class="sp-toggle-row">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name">Doors</div>
+            <div class="sp-toggle-desc">Contact sensors on doors</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${CONFIG.announceDoors!==false?'checked':''}
+              onchange="CONFIG.announceDoors=this.checked;saveConfig()">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
+        <div class="sp-toggle-row">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name">Windows</div>
+            <div class="sp-toggle-desc">Contact sensors on windows</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${CONFIG.announceWindows!==false?'checked':''}
+              onchange="CONFIG.announceWindows=this.checked;saveConfig()">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
+        <div class="sp-toggle-row">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name">Locks</div>
+            <div class="sp-toggle-desc">Lock and unlock events</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${CONFIG.announceLocks!==false?'checked':''}
+              onchange="CONFIG.announceLocks=this.checked;saveConfig()">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
+        <div class="sp-toggle-row">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name">Motion</div>
+            <div class="sp-toggle-desc">Select specific sensors below</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${CONFIG.announceMotion?'checked':''}
+              onchange="CONFIG.announceMotion=this.checked;saveConfig();spShowSection('announce')">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
+        ${motionPickerHtml}
+        <div class="sp-toggle-row" style="margin-top:2px">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name">Alarm Status</div>
+            <div class="sp-toggle-desc">Armed, disarmed, arming delays, and entry delays</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${CONFIG.announceHsm!==false?'checked':''}
+              onchange="CONFIG.announceHsm=this.checked;saveConfig()">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
+        <div class="sp-toggle-row">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name">Smoke / CO</div>
+            <div class="sp-toggle-desc">Smoke detected, carbon monoxide detected</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${CONFIG.announceSmoke!==false?'checked':''}
+              onchange="CONFIG.announceSmoke=this.checked;saveConfig()">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
+        <div class="sp-toggle-row">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name">Water / Freeze</div>
+            <div class="sp-toggle-desc">Water leak detected, freeze alert</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${CONFIG.announceWater!==false?'checked':''}
+              onchange="CONFIG.announceWater=this.checked;saveConfig()">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="sp-sep"></div>
+      <div class="sp-group">
+        <div class="sp-group-lbl">Event Types</div>
+        <div class="sp-toggle-row">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name">Open / Unlock</div>
+            <div class="sp-toggle-desc">Announce when doors, windows, or locks open</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${CONFIG.announceOpen!==false?'checked':''}
+              onchange="CONFIG.announceOpen=this.checked;saveConfig()">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
+        <div class="sp-toggle-row">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name">Close / Lock</div>
+            <div class="sp-toggle-desc">Announce when doors, windows, or locks close</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${CONFIG.announceClose!==false?'checked':''}
+              onchange="CONFIG.announceClose=this.checked;saveConfig()">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
+      </div>
+    </div>`;
+}
+
+function announceToggleMotionDev(id, on) {
+  if (!CONFIG.announceMotionDevices) CONFIG.announceMotionDevices = [];
+  if (on) { if (!CONFIG.announceMotionDevices.includes(id)) CONFIG.announceMotionDevices.push(id); }
+  else { CONFIG.announceMotionDevices = CONFIG.announceMotionDevices.filter(d => d !== id); }
+  saveConfig();
 }
 
 // ── Settings Artemis body ─────────────────────────────────────────────
@@ -10787,6 +11006,11 @@ function spShowSection(id, force) {
       });
       break;
 
+    case 'announce':
+      html = `<div class="sp-content-hdr"><span class="sp-content-icon">🔊</span>Announcements</div>
+        ${spAnnouncementsBody()}`;
+      break;
+
     case 'reminders':
       html = `<div class="sp-content-hdr"><span class="sp-content-icon">🔔</span>Reminders</div>
         <div class="sp-group">
@@ -12074,10 +12298,12 @@ function connectWebSocket() {
           // Detect arming transitional states
           if (/arming\s*away|delayed\s*arming/i.test(raw)) {
             if (!artemisTransition) artemisSetTransition('arming', 'away');
+            announceHsmEvent('Arming away — ' + (CONFIG.artemisExitDelay || 60) + ' seconds starting now');
             return;
           }
           if (/arming\s*home|arming\s*night/i.test(raw)) {
             if (!artemisTransition) artemisSetTransition('arming', 'home');
+            announceHsmEvent('Arming home — ' + (CONFIG.artemisExitDelay || 60) + ' seconds starting now');
             return;
           }
           // Final armed/disarmed state — clear transition, update mode
@@ -12089,6 +12315,9 @@ function connectWebSocket() {
           if (artemisTransition) artemisClearTransition();
           if (wsChanged) {
             artemisMode = newMode;
+            if (newMode === 'away') announceHsmEvent('Armed away');
+            else if (newMode === 'home') announceHsmEvent('Armed home');
+            else announceHsmEvent('Disarmed');
             if (isMobile() ? activeTab === 'security' : activeRoom === 'security') {
               renderSecurity();
             }
@@ -12106,7 +12335,11 @@ function connectWebSocket() {
           // Intrusion — show entry delay state + auto-open PIN
           if (alertType === 'intrusion' && !artemisTransition) {
             artemisSetTransition('entry-delay', null);
-            if (isMobile()) artemisOpenSheet();
+            announceHsmEvent('Attention — alarm triggering in ' + (CONFIG.artemisEntryDelay || 60) + ' seconds');
+            if (isMobile()) {
+              selectTab('security');
+              artemisOpenSheet();
+            }
             return;
           }
           if (isMobile() ? activeTab === 'security' : activeRoom === 'security') {
@@ -12127,7 +12360,11 @@ function connectWebSocket() {
         // Entry delay / intrusion from Ring (securityKeypad, alarmStatus, status attributes)
         if (/entry.?delay|alarming|siren|intrusion/i.test(attrVal) && !artemisTransition) {
           artemisSetTransition('entry-delay', null);
-          if (isMobile()) artemisOpenSheet();
+          announceHsmEvent('Attention — alarm triggering in ' + (CONFIG.artemisEntryDelay || 60) + ' seconds');
+          if (isMobile()) {
+            selectTab('security');
+            artemisOpenSheet();
+          }
           return;
         }
 
@@ -12211,6 +12448,35 @@ function connectWebSocket() {
       if (!DEVICE_TYPE[id]) return;
 
       applyAttrs(id, attrs);
+
+      // ── Announcements for device events ──
+      if (CONFIG.announceEnabled) {
+        const dn = msg.displayName || '';
+        if (DEVICE_TYPE[id] === 'contact' && attrs.contact != null) {
+          announceContactEvent(id, dn, attrs.contact);
+        } else if (DEVICE_TYPE[id] === 'lock' && attrs.lock != null) {
+          if (CONFIG.announceLocks) {
+            const isLock = attrs.lock === 'locked';
+            if ((isLock && CONFIG.announceClose) || (!isLock && CONFIG.announceOpen)) {
+              announceEvent('lock-' + id, (dn || 'Door lock') + (isLock ? ' locked' : ' unlocked'));
+            }
+          }
+        } else if (DEVICE_TYPE[id] === 'motion' && attrs.motion === 'active') {
+          if (CONFIG.announceMotion && (CONFIG.announceMotionDevices || []).includes(String(id))) {
+            announceEvent('motion-' + id, 'Motion detected in the ' + (dn || 'sensor'));
+          }
+        } else if (DEVICE_TYPE[id] === 'smoke') {
+          if (CONFIG.announceSmoke) {
+            if (attrs.smoke === 'detected') announceEvent('smoke-' + id, 'Smoke detected' + (dn ? ' in the ' + dn : ''));
+            if (attrs.carbonMonoxide === 'detected') announceEvent('co-' + id, 'Carbon monoxide detected' + (dn ? ' in the ' + dn : ''));
+          }
+        } else if (DEVICE_TYPE[id] === 'water') {
+          if (CONFIG.announceWater) {
+            if (attrs.water === 'wet') announceEvent('water-' + id, 'Water detected' + (dn ? ' in the ' + dn : ''));
+            if (attrs.freeze === 'detected') announceEvent('freeze-' + id, 'Freeze alert' + (dn ? ' in the ' + dn : ''));
+          }
+        }
+      }
 
       // Motion auto-clear — start a 30s timer when a sensor goes active,
       // clear the visual once the sensor goes inactive (Ring inactivity window)

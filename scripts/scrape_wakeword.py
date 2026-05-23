@@ -326,8 +326,8 @@ def check_tools():
 def get_video_info(url, retries=3):
     for attempt in range(retries):
         cmd = ['yt-dlp', '--no-playlist', '--print', '%(title)s\n%(duration)s', url]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode == 0:
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        if result.returncode == 0 and result.stdout:
             lines = result.stdout.strip().split('\n')
             title = lines[0] if lines else 'Unknown'
             duration = float(lines[1]) if len(lines) > 1 else 0
@@ -353,7 +353,7 @@ def download_transcript(url, temp_dir, retries=3):
             '-o', out_template,
             url
         ]
-        subprocess.run(cmd, capture_output=True, text=True)
+        subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
         json3_files = list(temp_dir.glob('*.json3'))
         if json3_files:
@@ -373,7 +373,7 @@ def download_transcript(url, temp_dir, retries=3):
             '-o', out_template,
             url
         ]
-        subprocess.run(cmd_vtt, capture_output=True, text=True)
+        subprocess.run(cmd_vtt, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
         vtt_files = list(temp_dir.glob('*.vtt'))
         if vtt_files:
@@ -401,7 +401,7 @@ def download_audio(url, output_path):
         '-o', str(output_path),
         url
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
     if result.returncode != 0:
         return False
 
