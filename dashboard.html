@@ -2822,7 +2822,7 @@ async function fetchAllDevices() {
       if (attrs.switch != null) applyAttrs(sid, attrs);
       if (prevMotion === false && S[mid].active) {
         if (CONFIG.announceMotion && (CONFIG.announceMotionDevices || []).includes(String(mid)))
-          announceEvent('motion-' + mid, 'Motion detected in the ' + (device.label || 'sensor'));
+          announceEvent('motion-' + mid, 'Motion detected in the ' + (announceDeviceName(mid, device.label) || 'sensor'));
       }
       return;
     }
@@ -2852,7 +2852,7 @@ async function fetchAllDevices() {
     const prev = (_announceInitialized && CONFIG.announceEnabled && S[id]) ? { open: S[id].open, locked: S[id].locked, active: S[id].active, detected: S[id].detected, wet: S[id].wet } : null;
     const changed = applyAttrs(id, attrs);
     if (changed && prev) {
-      const dn = device.label || '';
+      const dn = announceDeviceName(id, device.label);
       const type = DEVICE_TYPE[id];
       if (type === 'contact' && S[id].open !== prev.open) {
         announceContactEvent(id, dn, S[id].open ? 'open' : 'closed');
@@ -6934,6 +6934,22 @@ function athenaStartFollowUp() {
 }
 
 // ── Announcements — speak device events ──────────────────────────────
+function announceDeviceName(id, fallback) {
+  const sid = String(id);
+  const cats = CONFIG.artemisSensors || {};
+  for (const cat of Object.values(cats)) {
+    if (!Array.isArray(cat)) continue;
+    const s = cat.find(d => String(d.id) === sid);
+    if (s && s.name) return s.name;
+  }
+  for (const r of rooms) {
+    for (const t of ['switches','dimmers','fans','shades','colors','colortemps','therms']) {
+      const d = (r[t] || []).find(d => String(d.id) === sid);
+      if (d && d.name) return d.name;
+    }
+  }
+  return fallback || '';
+}
 const _announceLastEvent = {};
 let _announceInitialized = false;
 function announceEvent(key, text) {
@@ -12484,7 +12500,7 @@ function connectWebSocket() {
 
       // ── Announcements for device events ──
       if (CONFIG.announceEnabled) {
-        const dn = msg.displayName || '';
+        const dn = announceDeviceName(id, msg.displayName);
         if (DEVICE_TYPE[id] === 'contact' && attrs.contact != null) {
           announceContactEvent(id, dn, attrs.contact);
         } else if (DEVICE_TYPE[id] === 'lock' && attrs.lock != null) {
