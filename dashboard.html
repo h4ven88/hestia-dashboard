@@ -2817,8 +2817,13 @@ async function fetchAllDevices() {
       if (!DEVICE_TYPE[mid]) { DEVICE_TYPE[mid] = 'motion'; S[mid] = S[mid] || { active: false }; DEVICE_REGISTRY.add(mid); }
       if (!DEVICE_TYPE[sid]) { DEVICE_TYPE[sid] = 'switch'; S[sid] = S[sid] || { on: false }; DEVICE_REGISTRY.add(sid); }
       const attrs = parseAttrs(device);
+      const prevMotion = (_announceInitialized && CONFIG.announceEnabled) ? S[mid].active : undefined;
       if (attrs.motion != null) applyAttrs(mid, attrs);
       if (attrs.switch != null) applyAttrs(sid, attrs);
+      if (prevMotion === false && S[mid].active) {
+        if (CONFIG.announceMotion && (CONFIG.announceMotionDevices || []).includes(String(mid)))
+          announceEvent('motion-' + mid, 'Motion detected in the ' + (device.label || 'sensor'));
+      }
       return;
     }
     // Allow if known type OR if it's a registered Artemis sensor
@@ -2844,13 +2849,40 @@ async function fetchAllDevices() {
       }
     }
     const attrs = parseAttrs(device);
-    applyAttrs(id, attrs);
+    const prev = (_announceInitialized && CONFIG.announceEnabled && S[id]) ? { open: S[id].open, locked: S[id].locked, active: S[id].active, detected: S[id].detected, wet: S[id].wet } : null;
+    const changed = applyAttrs(id, attrs);
+    if (changed && prev) {
+      const dn = device.label || '';
+      const type = DEVICE_TYPE[id];
+      if (type === 'contact' && S[id].open !== prev.open) {
+        announceContactEvent(id, dn, S[id].open ? 'open' : 'closed');
+      } else if (type === 'lock' && S[id].locked !== prev.locked) {
+        if (CONFIG.announceLocks) {
+          if ((S[id].locked && CONFIG.announceClose) || (!S[id].locked && CONFIG.announceOpen))
+            announceEvent('lock-' + id, (dn || 'Door lock') + (S[id].locked ? ' locked' : ' unlocked'));
+        }
+      } else if (type === 'motion' && S[id].active && !prev.active) {
+        if (CONFIG.announceMotion && (CONFIG.announceMotionDevices || []).includes(String(id)))
+          announceEvent('motion-' + id, 'Motion detected in the ' + (dn || 'sensor'));
+      } else if (type === 'smoke' && S[id].detected && !prev.detected) {
+        if (CONFIG.announceSmoke) {
+          if (attrs.smoke === 'detected') announceEvent('smoke-' + id, 'Smoke detected' + (dn ? ' in the ' + dn : ''));
+          if (attrs.carbonMonoxide === 'detected') announceEvent('co-' + id, 'Carbon monoxide detected' + (dn ? ' in the ' + dn : ''));
+        }
+      } else if (type === 'water' && S[id].wet && !prev.wet) {
+        if (CONFIG.announceWater) {
+          if (attrs.water === 'wet') announceEvent('water-' + id, 'Water detected' + (dn ? ' in the ' + dn : ''));
+          if (attrs.freeze === 'detected') announceEvent('freeze-' + id, 'Freeze alert' + (dn ? ' in the ' + dn : ''));
+        }
+      }
+    }
   });
   const detectedAlarm = alarmOfficial || alarmUnofficial;
   if (detectedAlarm && detectedAlarm !== CONFIG.artemisRingDeviceId) {
     CONFIG.artemisRingDeviceId = detectedAlarm;
     console.log(`[Artemis] Alarm base station auto-detected: device ${detectedAlarm}${alarmOfficial ? ' (official)' : ' (community)'}`);
   }
+  if (!_announceInitialized) _announceInitialized = true;
   setConn('ok');
 }
 
@@ -6903,6 +6935,7 @@ function athenaStartFollowUp() {
 
 // ── Announcements — speak device events ──────────────────────────────
 const _announceLastEvent = {};
+let _announceInitialized = false;
 function announceEvent(key, text) {
   if (!CONFIG.announceEnabled) return;
   const panel = document.getElementById('ath-panel');
