@@ -1760,6 +1760,43 @@ function isMobile()  { return resolveDisplayMode() === 'mobile'; }
 function isTablet()  { return resolveDisplayMode() === 'tablet'; }
 function isDesktop() { return resolveDisplayMode() === 'desktop'; }
 
+/* ═══════════════════════════════════════════════════════
+   DEVICE IDENTITY
+   Auto-generated UUID per browser instance.
+   Stored in localStorage (per-device only, never synced).
+═══════════════════════════════════════════════════════ */
+let DEVICE_ID = '';
+let DEVICE_NAME = '';
+function initDeviceId() {
+  try {
+    DEVICE_ID = localStorage.getItem('hestia-device-id') || '';
+    if (!DEVICE_ID) {
+      DEVICE_ID = crypto.randomUUID();
+      localStorage.setItem('hestia-device-id', DEVICE_ID);
+    }
+    DEVICE_NAME = localStorage.getItem('hestia-device-name') || '';
+    if (!DEVICE_NAME) {
+      const w = window.innerWidth;
+      DEVICE_NAME = w < 768 ? 'Mobile' : w < 1024 ? 'Tablet' : 'Desktop';
+      localStorage.setItem('hestia-device-name', DEVICE_NAME);
+    }
+  } catch(e) {
+    DEVICE_ID = 'fallback-' + Math.random().toString(36).slice(2);
+    DEVICE_NAME = 'Device';
+  }
+}
+initDeviceId();
+
+function setDeviceName(name) {
+  DEVICE_NAME = name || 'Device';
+  try { localStorage.setItem('hestia-device-name', DEVICE_NAME); } catch(e) {}
+}
+
+function isAnnounceDevice() {
+  if (!CONFIG.announceEnabled) return false;
+  const devices = CONFIG.announceDevices || [];
+  return devices.some(d => d.id === DEVICE_ID);
+}
 
 /* ═══════════════════════════════════════════════════════
    PIN SECURITY — SHA-512 hashing via Web Crypto API.
@@ -2004,6 +2041,7 @@ const CONFIG = {
   athenaGoogleVoice: '',        // specific Google voice name e.g. en-GB-Neural2-C
   // Announcements — speak device events via TTS
   announceEnabled:  false,
+  announceDevices:  [],
   announceDoors:    true,
   announceWindows:  true,
   announceLocks:    true,
@@ -2068,6 +2106,7 @@ const DEFAULTS = {
     athenaGoogleApiKey: '',
     athenaGoogleVoice: '',
     announceEnabled: false,
+    announceDevices: [],
     announceDoors: true,
     announceWindows: true,
     announceLocks: true,
@@ -2249,6 +2288,10 @@ function applyParsedConfig(parsed) {
         CONFIG.artemisSensors[cat] = existing;
       });
     }
+    // Migration: announceEnabled was global — auto-register this device if enabled but no device list
+    if (CONFIG.announceEnabled && (!CONFIG.announceDevices || CONFIG.announceDevices.length === 0)) {
+      CONFIG.announceDevices = [{ id: DEVICE_ID, name: DEVICE_NAME }];
+    }
     if (parsed.thermostats) { thermostats.length = 0; parsed.thermostats.forEach(t => thermostats.push(t)); }
     if (parsed.rooms)       { rooms.length = 0;       parsed.rooms.forEach(r => rooms.push(r)); }
     if (parsed.staging)     { staging.length = 0;     parsed.staging.forEach(d => staging.push(d)); }
@@ -2274,7 +2317,8 @@ function buildConfigPayload() {
                    athenaPersonality: CONFIG.athenaPersonality, athenaConvoMode: CONFIG.athenaConvoMode,
                    athenaGoogleTTS: CONFIG.athenaGoogleTTS, athenaGoogleApiKey: CONFIG.athenaGoogleApiKey,
                    athenaGoogleVoice: CONFIG.athenaGoogleVoice,
-                   announceEnabled: CONFIG.announceEnabled, announceDoors: CONFIG.announceDoors,
+                   announceEnabled: CONFIG.announceEnabled, announceDevices: CONFIG.announceDevices || [],
+                   announceDoors: CONFIG.announceDoors,
                    announceWindows: CONFIG.announceWindows, announceLocks: CONFIG.announceLocks,
                    announceMotion: CONFIG.announceMotion, announceMotionDevices: CONFIG.announceMotionDevices || [],
                    announceHsm: CONFIG.announceHsm, announceSmoke: CONFIG.announceSmoke, announceWater: CONFIG.announceWater,
@@ -2817,7 +2861,7 @@ async function fetchAllDevices() {
       if (!DEVICE_TYPE[mid]) { DEVICE_TYPE[mid] = 'motion'; S[mid] = S[mid] || { active: false }; DEVICE_REGISTRY.add(mid); }
       if (!DEVICE_TYPE[sid]) { DEVICE_TYPE[sid] = 'switch'; S[sid] = S[sid] || { on: false }; DEVICE_REGISTRY.add(sid); }
       const attrs = parseAttrs(device);
-      const prevMotion = (_announceInitialized && CONFIG.announceEnabled) ? S[mid].active : undefined;
+      const prevMotion = (_announceInitialized && isAnnounceDevice()) ? S[mid].active : undefined;
       if (attrs.motion != null) applyAttrs(mid, attrs);
       if (attrs.switch != null) applyAttrs(sid, attrs);
       if (prevMotion === false && S[mid].active) {
@@ -2849,7 +2893,7 @@ async function fetchAllDevices() {
       }
     }
     const attrs = parseAttrs(device);
-    const prev = (_announceInitialized && CONFIG.announceEnabled && S[id]) ? { open: S[id].open, locked: S[id].locked, active: S[id].active, detected: S[id].detected, wet: S[id].wet } : null;
+    const prev = (_announceInitialized && isAnnounceDevice() && S[id]) ? { open: S[id].open, locked: S[id].locked, active: S[id].active, detected: S[id].detected, wet: S[id].wet } : null;
     const changed = applyAttrs(id, attrs);
     if (changed && prev) {
       const dn = announceDeviceName(id, device.label);
@@ -6953,7 +6997,7 @@ function announceDeviceName(id, fallback) {
 const _announceLastEvent = {};
 let _announceInitialized = false;
 function announceEvent(key, text) {
-  if (!CONFIG.announceEnabled) return;
+  if (!isAnnounceDevice()) return;
   const panel = document.getElementById('ath-panel');
   if (_athenaRecorder || (panel && panel.classList.contains('open'))) return;
   const now = Date.now();
@@ -6964,7 +7008,7 @@ function announceEvent(key, text) {
 }
 
 function announceContactEvent(id, displayName, value) {
-  if (!CONFIG.announceEnabled) return;
+  if (!isAnnounceDevice()) return;
   const isOpen = value === 'open';
   if (isOpen && !CONFIG.announceOpen) return;
   if (!isOpen && !CONFIG.announceClose) return;
@@ -6977,7 +7021,7 @@ function announceContactEvent(id, displayName, value) {
 }
 
 function announceHsmEvent(text) {
-  if (!CONFIG.announceEnabled || !CONFIG.announceHsm) return;
+  if (!isAnnounceDevice() || !CONFIG.announceHsm) return;
   announceEvent('hsm', text);
 }
 
@@ -8404,6 +8448,8 @@ function spAthenaBody() {
 // ── Settings Announcements body ──────────────────────────────────────
 function spAnnouncementsBody() {
   const en = CONFIG.announceEnabled;
+  const devices = CONFIG.announceDevices || [];
+  const thisDevOn = devices.some(d => d.id === DEVICE_ID);
   const dim = en ? '' : 'opacity:.45;pointer-events:none';
   const motionSensors = CONFIG.artemisSensors && CONFIG.artemisSensors.motions || [];
   const motionDevices = CONFIG.announceMotionDevices || [];
@@ -8427,6 +8473,24 @@ function spAnnouncementsBody() {
     motionPickerHtml = '<span class="sp-hint" style="display:block;margin-top:6px">No motion sensors configured. Add them in Artemis Security settings first.</span>';
   }
 
+  let devicesListHtml = '';
+  if (devices.length) {
+    devicesListHtml = `<div style="margin-top:8px;padding:10px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;max-height:200px;overflow-y:auto">
+      ${devices.map(d => {
+        const isSelf = d.id === DEVICE_ID;
+        const shortId = d.id.split('-')[0];
+        return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border-s)">
+          <div style="flex:1;min-width:0">
+            <span style="font-size:11px;color:var(--t2)">${h(d.name)}</span>
+            ${isSelf ? '<span style="font-size:9px;color:var(--amber);margin-left:6px">(this device)</span>' : ''}
+            <div style="font-size:9px;color:var(--t4)">${shortId}</div>
+          </div>
+          ${!isSelf ? '<button onclick="announceRemoveDevice(\'' + d.id + '\')" style="background:none;border:none;cursor:pointer;color:var(--t4);font-size:14px;padding:2px 6px" title="Remove">✕</button>' : ''}
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
   return `
     <div class="sp-toggle-row">
       <div class="sp-toggle-info">
@@ -8441,6 +8505,33 @@ function spAnnouncementsBody() {
     </div>
 
     <div style="${dim}">
+      <div class="sp-sep"></div>
+      <div class="sp-group">
+        <div class="sp-group-lbl">This Device</div>
+        <div class="sp-toggle-row">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name">Announce on this device</div>
+            <div class="sp-toggle-desc">Only devices toggled on will speak announcements</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${thisDevOn?'checked':''}
+              onchange="announceToggleThisDevice(this.checked)">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+          <span style="font-size:11px;color:var(--t4);flex-shrink:0">Device name</span>
+          <input type="text" value="${h(DEVICE_NAME)}" maxlength="30" style="flex:1;font-size:12px;padding:4px 8px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--t1);outline:none"
+            onchange="setDeviceName(this.value);announceUpdateDeviceName();spShowSection('announce')">
+        </div>
+      </div>
+
+      <div class="sp-sep"></div>
+      <div class="sp-group">
+        <div class="sp-group-lbl">Registered Devices</div>
+        ${devices.length ? devicesListHtml : '<span class="sp-hint" style="display:block;margin-top:4px">No devices registered. Toggle "Announce on this device" above to add this device.</span>'}
+      </div>
+
       <div class="sp-sep"></div>
       <div class="sp-group">
         <div class="sp-group-lbl">Categories</div>
@@ -8551,6 +8642,32 @@ function spAnnouncementsBody() {
         </div>
       </div>
     </div>`;
+}
+
+function announceToggleThisDevice(on) {
+  if (!CONFIG.announceDevices) CONFIG.announceDevices = [];
+  if (on) {
+    if (!CONFIG.announceDevices.some(d => d.id === DEVICE_ID)) {
+      CONFIG.announceDevices.push({ id: DEVICE_ID, name: DEVICE_NAME });
+    }
+  } else {
+    CONFIG.announceDevices = CONFIG.announceDevices.filter(d => d.id !== DEVICE_ID);
+  }
+  saveConfig();
+  spShowSection('announce');
+}
+
+function announceUpdateDeviceName() {
+  if (!CONFIG.announceDevices) return;
+  const entry = CONFIG.announceDevices.find(d => d.id === DEVICE_ID);
+  if (entry) { entry.name = DEVICE_NAME; saveConfig(); }
+}
+
+function announceRemoveDevice(id) {
+  if (!CONFIG.announceDevices) return;
+  CONFIG.announceDevices = CONFIG.announceDevices.filter(d => d.id !== id);
+  saveConfig();
+  spShowSection('announce');
 }
 
 function announceToggleMotionDev(id, on) {
@@ -12499,7 +12616,7 @@ function connectWebSocket() {
       applyAttrs(id, attrs);
 
       // ── Announcements for device events ──
-      if (CONFIG.announceEnabled) {
+      if (isAnnounceDevice()) {
         const dn = announceDeviceName(id, msg.displayName);
         if (DEVICE_TYPE[id] === 'contact' && attrs.contact != null) {
           announceContactEvent(id, dn, attrs.contact);
