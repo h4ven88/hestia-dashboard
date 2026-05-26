@@ -47,15 +47,7 @@ def check_setup():
         sys.exit(1)
 
 
-def train_word(word, n_examples, n_steps, fa_penalty, skip_generate=False, phrase=None):
-    training_data = SCRIPTS_DIR / f'training_data_{word}'
-    if not training_data.exists():
-        print(f'ERROR: {training_data} not found')
-        sys.exit(1)
-
-    pos_count = len(list((training_data / 'positive').glob('*.wav')))
-    neg_count = len(list((training_data / 'negative').glob('*.wav')))
-    print(f'Training data: {pos_count} positive, {neg_count} negative clips')
+def train_word(word, n_examples, n_steps, fa_penalty, skip_generate=False, phrase=None, no_deploy=False):
 
     output_dir = WORK_DIR / f'output_{word}'
     output_dir.mkdir(exist_ok=True)
@@ -109,7 +101,7 @@ def train_word(word, n_examples, n_steps, fa_penalty, skip_generate=False, phras
     if not skip_generate:
         # Step 1: Generate synthetic clips
         print('\n' + '=' * 60)
-        print(f'  Step 1/4: Generating {n_examples} synthetic clips')
+        print(f'  Step 1/3: Generating {n_examples} synthetic clips')
         print('=' * 60)
         t0 = time.time()
         result = subprocess.run(
@@ -117,50 +109,16 @@ def train_word(word, n_examples, n_steps, fa_penalty, skip_generate=False, phras
             cwd=str(WORK_DIR), env=env
         )
         if result.returncode != 0:
-            print('ERROR: Clip generation failed')
+            print('ERROR: Clip generation failed (exit code ' + str(result.returncode) + ')')
             sys.exit(1)
         print(f'  Completed in {(time.time() - t0) / 60:.1f} minutes')
 
-        # Step 2: Inject real recordings
+        # Step 2: Augment clips
         print('\n' + '=' * 60)
-        print(f'  Step 2/4: Injecting real clips')
-        print('=' * 60)
-        import random as _rng
-
-        model_dir = output_dir / config['model_name']
-        pos_train_dir = model_dir / 'positive_train'
-        pos_test_dir = model_dir / 'positive_test'
-        neg_train_dir = model_dir / 'negative_train'
-        neg_test_dir = model_dir / 'negative_test'
-
-        # Inject positive clips (80% train, 20% test)
-        real_pos = list((training_data / 'positive').glob('*.wav'))
-        _rng.shuffle(real_pos)
-        split = int(len(real_pos) * 0.8)
-        for clip in real_pos[:split]:
-            shutil.copy2(str(clip), str(pos_train_dir / clip.name))
-        for clip in real_pos[split:]:
-            shutil.copy2(str(clip), str(pos_test_dir / clip.name))
-        print(f'  Positive: {split} -> train, {len(real_pos) - split} -> test')
-
-        # Inject negative + hard_negative clips
-        real_neg = list((training_data / 'negative').glob('*.wav'))
-        hard_neg = list((training_data / 'hard_negative').glob('*.wav')) if (training_data / 'hard_negative').exists() else []
-        all_neg = real_neg + hard_neg
-        _rng.shuffle(all_neg)
-        neg_split = int(len(all_neg) * 0.8)
-        for clip in all_neg[:neg_split]:
-            shutil.copy2(str(clip), str(neg_train_dir / clip.name))
-        for clip in all_neg[neg_split:]:
-            shutil.copy2(str(clip), str(neg_test_dir / clip.name))
-        print(f'  Negative: {neg_split} -> train, {len(all_neg) - neg_split} -> test ({len(hard_neg)} hard negatives)')
-
-        # Step 3: Augment clips
-        print('\n' + '=' * 60)
-        print(f'  Step 3/4: Augmenting clips')
+        print(f'  Step 2/3: Augmenting clips')
         print('=' * 60)
 
-        # Always clean feature files so augmentation runs fresh with injected clips
+        # Clean feature files so augmentation runs fresh
         feature_dir = output_dir / config['model_name']
         for f in ['positive_features_train.npy', 'positive_features_test.npy',
                    'negative_features_train.npy', 'negative_features_test.npy']:
@@ -175,7 +133,7 @@ def train_word(word, n_examples, n_steps, fa_penalty, skip_generate=False, phras
             cwd=str(WORK_DIR), env=env
         )
         if result.returncode != 0:
-            print('ERROR: Augmentation failed')
+            print('ERROR: Augmentation failed (exit code ' + str(result.returncode) + ')')
             sys.exit(1)
         print(f'  Completed in {(time.time() - t0) / 60:.1f} minutes')
     else:
@@ -183,7 +141,7 @@ def train_word(word, n_examples, n_steps, fa_penalty, skip_generate=False, phras
 
     # Step 4: Train model
     print('\n' + '=' * 60)
-    print(f'  Step 4/4: Training model ({n_steps} steps)')
+    print(f'  Step 3/3: Training model ({n_steps} steps)')
     print('=' * 60)
     t0 = time.time()
     result = subprocess.run(
@@ -191,7 +149,7 @@ def train_word(word, n_examples, n_steps, fa_penalty, skip_generate=False, phras
         cwd=str(WORK_DIR), env=env
     )
     if result.returncode != 0:
-        print('ERROR: Training failed')
+        print('ERROR: Training failed (exit code ' + str(result.returncode) + ')')
         sys.exit(1)
     elapsed = (time.time() - t0) / 60
     print(f'  Training completed in {elapsed:.1f} minutes')
@@ -225,33 +183,43 @@ def train_word(word, n_examples, n_steps, fa_penalty, skip_generate=False, phras
     except FileNotFoundError:
         print(f'\n  Skipping tflite (onnx2tf not found — ONNX model is all you need)')
 
-    # Copy to models/ directory
-    print('\n' + '=' * 60)
-    print('  Deploying model')
-    print('=' * 60)
+    # Deploy or report location
+    if no_deploy:
+        print('\n' + '=' * 60)
+        print('  Training complete (--no-deploy)')
+        print('=' * 60)
+        print(f'  Model saved to: {onnx_path}')
+        print(f'\n  To benchmark against current:')
+        print(f'  python benchmark_model.py --word {word} --model-a {onnx_path} --model-b ../models/{word}.onnx --label-a "New" --label-b "Current"')
+        print(f'\n  To deploy manually:')
+        print(f'  copy "{onnx_path}" "..\\models\\{word}.onnx"')
+    else:
+        print('\n' + '=' * 60)
+        print('  Deploying model')
+        print('=' * 60)
 
-    dest_onnx = MODELS_DIR / f'{word}.onnx'
-    dest_tflite = MODELS_DIR / f'{word.capitalize()}.tflite'
+        dest_onnx = MODELS_DIR / f'{word}.onnx'
+        dest_tflite = MODELS_DIR / f'{word.capitalize()}.tflite'
 
-    # Backup existing model
-    if dest_onnx.exists():
-        backup = MODELS_DIR / f'{word}_backup.onnx'
-        shutil.copy2(str(dest_onnx), str(backup))
-        print(f'  Backed up existing model to {backup.name}')
+        # Backup existing model
+        if dest_onnx.exists():
+            backup = MODELS_DIR / f'{word}_backup.onnx'
+            shutil.copy2(str(dest_onnx), str(backup))
+            print(f'  Backed up existing model to {backup.name}')
 
-    # Embed external data into single ONNX file (needed for browser deployment)
-    import onnx
-    model_data = onnx.load(str(onnx_path), load_external_data=True)
-    onnx.save(model_data, str(dest_onnx), save_as_external_data=False)
-    print(f'  Deployed: {dest_onnx} ({dest_onnx.stat().st_size / 1024:.1f} KB)')
+        # Embed external data into single ONNX file (needed for browser deployment)
+        import onnx
+        model_data = onnx.load(str(onnx_path), load_external_data=True)
+        onnx.save(model_data, str(dest_onnx), save_as_external_data=False)
+        print(f'  Deployed: {dest_onnx} ({dest_onnx.stat().st_size / 1024:.1f} KB)')
 
-    if tflite_dst.exists():
-        shutil.copy2(str(tflite_dst), str(dest_tflite))
-        print(f'  Deployed: {dest_tflite}')
+        if tflite_dst.exists():
+            shutil.copy2(str(tflite_dst), str(dest_tflite))
+            print(f'  Deployed: {dest_tflite}')
 
-    print(f'\n  Model size: {dest_onnx.stat().st_size / 1024:.1f} KB')
-    print(f'\n  Done! Run benchmark to verify:')
-    print(f'  python benchmark_model.py --word {word}')
+        print(f'\n  Model size: {dest_onnx.stat().st_size / 1024:.1f} KB')
+        print(f'\n  Done! Run benchmark to verify:')
+        print(f'  python benchmark_model.py --word {word}')
 
 
 def main():
@@ -264,6 +232,8 @@ def main():
                         help='Phonetic phrase for TTS (e.g., "uh thee nuh"). Model still named after --word.')
     parser.add_argument('--skip-generate', action='store_true',
                         help='Skip clip generation/augmentation, only retrain')
+    parser.add_argument('--no-deploy', action='store_true',
+                        help='Train without deploying — evaluate with benchmark first')
     args = parser.parse_args()
 
     phrase = args.phrase or args.word
@@ -288,7 +258,7 @@ def main():
         print('PyTorch not found')
 
     check_setup()
-    train_word(args.word, args.examples, args.steps, args.fa_penalty, args.skip_generate, phrase)
+    train_word(args.word, args.examples, args.steps, args.fa_penalty, args.skip_generate, phrase, args.no_deploy)
 
 
 if __name__ == '__main__':

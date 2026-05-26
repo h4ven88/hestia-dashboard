@@ -1654,7 +1654,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.5.4';
-const HESTIA_BUILD_DATE = '2026-05-23';
+const HESTIA_BUILD_DATE = '2026-05-26';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 let _cloudSyncDebounce  = null;
@@ -8843,9 +8843,10 @@ function spArtemisBody() {
       <div class="sp-field">
         <label class="sp-label">Disarm PIN</label>
         <input class="sp-input" id="sp-artemis-pin" type="password" maxlength="6"
-          inputmode="numeric" pattern="[0-9]*" placeholder="6 digits" value=""
+          inputmode="numeric" pattern="[0-9]*" placeholder="${CONFIG.artemisPin ? '● ● ● (set)' : '6 digits'}" value=""
           style="width:200px;letter-spacing:.2em">
-        <span class="sp-hint">Required to disarm. Leave blank to allow any entry.</span>
+        <span class="sp-hint">${CONFIG.artemisPin ? 'PIN is set. Enter new PIN to change, or leave blank to keep.' : 'Required to disarm. Leave blank to allow any entry.'}</span>
+        ${CONFIG.artemisPin ? '<a href="#" onclick="CONFIG.artemisPin=\'\';saveConfig();spShowSection(spActiveSection);return false" style="font-size:11px;color:var(--accent);margin-top:4px;display:inline-block">Remove PIN</a>' : ''}
       </div>
     </div>
 
@@ -9189,7 +9190,10 @@ function artemisShowSecurityNav() {
 
 async function artemisNavSaveSettings() {
   const pinInput = document.getElementById('sp-artemis-pin');
-  if (pinInput) CONFIG.artemisPin = pinInput.value.replace(/\D/g,'').slice(0,6);
+  if (pinInput) {
+    const raw = pinInput.value.replace(/\D/g,'').slice(0,6);
+    if (raw.length === 6) CONFIG.artemisPin = await hashPin(raw);
+  }
   artemisRegisterSensors();
   await saveConfig();
 }
@@ -11099,9 +11103,10 @@ function spShowSection(id, force) {
           <div class="sp-group-lbl">Settings Lock</div>
           <div class="sp-field"><label class="sp-label">Settings PIN</label>
             <input class="sp-input" id="sp-settings-pin" type="password" maxlength="6"
-              inputmode="numeric" pattern="[0-9]*" placeholder="6 digits" value=""
+              inputmode="numeric" pattern="[0-9]*" placeholder="${CONFIG.settingsPin ? '● ● ● (set)' : '6 digits'}" value=""
               style="width:200px;letter-spacing:.2em">
-            <span class="sp-hint">When set, this PIN is required to open Settings. Leave blank to disable.</span></div>
+            <span class="sp-hint">${CONFIG.settingsPin ? 'PIN is set. Enter new PIN to change, or leave blank to keep.' : 'When set, this PIN is required to open Settings. Leave blank to disable.'}</span>
+            ${CONFIG.settingsPin ? '<a href="#" onclick="CONFIG.settingsPin=\'\';saveConfig();spShowSection(spActiveSection);return false" style="font-size:11px;color:var(--accent);margin-top:4px;display:inline-block">Remove PIN</a>' : ''}</div>
         </div>`;
       break;
 
@@ -11365,7 +11370,7 @@ async function saveSettings() {
   if (pinEl !== null) {
     const rawPin = pinEl.value.replace(/[^0-9]/g,'');
     if (rawPin.length === 0) {
-      CONFIG.settingsPin = ''; // cleared — disable lock
+      // Blank field: preserve existing PIN, only clear if none was set
     } else if (rawPin.length === 6) {
       CONFIG.settingsPin = await hashPin(rawPin);
     } else {
@@ -11379,7 +11384,7 @@ async function saveSettings() {
   if (artPinEl !== null) {
     const rawArtPin = artPinEl.value.replace(/[^0-9]/g,'').slice(0,6);
     if (rawArtPin.length === 0) {
-      CONFIG.artemisPin = ''; // explicitly cleared
+      // Blank field: preserve existing PIN, only clear if none was set
     } else if (rawArtPin.length === 6) {
       CONFIG.artemisPin = await hashPin(rawArtPin);
     } else {
@@ -13809,33 +13814,31 @@ function launchOnboarding() {
       }
     }
   } else {
-    // Has localStorage config — push to cloud so other devices can discover
-    cloudSyncPush(buildConfigPayload());
-
-    // Sync with hub
+    // Sync with hub (source of truth when reachable)
     if (!HUB_STORE && CONFIG.hub && isLocalHubUrl(CONFIG.hub)) {
-      // Page-origin discovery failed (e.g. loaded from hestari.com) —
-      // try using the known hub IP from localStorage config
       await discoverHubStore(CONFIG.hub);
       if (HUB_STORE) console.log('[Boot] Late HUB_STORE discovery via CONFIG.hub');
     }
     if (HUB_STORE) {
       const hubCfg = await loadConfigFromHub();
       if (hubCfg) {
-        // Hub is source of truth — overwrite local cache
         applyParsedConfig(hubCfg);
         try { localStorage.setItem('dashboard-config', JSON.stringify(hubCfg)); } catch(e) {}
-        // Sync FAB visibility immediately after hub config merge —
-        // athenaInit() runs later and may not fire if CONFIG state changed
         const _athFab = document.getElementById('ath-fab');
         if (_athFab) _athFab.style.display = CONFIG.athenaEnabled ? 'flex' : 'none';
       } else {
-        // Hub has no saved config — seed it from this device's localStorage
-        // so other devices on the network can auto-boot without the wizard
         await saveConfigToHub(buildConfigPayload());
         console.log('[Boot] Seeded hub config from local cache for cross-device sync');
       }
+    } else {
+      const cloudCfg = await cloudSyncDiscover();
+      if (cloudCfg) {
+        applyParsedConfig(cloudCfg);
+        try { localStorage.setItem('dashboard-config', JSON.stringify(cloudCfg)); } catch(e) {}
+        console.log('[Boot] Updated config from cloud sync');
+      }
     }
+    cloudSyncPush(buildConfigPayload());
     // Auto-migrate hub URL protocol if page is now served over https but config still has http.
     // Only applies when loaded directly from the hub over HTTPS — not from hestari.com where
     // window.location.origin would wrongly overwrite the hub IP with the cloud domain.
