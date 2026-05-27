@@ -200,17 +200,20 @@ Free tier: TTS 1M chars/month, STT 60 min/month
 - ✅ **Calendar** — Built-in calendar widget on home view. Mini-month (desktop) and swipeable week strip (mobile). Displays reminders and scheduled routines. Inline "Add Reminder" form. One-time reminders preserved as history.
 
 ### Completed — Sprint 10 (Announcements & Training)
-- ✅ **Announcements** — TTS announcements for device events (doors, windows, locks, motion, smoke/CO, water/freeze, HSM status). Settings panel with per-category toggles, motion sensor picker, open/close event type control. 3-second debounce, Athena-aware queueing.
+- ✅ **Announcements** — TTS announcements for device events (doors, windows, locks, motion, smoke/CO, water/freeze, HSM status). Settings panel with per-category toggles, motion sensor picker, open/close event type control. 3-second debounce, Athena-aware queueing. Per-device scoping via UUID identity.
 - ✅ **Mobile intrusion delay fix** — entry-delay countdown ring now renders on mobile by switching to security tab before opening PIN sheet
 - ✅ **Local training pipeline** — full OWW training on Windows with RTX 3080 (setup_training.py + train_local.py), all Python 3.14/PyTorch 2.12 compatibility patches applied
+- ✅ **Config sync fix** — boot flow uses savedAt timestamps to prevent stale hub/cloud configs from overwriting local changes. Cloud discovery fallback when hub unreachable.
+- ✅ **PIN display fix** — Artemis and Settings PIN fields show "set" indicator, preserve existing PIN on save, Remove PIN link, fixed missing SHA-512 hash in artemisNavSaveSettings
+- ✅ **UI cleanup** — themed scrollbar (6px, dark), removed companion app references from Wall Panel and wizard, removed _mixedContentMode dead code
+- ✅ **Project cleanup** — removed broken locally-trained models (6), scraped training data archives, mockups, deprecated build.py, temp validation files
 
 ### Blocked / Deferred
 - ⏸ **Ring integration migration** — blocked by known Hubitat issue: child devices won't create outside of Beta
-- ⬜ OWW diagnostic logging — keeping verbose logs until wake word is reliable in noisy environments
 - ✅ Community v1.5.2 post published on Hubitat Forum
 
 ### Wake Word Status
-Three models trained and deployed: Athena (0.6–0.8), Artemis (0.94–0.96), Hestia (untested). Seven more names in picklist as "Coming Soon" (Apollo, Achilles, Andromeda, Hermes, Odin, Osiris, Anubis). Threshold 0.40, CONSEC_HITS 3, COOLDOWN_MS 3000, grace period 25 chunks (~2s).
+Three models deployed: Athena (local retrain with phonetic phrase, 57.7% benchmark), Artemis (Colab original, 24.5% benchmark), Hestia (Colab original, 25.5% benchmark). Benchmark scores do NOT correlate with real-world performance — Hestia at 25.5% works reliably in practice. Seven more names in picklist as "Coming Soon" (Apollo, Achilles, Andromeda, Hermes, Odin, Osiris, Anubis) — to be retrained on Google Colab with pure synthetic data. Scraped YouTube data proven to hurt training quality. Threshold 0.40, CONSEC_HITS 3, COOLDOWN_MS 3000, grace period 25 chunks (~2s).
 
 **OWW Settings:**
 ```
