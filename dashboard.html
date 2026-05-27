@@ -8187,7 +8187,7 @@ async function spWallPanelCheckSync() {
   const el = document.getElementById('sp-wp-sync-status');
   if (!el) return;
   if (!HUB_STORE) {
-    el.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:var(--a-ok);display:inline-block"></span><span style="color:var(--a-ok)">Cloud sync</span>';
+    el.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:var(--a-ok);display:inline-block"></span><span style="color:var(--a-ok)">Synced</span>';
     return;
   }
   try {
