@@ -8079,10 +8079,9 @@ function spWallPanelBody() {
   const displayUrl = kioskUrl || makerUrl;
   const urlSection = displayUrl ? `
     <div class="sp-group">
-      <div class="sp-group-lbl">${kioskUrl ? 'Kiosk URL' : 'Setup URL'}</div>
+      <div class="sp-group-lbl">Wall Panel URL</div>
       <div style="font-size:11px;color:var(--t2);line-height:1.6;margin-bottom:12px">
-        ${kioskUrl ? 'Paste this URL into your wall panel browser (Fully Kiosk, WallPanel, etc.) to auto-configure the dashboard with your current settings.'
-                   : 'Open this URL on any new device to auto-configure the dashboard without repeating the setup wizard.'}
+        Paste this URL into your wall panel browser (Fully Kiosk, WallPanel, etc.) or open it on any new device to auto-configure.
       </div>
       <div style="position:relative">
         <div id="sp-wp-url" style="background:var(--bg-card);border:1px solid var(--border);border-radius:7px;padding:10px 44px 10px 12px;font-size:12px;color:var(--amber);font-family:monospace;word-break:break-all;line-height:1.5;cursor:text;user-select:all">${h(displayUrl)}</div>
@@ -8106,10 +8105,9 @@ function spWallPanelBody() {
           Open hub dashboard ↗
         </button>
         ` : `
-        <div style="font-size:12px;font-weight:500;color:var(--amber);margin-bottom:4px">Companion app not detected</div>
+        <div style="font-size:12px;font-weight:500;color:var(--amber);margin-bottom:4px">URL not available</div>
         <div style="font-size:11px;color:var(--t2);line-height:1.6">
-          The wall panel URL requires the Hestia Dashboard companion app on your hub.
-          Install it from the Hubitat Package Manager, then reload this page.
+          Open the dashboard from your hub or hestari.com on a configured device first, then return here to generate the wall panel URL.
         </div>
         `}
       </div>
@@ -8120,22 +8118,13 @@ function spWallPanelBody() {
     <div class="sp-sep"></div>
     <div class="sp-group">
       <div class="sp-group-lbl">Status</div>
-      <div class="sp-toggle-row">
+      <div class="sp-toggle-row" style="border-bottom:none">
         <div class="sp-toggle-info">
-          <div class="sp-toggle-name">Hub config sync</div>
-          <div class="sp-toggle-desc">Config saved on the hub for cross-device access.</div>
+          <div class="sp-toggle-name">Hub sync</div>
+          <div class="sp-toggle-desc">Config synced across all your devices.</div>
         </div>
         <div id="sp-wp-sync-status" style="font-size:11px;font-weight:500;color:var(--t3);display:flex;align-items:center;gap:4px">
           <span style="width:6px;height:6px;border-radius:50%;background:var(--t3);display:inline-block"></span>Checking\u2026
-        </div>
-      </div>
-      <div class="sp-toggle-row" style="border-bottom:none">
-        <div class="sp-toggle-info">
-          <div class="sp-toggle-name">Companion app</div>
-          <div class="sp-toggle-desc">Hestia Dashboard app${hasStore ? ' (ID ' + h(HUB_STORE.appId) + ')' : ''} on the hub.</div>
-        </div>
-        <div style="font-size:11px;font-weight:500;color:${hasStore ? 'var(--a-ok)' : '#F87171'};display:flex;align-items:center;gap:4px">
-          <span style="width:6px;height:6px;border-radius:50%;background:${hasStore ? 'var(--a-ok)' : '#F87171'};display:inline-block"></span>${hasStore ? 'Connected' : 'Not found'}
         </div>
       </div>
     </div>
@@ -8198,7 +8187,7 @@ async function spWallPanelCheckSync() {
   const el = document.getElementById('sp-wp-sync-status');
   if (!el) return;
   if (!HUB_STORE) {
-    el.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:#F87171;display:inline-block"></span><span style="color:#F87171">No companion app</span>';
+    el.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:var(--a-ok);display:inline-block"></span><span style="color:var(--a-ok)">Cloud sync</span>';
     return;
   }
   try {
@@ -12710,7 +12699,6 @@ let pollTimer   = null;
 let lastConnOk  = null;
 let _pollFailCount  = 0;
 let _hsmSyncCounter = 0; // counts poll cycles for periodic HSM sync
-let _mixedContentMode = false; // true when HTTPS page talks to HTTP hub
 
 
 /* ═══════════════════════════════════════════════════════
@@ -12996,7 +12984,6 @@ function detectRemovedDevices(devices) {
   });
 }
 function scheduleNextPoll() {
-  if (_mixedContentMode) return;
   clearTimeout(pollTimer);
   pollTimer = setTimeout(async function runPoll() {
     if (document.activeElement && document.activeElement.type === 'range') {
@@ -13225,10 +13212,10 @@ function obStep1() {
   } else if (isNewDevice && HUB_STORE) {
     shortcutHTML = `
     <div style="background:var(--amber-dim);border:1px solid var(--amber-bdr);border-radius:10px;padding:12px 14px;margin-bottom:20px">
-      <div style="font-size:12px;font-weight:600;color:var(--amber);margin-bottom:4px">Hestia companion app detected</div>
+      <div style="font-size:12px;font-weight:600;color:var(--amber);margin-bottom:4px">Existing setup found</div>
       <div style="font-size:11px;color:var(--t2);line-height:1.6;margin-bottom:6px">
-        Open the dashboard on a device that's already configured (desktop or phone) — it will
-        automatically sync settings to the hub. Then refresh this page to boot instantly.
+        Another device is already configured. Open the dashboard on that device and it will
+        sync settings automatically. Then refresh this page to boot instantly.
       </div>
       <div style="font-size:10px;color:var(--t3);line-height:1.5">
         Or enter your Maker API credentials below to set up this device manually.
