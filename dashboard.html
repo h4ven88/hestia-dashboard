@@ -81,7 +81,13 @@
   --fb-row:    rgba(245,158,11,.06);
   --fb-glow:   0 0 0 1px rgba(245,158,11,.18), 0 0 6px rgba(245,158,11,.06);
   color-scheme: dark;
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
 }
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--t3)}
 /* ═══════════════════════════════════════════════
    ONBOARDING WIZARD
 ═══════════════════════════════════════════════ */
