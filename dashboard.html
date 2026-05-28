@@ -13686,6 +13686,31 @@ function launchOnboarding() {
   loadTheme();
   loadDisplayMode();
 
+  // ── Safari redirect: WebKit blocks HTTPS→HTTP to private IPs ──
+  // Redirect Safari users from hestari.com to the hub's local HTTPS URL
+  // so all requests are same-origin and mic permissions work.
+  if (!isServedFromHub() && /^((?!chrome|android|crios|fxios|edgios|brave).)*safari/i.test(navigator.userAgent)) {
+    let _safariHub = null;
+    try {
+      const sc = JSON.parse(localStorage.getItem('dashboard-config') || '{}');
+      if (sc.config && sc.config.hub) _safariHub = sc.config.hub;
+    } catch(e) {}
+    if (!_safariHub) {
+      const sp = new URLSearchParams(window.location.search);
+      const sh = sp.get('hub');
+      if (sh) _safariHub = sh.startsWith('http') ? sh : ('http://' + sh);
+    }
+    if (_safariHub) {
+      try {
+        const hp = new URL(_safariHub);
+        const dest = 'https://' + hp.hostname + '/local/index.html';
+        console.log('[Boot] Safari detected — redirecting to hub HTTPS:', dest);
+        window.location.replace(dest);
+        return;
+      } catch(e) {}
+    }
+  }
+
   // ── URL parameter bootstrap ──
   // Cloud-served pages (hestari.com) can't fetch /local/hestia-token.json
   // cross-origin (CORS blocked). Instead, pass companion app credentials
