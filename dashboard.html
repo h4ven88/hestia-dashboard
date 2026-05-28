@@ -906,7 +906,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 .wx-unit{font-size:20px;color:var(--t3);font-weight:400;vertical-align:super}
 .wx-icon-wrap{padding-bottom:6px;opacity:.9}
 .wx-right{text-align:right;padding-top:4px;flex-shrink:0}
-.wx-condition{font-size:13px;font-weight:500;color:var(--t1);margin-bottom:4px}
+.wx-condition{font-size:13px;font-weight:500;color:var(--t1);margin-bottom:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .wx-detail{font-size:11px;color:var(--t3);line-height:1.7}
 .wx-forecast{display:flex;gap:0;border-top:1px solid var(--border-s);padding-top:10px;margin-top:2px}
 .wx-period{flex:1;text-align:center;padding:0 4px;border-right:1px solid var(--border-s)}
@@ -1215,7 +1215,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
   .m-wx-temp{font-size:52px;font-weight:200;color:var(--t1);line-height:1;letter-spacing:-2px;text-shadow:var(--ts-lg)}
   .m-wx-unit{font-size:18px;color:var(--t3);vertical-align:super}
   .m-wx-right{text-align:right}
-  .m-wx-condition{font-size:13px;font-weight:500;color:var(--t1);margin-bottom:3px}
+  .m-wx-condition{font-size:13px;font-weight:500;color:var(--t1);margin-bottom:3px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .m-wx-detail{font-size:11px;color:var(--t3);line-height:1.6}
   .m-wx-forecast{display:flex;gap:0;border-top:1px solid var(--border-s);padding-top:10px}
   .m-wx-period{flex:1;text-align:center;padding:0 2px;border-right:1px solid var(--border-s)}
@@ -1660,7 +1660,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.5.4';
-const HESTIA_BUILD_DATE = '2026-05-27';
+const HESTIA_BUILD_DATE = '2026-05-28';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 let _cloudSyncDebounce  = null;
