@@ -1660,7 +1660,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.5.4';
-const HESTIA_BUILD_DATE = '2026-05-28';
+const HESTIA_BUILD_DATE = '2026-05-29';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 let _cloudSyncDebounce  = null;
@@ -11908,11 +11908,15 @@ async function spScanDevices() {
     if (!res.ok) throw new Error('API error');
     const devices = await res.json();
     const prevStaging = staging.length;
+    const prevTherms = thermostats.length;
     detectNewDevices(devices);
     if (CONFIG.artemisEnabled) detectNewSecurityDevices(devices);
-    const newCount = staging.length - prevStaging;
-    const msg = newCount > 0
-      ? newCount + ' new device' + (newCount > 1 ? 's' : '') + ' found — check Rooms & Devices'
+    const newDevices = staging.length - prevStaging;
+    const newTherms = thermostats.length - prevTherms;
+    const total = newDevices + newTherms;
+    const msg = total > 0
+      ? total + ' new device' + (total > 1 ? 's' : '') + ' found' +
+        (newTherms > 0 ? ' (' + newTherms + ' thermostat' + (newTherms > 1 ? 's' : '') + ')' : '')
       : 'No new devices found';
     showDeviceToast(msg);
   } catch(e) {
@@ -12808,12 +12812,17 @@ function detectNewDevices(devices) {
       return;
     }
     if (isSecurityCapable(d.capabilities)) return;
-    const type = capToType(d.capabilities);
+    const dName = d.label || d.name || ('Device ' + id);
+    const type = capToType(d.capabilities, dName);
     if (!type) return;
     if (DEVICE_REGISTRY.has(id) && assigned.has(id)) return;
     if (assigned.has(id)) return;
     if (!assigned.has(id)) {
-      staging.push({ id, name: d.label || d.name || ('Device ' + id), type });
+      if (type === 'therm') {
+        thermostats.push({ id, name: dName, zone: '' });
+      } else {
+        staging.push({ id, name: dName, type });
+      }
       DEVICE_REGISTRY.add(id);
       found++;
     }
@@ -13076,10 +13085,10 @@ function needsOnboarding() {
 }
 
 /* ── Capability → type ── */
-function capToType(caps) {
+function capToType(caps, label) {
   if (!caps) return null;
   const c = Array.isArray(caps) ? caps.join(',') : String(caps);
-  if (/FanControl|fan/i.test(c))              return 'fan';
+  if (/FanControl/i.test(c))                  return 'fan';
   if (/WindowBlind|WindowShade/i.test(c))     return 'shade';
   if (/Thermostat/i.test(c))                  return 'therm';
   if (/Lock/i.test(c))                        return 'lock';
@@ -13092,6 +13101,10 @@ function capToType(caps) {
   // Color bulbs: must be checked before dimmer/switch
   if (/ColorControl/i.test(c))                return 'color';        // full RGB+CT
   if (/ColorTemperature/i.test(c) && /SwitchLevel|Dimmer/i.test(c)) return 'color-temp'; // CT-only
+  // Name-based fan fallback: some fan drivers (Bond, community) only report Switch/SwitchLevel
+  if (label && /\bfan\b/i.test(label)) {
+    if (/SwitchLevel|Dimmer|Switch/i.test(c)) return 'fan';
+  }
   if (/SwitchLevel|Dimmer/i.test(c))          return 'dimmer';
   if (/Switch/i.test(c))                      return 'switch';
   return null;
@@ -13356,11 +13369,11 @@ async function obTestConnection() {
     const data = await r.json();
     if (!Array.isArray(data)) throw new Error('Unexpected response format');
     // Filter to known types only
-    const known = data.filter(d => capToType(d.capabilities));
+    const known = data.filter(d => capToType(d.capabilities, d.label || d.name));
     OB.devices = known;
     OB.testOk = true;
-    const locks  = known.filter(d => capToType(d.capabilities) === 'lock');
-    const therms = known.filter(d => capToType(d.capabilities) === 'therm');
+    const locks  = known.filter(d => capToType(d.capabilities, d.label || d.name) === 'lock');
+    const therms = known.filter(d => capToType(d.capabilities, d.label || d.name) === 'therm');
     const ctrl   = known.length - locks.length - therms.length;
     res.textContent = `\u2713 Connected \u2014 ${ctrl} controllable device${ctrl!==1?'s':''}, ${therms.length} thermostat${therms.length!==1?'s':''}, ${locks.length} lock${locks.length!==1?'s':''} found`;
     res.className = 'ob-test-result ok';
@@ -13403,13 +13416,16 @@ async function obTestConnection() {
 function obStep2() {
   // Build inventory on first entry to this step
   if (!OB.inventory.length) {
-    OB.inventory = OB.devices.map(d => ({
-      id:     String(d.id),
-      name:   d.label || d.name || ('Device ' + d.id),
-      type:   capToType(d.capabilities),
-      assign: 'staging',   // default — overridden in step 4
-      keep:   true         // user can uncheck to exclude entirely
-    }));
+    OB.inventory = OB.devices.map(d => {
+      const nm = d.label || d.name || ('Device ' + d.id);
+      return {
+        id:     String(d.id),
+        name:   nm,
+        type:   capToType(d.capabilities, nm),
+        assign: 'staging',
+        keep:   true
+      };
+    });
     // Pre-fill thermostats and lock
     OB.thermostats = OB.inventory
       .filter(d => d.type === 'therm')
