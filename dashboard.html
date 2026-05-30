@@ -877,7 +877,8 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 
 /* ── HOME VIEW ── */
 .home-grid{flex:1;overflow-y:auto;padding:18px 20px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-content:start}
-.home-stat-card{background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:20px 22px;display:flex;flex-direction:column;gap:8px}
+.home-stat-card{background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:20px 22px;display:flex;flex-direction:column;gap:8px;cursor:pointer;transition:border-color .15s,background .15s}
+.home-stat-card:hover{border-color:var(--amber);background:var(--bg-hover)}
 .home-card-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px}
 .home-stat-lbl{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--t3);padding-top:2px}
 .home-card-icon{flex-shrink:0;opacity:.85}
@@ -1202,14 +1203,16 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
   .m-agg-btns{display:flex;gap:6px}
   .m-agg-btn{height:26px;padding:0 10px;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:transparent;color:var(--t2);font-size:11px;font-family:inherit;font-weight:500}
   .climate-grid{grid-template-columns:1fr;padding:12px}
-  .stat-card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:10px 10px 11px;display:flex;flex-direction:column;gap:3px;min-width:0;overflow:hidden}
+  .stat-card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:10px 10px 11px;display:flex;flex-direction:column;gap:3px;min-width:0;overflow:hidden;cursor:pointer;transition:border-color .15s,background .15s}
+  .stat-card:hover{border-color:var(--amber);background:var(--bg-hover)}
   .stat-card-lbl{font-size:9px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--t3);white-space:nowrap}
   .stat-card-val{font-size:26px;font-weight:300;color:var(--t1);line-height:1;text-shadow:var(--ts-lg);white-space:nowrap}
   .stat-card-val.amber{color:var(--amber);text-shadow:var(--ts-amber)}
   .stat-card-denom{font-size:11px;color:var(--t3);font-weight:400}
   .stat-card-sub{font-size:10px;color:var(--t3);line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .stat-card-sub .live{color:var(--t2)}
-  .m-climate-card{background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:10px}
+  .m-climate-card{background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:10px;transition:border-color .15s,background .15s}
+  .m-climate-card:hover{border-color:var(--amber);background:var(--bg-hover)}
   .m-weather-card{background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:10px}
   .m-wx-top{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:10px}
   .m-wx-temp{font-size:52px;font-weight:200;color:var(--t1);line-height:1;letter-spacing:-2px;text-shadow:var(--ts-lg)}
@@ -3323,26 +3326,26 @@ function renderHome() {
       <div class="main-mobile-scroll">
         ${armedStatusCard("selectTab('security')")}
         <div class="home-stats-row">
-          <div class="stat-card">
+          <div class="stat-card" onclick="navToGlobal('lights')">
             <div class="stat-card-lbl">Lights</div>
             <div class="stat-card-icon">${iconBulb(totalLit > 0, 28)}</div>
             <div id="home-lit-val" class="stat-card-val${totalLit > 0 ? ' amber' : ''}">${totalLit}<span class="stat-card-denom"> / ${totalBulbs}</span></div>
             <div id="home-lit-sub" class="stat-card-sub">${totalLit > 0 ? '<span class="live">' + totalLit + ' on</span>' : 'All off'}</div>
           </div>
-          <div class="stat-card">
+          <div class="stat-card" onclick="navToGlobal('fans')">
             <div class="stat-card-lbl">Fans</div>
             <div class="stat-card-icon" id="home-fan-icon" data-spd="${topSpd}">${fanSVG(topSpd, 28)}</div>
             <div id="home-fan-val" class="stat-card-val${activeFans > 0 ? ' amber' : ''}">${activeFans}<span class="stat-card-denom"> / ${totalFans}</span></div>
             <div id="home-fan-sub" class="stat-card-sub">${activeFans > 0 ? '<span class="live">' + activeFans + ' running</span>' : 'All off'}</div>
           </div>
-          <div class="stat-card">
+          <div class="stat-card" onclick="navToGlobal('blinds')">
             <div class="stat-card-lbl">Blinds</div>
             <div class="stat-card-icon">${iconBlinds(openShades > 0, 28)}</div>
             <div id="home-shade-val" class="stat-card-val${openShades > 0 ? ' amber' : ''}">${openShades}<span class="stat-card-denom"> / ${totalShades}</span></div>
             <div id="home-shade-sub" class="stat-card-sub">${openShades > 0 ? '<span class="live">' + openShades + ' open</span>' : 'All closed'}</div>
           </div>
         </div>
-        <div class="m-climate-card">
+        <div class="m-climate-card" onclick="navToGlobal('climate')" style="cursor:pointer">
           <div class="sec-lbl" style="margin-top:0;margin-bottom:8px">Climate</div>
           ${thermRows}
         </div>
@@ -3361,7 +3364,7 @@ function renderHome() {
     ${roomHeader('', 'Home', '')}
     ${armedStatusCard("selectRoom('security')")}
     <div class="home-grid">
-      <div class="home-stat-card">
+      <div class="home-stat-card" onclick="navToGlobal('lights')">
         <div class="home-card-top">
           <div class="home-stat-lbl">Lights</div>
           <div class="home-card-icon">${iconBulb(totalLit > 0, 38)}</div>
@@ -3369,7 +3372,7 @@ function renderHome() {
         <div id="home-lit-val" class="home-stat-val${totalLit > 0 ? ' amber' : ''}">${totalLit}<span style="font-size:16px;color:var(--t3);font-weight:400"> / ${totalBulbs}</span></div>
         <div id="home-lit-sub" class="home-stat-sub">${totalLit > 0 ? '<span class="live">' + totalLit + ' on</span>' : 'All off'}</div>
       </div>
-      <div class="home-stat-card" id="home-fan-card">
+      <div class="home-stat-card" id="home-fan-card" onclick="navToGlobal('fans')">
         <div class="home-card-top">
           <div class="home-stat-lbl">Fans</div>
           <div class="home-card-icon" id="home-fan-icon" data-spd="${topSpd}">${fanSVG(topSpd, 38)}</div>
@@ -3377,7 +3380,7 @@ function renderHome() {
         <div id="home-fan-val" class="home-stat-val${activeFans > 0 ? ' amber' : ''}">${activeFans}<span style="font-size:16px;color:var(--t3);font-weight:400"> / ${totalFans}</span></div>
         <div id="home-fan-sub" class="home-stat-sub">${activeFans > 0 ? '<span class="live">' + activeFans + ' running</span>' : 'All off'}</div>
       </div>
-      <div class="home-stat-card">
+      <div class="home-stat-card" onclick="navToGlobal('blinds')">
         <div class="home-card-top">
           <div class="home-stat-lbl">Blinds</div>
           <div class="home-card-icon">${iconBlinds(openShades > 0, 38)}</div>
@@ -3385,7 +3388,7 @@ function renderHome() {
         <div id="home-shade-val" class="home-stat-val${openShades > 0 ? ' amber' : ''}">${openShades}<span style="font-size:16px;color:var(--t3);font-weight:400"> / ${totalShades}</span></div>
         <div id="home-shade-sub" class="home-stat-sub">${openShades > 0 ? '<span class="live">' + openShades + ' open</span>' : 'All closed'}</div>
       </div>
-      <div class="home-stat-card" style="grid-column:span 1">
+      <div class="home-stat-card" onclick="navToGlobal('climate')" style="grid-column:span 1">
         <div class="home-card-top"><div class="home-stat-lbl">Climate</div></div>
         ${thermRows}
       </div>
@@ -10155,6 +10158,11 @@ function selectRoom(id) {
   if (room) renderRoom(room);
 }
 
+function navToGlobal(view) {
+  if (isMobile()) { activeTab = view; refreshActiveView(); }
+  else selectRoom(view);
+}
+
 function switchTab(tab) {
   currentTab = tab;
   document.getElementById('tab-rooms').className = 'sb-tab active';
@@ -12164,6 +12172,8 @@ function refreshActiveView() {
     if      (activeTab === 'home')     renderHome();
     else if (activeTab === 'rooms')    renderRoomsMobile();
     else if (activeTab === 'blinds')   renderBlindsMobile();
+    else if (activeTab === 'lights')   renderLights();
+    else if (activeTab === 'fans')     renderFans();
     else if (activeTab === 'climate')  renderClimate();
     else if (activeTab === 'security') renderSecurity();
   } else {

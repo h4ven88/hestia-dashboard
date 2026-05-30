@@ -76,8 +76,8 @@ Hestia is a single-page smart home dashboard for Hubitat Elevation C8 Pro. It co
 - **GitHub:** https://github.com/h4ven88/hestia-dashboard
 - **Live URL:** https://hestari.com (Cloudflare Pages, auto-deploys from GitHub main)
 - **Hub IP:** (user-specific) | Maker API App ID: (user-specific) | Hestia App ID: (user-specific)
-- **Current version:** v1.5.4
-- **Target milestone:** v1.5.4
+- **Current version:** v1.5.5
+- **Target milestone:** v1.5.5
 
 ---
 
@@ -208,9 +208,18 @@ Free tier: TTS 1M chars/month, STT 60 min/month
 - ✅ **UI cleanup** — themed scrollbar (6px, dark), removed companion app references from Wall Panel and wizard, removed _mixedContentMode dead code
 - ✅ **Project cleanup** — removed broken locally-trained models (6), scraped training data archives, mockups, deprecated build.py, temp validation files
 
+### Completed — Sprint 11 (Community Fixes v1.5.5)
+- ✅ **Device duplication fix** — room reassignment now includes colors/colortemps arrays, preventing duplicates
+- ✅ **Multi-lock support** — CONFIG.locks array with backwards migration from CONFIG.lock, aggregate ribbon state, per-lock Artemis toggles, auto-discovery, Settings add/remove UI
+- ✅ **Garage door support** — GarageDoorControl added to capToType() and full type chain (onboarding, rooms, discovery)
+- ✅ **Dark theme CSS** — .sp-select options, fan/therm badges switched from hardcoded hex to CSS variables
+- ✅ **Weather nav** — moved from Devices to General group in Settings sidebar
+- ✅ **Clickable home summaries** — Lights, Fans, Blinds, and Climate cards on home screen navigate to their global control views on click. Works on both desktop and mobile. Hover highlights with amber border.
+
 ### Blocked / Deferred
 - ⏸ **Ring integration migration** — blocked by known Hubitat issue: child devices won't create outside of Beta
 - ✅ Community v1.5.2 post published on Hubitat Forum
+- ✅ Community v1.5.5 post published on Hubitat Forum
 
 ### Wake Word Status
 Three models deployed: Athena (local retrain with phonetic phrase, 57.7% benchmark), Artemis (Colab original, 24.5% benchmark), Hestia (Colab original, 25.5% benchmark). Benchmark scores do NOT correlate with real-world performance — Hestia at 25.5% works reliably in practice. Seven more names in picklist as "Coming Soon" (Apollo, Achilles, Andromeda, Hermes, Odin, Osiris, Anubis) — to be retrained on Google Colab with pure synthetic data. Scraped YouTube data proven to hurt training quality. Threshold 0.40, CONSEC_HITS 3, COOLDOWN_MS 3000, grace period 25 chunks (~2s).
