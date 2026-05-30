@@ -1005,6 +1005,10 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 .sp-dev-section-name{font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--t3)}
 .sp-dev-section-hdr.unassigned .sp-dev-section-name{color:var(--amber)}
 .sp-dev-section-count{font-size:10px;color:var(--t4)}
+.sp-section-body{display:none}
+.sp-section-body.open{display:block}
+.sp-section-arrow{font-size:9px;color:var(--t4);transition:transform .2s}
+.sp-section-arrow.open{transform:rotate(180deg)}
 .sp-dev-row{display:flex;flex-direction:column;align-items:stretch;gap:4px;padding:9px 20px;border-bottom:1px solid var(--border-s)}
 .sp-dev-row:last-child{border-bottom:none}
 .sp-dev-row-top{display:flex;align-items:center;gap:6px}
