@@ -8,3 +8,4 @@ scripts/athena_trained.onnx
 scripts/clips.txt
 scripts/clips2.txt
 models/athena_backup.onnx
+CLAUDE.md
