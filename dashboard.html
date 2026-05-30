@@ -1012,9 +1012,9 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 .sp-dev-type-badge{font-size:9px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:2px 6px;border-radius:4px;flex-shrink:0}
 .sp-dev-badge-switch{background:var(--cool-dim);color:var(--cool);border:1px solid var(--cool-bdr)}
 .sp-dev-badge-dimmer{background:var(--amber-dim);color:var(--amber);border:1px solid var(--amber-bdr)}
-.sp-dev-badge-fan{background:#052010;color:#4ADE80;border:1px solid #1a5c34}
+.sp-dev-badge-fan{background:var(--bg-hover);color:#4ADE80;border:1px solid var(--border)}
 .sp-dev-badge-shade{background:var(--bg-hover);color:var(--t3);border:1px solid var(--border)}
-.sp-dev-badge-therm{background:#1a0505;color:#F87171;border:1px solid #5c1a1a}
+.sp-dev-badge-therm{background:var(--bg-hover);color:#F87171;border:1px solid var(--border)}
 .sp-dev-id{font-size:10px;color:var(--t4);flex-shrink:0;width:28px;text-align:right}
 .sp-dev-room-sel{font-size:11px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;color:var(--t2);background:var(--bg-card);font-family:inherit;cursor:pointer;flex-shrink:0;max-width:130px}
 .sp-dev-room-sel:focus{border-color:var(--amber);outline:none}
@@ -1087,7 +1087,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 /* Select */
 .sp-select{background:var(--bg-card);border:1px solid var(--border);border-radius:7px;padding:8px 12px;font-size:13px;color:var(--t1);font-family:inherit;outline:none;width:100%;cursor:pointer;transition:border-color .15s;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23444' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
 .sp-select:focus{border-color:var(--amber-bdr)}
-.sp-select option{background:#111;color:var(--t1)}
+.sp-select option{background:var(--bg-card);color:var(--t1)}
 /* Input / field */
 .sp-field{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
 .sp-field:last-child{margin-bottom:0}
@@ -1615,11 +1615,11 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
       <div class="sp-nav-item"        id="spn-panel"    onclick="spShowSection('panel')">    <span class="sp-nav-icon">🎛</span>Panel Behavior</div>
       <div class="sp-nav-item"        id="spn-security" onclick="spShowSection('security')"> <span class="sp-nav-icon">🔒</span>Security &amp; PIN</div>
       <div class="sp-nav-item"        id="spn-wallpanel" onclick="spShowSection('wallpanel')"><span class="sp-nav-icon">📺</span>Wall Panel</div>
+      <div class="sp-nav-item"        id="spn-wx"       onclick="spShowSection('wx')">       <span class="sp-nav-icon">🌤</span>Weather</div>
       <div class="sp-nav-group">Devices</div>
       <div class="sp-nav-item"        id="spn-devices"  onclick="spShowSection('devices')">  <span class="sp-nav-icon">💡</span>Rooms &amp; Devices</div>
       <div class="sp-nav-item"        id="spn-therms"   onclick="spShowSection('therms')">   <span class="sp-nav-icon">🌡</span>Thermostats</div>
-      <div class="sp-nav-item"        id="spn-lock"     onclick="spShowSection('lock')">     <span class="sp-nav-icon">🚪</span>Door Lock</div>
-      <div class="sp-nav-item"        id="spn-wx"       onclick="spShowSection('wx')">       <span class="sp-nav-icon">🌤</span>Weather</div>
+      <div class="sp-nav-item"        id="spn-lock"     onclick="spShowSection('lock')">     <span class="sp-nav-icon">🚪</span>Door Locks</div>
       <div class="sp-nav-group">Modules</div>
       <div class="sp-nav-item"        id="spn-artemis"  onclick="spShowSection('artemis')">  <span class="sp-nav-icon">🛡</span>Artemis Security</div>
       <div class="sp-nav-item"        id="spn-athena"   onclick="spShowSection('athena')">   <span class="sp-nav-icon">◈</span>Athena Voice<span class="sp-nav-badge" style="display:none" id="spn-athena-badge">New</span></div>
@@ -1660,7 +1660,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.5.4';
-const HESTIA_BUILD_DATE = '2026-05-29';
+const HESTIA_BUILD_DATE = '2026-05-30';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 let _cloudSyncDebounce  = null;
@@ -1998,10 +1998,11 @@ function getLowBatteryDevices() {
       });
     });
   });
-  if (CONFIG.lock && CONFIG.lock.id && S[CONFIG.lock.id] &&
-      S[CONFIG.lock.id].bat != null && S[CONFIG.lock.id].bat <= BAT_LOW) {
-    low.push({ id: CONFIG.lock.id, name: CONFIG.lock.label || 'Lock', bat: S[CONFIG.lock.id].bat });
-  }
+  (CONFIG.locks || []).forEach(lk => {
+    if (lk.id && S[lk.id] && S[lk.id].bat != null && S[lk.id].bat <= BAT_LOW) {
+      low.push({ id: lk.id, name: lk.label || 'Lock', bat: S[lk.id].bat });
+    }
+  });
   return low;
 }
 
@@ -2018,7 +2019,7 @@ const CONFIG = {
   poll:          1000,
   defaultRoom:   'home',
   returnTimeout: 60000,
-  lock: { id: '', label: '' },
+  locks: [],
   settingsPin: '',
   artemisEnabled: false,
   artemisPin:     '',
@@ -2246,7 +2247,7 @@ function deduplicateStaging() {
   rooms.forEach(r => ['switches','dimmers','fans','shades','therms','colors','colortemps'].forEach(t =>
     r[t] && r[t].forEach(d => knownIds.add(String(d.id)))));
   thermostats.forEach(t => knownIds.add(String(t.id)));
-  if (CONFIG.lock && CONFIG.lock.id) knownIds.add(String(CONFIG.lock.id));
+  (CONFIG.locks || []).forEach(lk => { if (lk.id) knownIds.add(String(lk.id)); });
 
   const seen = new Set();
   const cleaned = staging.filter(d => {
@@ -2276,7 +2277,15 @@ function applyParsedConfig(parsed) {
         { lat: '', lon: '', zip: '', city: '', refresh: 600000 },
         CONFIG.weather || {}
       );
-      if (!CONFIG.lock) CONFIG.lock = {};
+      // Migration: lock (single object) → locks (array)
+      if (CONFIG.lock && CONFIG.lock.id) {
+        if (!CONFIG.locks) CONFIG.locks = [];
+        if (!CONFIG.locks.some(l => String(l.id) === String(CONFIG.lock.id))) {
+          CONFIG.locks.push({ id: CONFIG.lock.id, label: CONFIG.lock.label || 'Front Door' });
+        }
+        delete CONFIG.lock;
+      }
+      if (!CONFIG.locks) CONFIG.locks = [];
     }
     // Migration: merge any default sensors not yet in the saved config
     if (!CONFIG.artemisSensors ||
@@ -2310,7 +2319,7 @@ function buildConfigPayload() {
   return {
     config:      { hub: CONFIG.hub, appId: CONFIG.appId, token: CONFIG.token, poll: CONFIG.poll,
                    defaultRoom: CONFIG.defaultRoom, returnTimeout: CONFIG.returnTimeout,
-                   lock: CONFIG.lock, weather: CONFIG.weather, settingsPin: CONFIG.settingsPin,
+                   locks: CONFIG.locks, weather: CONFIG.weather, settingsPin: CONFIG.settingsPin,
                    artemisEnabled: CONFIG.artemisEnabled, artemisPin: CONFIG.artemisPin,
                    artemisExitDelay: CONFIG.artemisExitDelay, artemisEntryDelay: CONFIG.artemisEntryDelay,
                    artemisRingDeviceId: CONFIG.artemisRingDeviceId,
@@ -2481,10 +2490,9 @@ function initState() {
     S[t.id] = { cur: '--', heat: 70, cool: 72, mode: 'heat', state: 'idle', humidity: '--', heatOnly: false };
     DEVICE_TYPE[t.id] = 'therm';
   });
-  if (CONFIG.lock && CONFIG.lock.id) {
-    S[CONFIG.lock.id] = { locked: true };
-    DEVICE_TYPE[CONFIG.lock.id] = 'lock';
-  }
+  (CONFIG.locks || []).forEach(lk => {
+    if (lk.id) { S[lk.id] = { locked: true }; DEVICE_TYPE[lk.id] = 'lock'; }
+  });
 }
 
 /* Apply saved config — rebuild state, re-render, restart polling */
@@ -2508,7 +2516,7 @@ function applyConfig() {
       r[t] && r[t].forEach(d => DEVICE_REGISTRY.add(String(d.id))));
   });
   staging.forEach(d => DEVICE_REGISTRY.add(String(d.id)));
-  if (CONFIG.lock && CONFIG.lock.id) DEVICE_REGISTRY.add(String(CONFIG.lock.id));
+  (CONFIG.locks || []).forEach(lk => { if (lk.id) DEVICE_REGISTRY.add(String(lk.id)); });
   thermostats.forEach(t => DEVICE_REGISTRY.add(String(t.id)));
   artemisRegisterSensors(); // register Artemis sensor IDs after registry rebuild
   registrySeeded = true; // registry is now complete — new device detection can run
@@ -3632,23 +3640,25 @@ function calcStats() {
 
 function updateStats() {
   const c = calcStats();
-  // Lock icon — compact SVG padlock, no text
+  // Lock icon — aggregate: unlocked if ANY lock is unlocked
   const statLock = document.getElementById('stat-lock');
   const lockIcon = document.getElementById('sv-lock-icon');
-  if (CONFIG.lock && CONFIG.lock.id && S[CONFIG.lock.id]) {
-    const locked = S[CONFIG.lock.id].locked;
+  const hasLocks = CONFIG.locks && CONFIG.locks.some(lk => lk.id && S[lk.id]);
+  if (hasLocks) {
+    const allLocked = CONFIG.locks.every(lk => !lk.id || !S[lk.id] || S[lk.id].locked);
     if (statLock) statLock.style.display = '';
-    if (lockIcon) lockIcon.innerHTML = lockSVG(locked);
+    if (lockIcon) lockIcon.innerHTML = lockSVG(allLocked);
   } else if (statLock) {
     statLock.style.display = 'none';
   }
-  
+
   // Mobile lock icon
   const statLockM = document.getElementById('stat-lock-m');
   const lockIconM = document.getElementById('sv-lock-icon-m');
-  if (CONFIG.lock && CONFIG.lock.id && S[CONFIG.lock.id]) {
+  if (hasLocks) {
+    const allLocked = CONFIG.locks.every(lk => !lk.id || !S[lk.id] || S[lk.id].locked);
     if (statLockM) { statLockM.style.display = 'flex'; }
-    if (lockIconM) lockIconM.innerHTML = lockSVG(S[CONFIG.lock.id].locked);
+    if (lockIconM) lockIconM.innerHTML = lockSVG(allLocked);
   } else if (statLockM) { statLockM.style.display = 'none'; }
   document.getElementById('sv-l').textContent = c.lights;
   document.getElementById('sd-l').className   = 'tb-stat-dot ' + (c.lights > 0 ? 'dot-on' : 'dot-off');
@@ -5129,9 +5139,9 @@ function athenaSystemPrompt() {
   }).join('\n');
 
   // Lock state
-  const lockLine = CONFIG.lock?.id
-    ? `- ${CONFIG.lock.label}: ${S[CONFIG.lock.id]?.locked ? 'locked' : 'unlocked'}`
-    : '';
+  const lockLine = (CONFIG.locks || []).filter(lk => lk.id)
+    .map(lk => `- ${lk.label}: ${S[lk.id]?.locked ? 'locked' : 'unlocked'}`)
+    .join('\n');
 
   // Context
   const now         = new Date();
@@ -5163,8 +5173,8 @@ function athenaSystemPrompt() {
   if (hour >= 23 || hour < 5) {
     const onLights = Object.entries(S).filter(([id,s]) => s.switch === 'on' && s._type === 'light');
     if (onLights.length > 3) hints.push(`It's late and ${onLights.length} lights are still on.`);
-    const unlocked = CONFIG.lock?.id && S[CONFIG.lock.id]?.locked === 'unlocked';
-    if (unlocked) hints.push('The door is unlocked and it\'s late at night.');
+    const unlockedDoors = (CONFIG.locks || []).filter(lk => lk.id && S[lk.id] && !S[lk.id].locked);
+    if (unlockedDoors.length) hints.push(`${unlockedDoors.map(l=>l.label).join(', ')} ${unlockedDoors.length===1?'is':'are'} unlocked and it's late at night.`);
   }
   if (hints.length) proactiveHints = '\n\nPROACTIVE AWARENESS (mention naturally if relevant to the user\'s request, don\'t volunteer unprompted):\n- ' + hints.join('\n- ');
 
@@ -7469,18 +7479,21 @@ function artemisEntrySensorsHTML() {
 
 // ── Locks card HTML ───────────────────────────────────────────────────
 function artemisLocksHTML() {
-  const lock = CONFIG.lock && CONFIG.lock.id ? CONFIG.lock : null;
-  if (!lock) return '';
-  const locked = S[lock.id] ? S[lock.id].locked : true;
-  const bat = batBadge(lock.id);
-  return `<div class="a-card"><div class="a-card-hdr">Locks
-    <span class="a-cnt ${locked?'a-secure':'a-alert'}">${locked?'Locked':'Unlocked'}</span></div>
-    <div class="a-lrow">
+  const locks = (CONFIG.locks || []).filter(lk => lk.id);
+  if (!locks.length) return '';
+  const allLocked = locks.every(lk => S[lk.id] ? S[lk.id].locked : true);
+  const rows = locks.map(lk => {
+    const locked = S[lk.id] ? S[lk.id].locked : true;
+    const bat = batBadge(lk.id);
+    return `<div class="a-lrow">
       <div class="a-si ${locked?'a-ok':'a-warn'}">${aIconLock(locked)}</div>
-      <div class="a-li" style="flex:1"><div class="a-ln">${lock.label||'Front Door'}</div></div>
+      <div class="a-li" style="flex:1"><div class="a-ln">${lk.label||'Lock'}</div></div>
       ${bat}
-      <button class="a-lbtn ${locked?'a-lk':'a-ul'}" onclick="artemisToggleLock()" title="${locked?'Locked':'Unlocked'}">${aIconLock(locked)}</button>
-    </div></div>`;
+      <button class="a-lbtn ${locked?'a-lk':'a-ul'}" onclick="artemisToggleLock('${lk.id}')" title="${locked?'Locked':'Unlocked'}">${aIconLock(locked)}</button>
+    </div>`;
+  }).join('');
+  return `<div class="a-card"><div class="a-card-hdr">Locks
+    <span class="a-cnt ${allLocked?'a-secure':'a-alert'}">${allLocked?'All Locked':'Unlocked'}</span></div>${rows}</div>`;
 }
 
 
@@ -8001,20 +8014,14 @@ function artemisGemWithRing(mode) {
 }
 
 // ── Lock toggle ───────────────────────────────────────────────────────
-function artemisToggleLock() {
-  if (!CONFIG.lock || !CONFIG.lock.id) return;
-  const id = CONFIG.lock.id;
-  const currently = S[id] ? S[id].locked : true;
+function artemisToggleLock(lockId) {
+  if (!lockId) return;
+  if (!S[lockId]) return;
+  const currently = S[lockId].locked;
   const newState = !currently;
-  S[id].locked = newState;
-  cmd(id, newState ? 'lock' : 'unlock');
-  // Re-render locks card in-place if possible
-  const card = document.querySelector('.a-card');
-  if (card) {
-    const locksEl = document.querySelectorAll('.a-card');
-    // Re-render full security panel to update all lock refs
-    renderSecurity();
-  }
+  S[lockId].locked = newState;
+  cmd(lockId, newState ? 'lock' : 'unlock');
+  renderSecurity();
 }
 
 // ── Mobile PIN sheet ──────────────────────────────────────────────────
@@ -10337,7 +10344,7 @@ function spGetAvailableDevices(ri, type) {
       }));
   });
   thermostats.forEach(t => used.add(String(t.id)));
-  if (CONFIG.lock && CONFIG.lock.id) used.add(String(CONFIG.lock.id));
+  (CONFIG.locks || []).forEach(lk => { if (lk.id) used.add(String(lk.id)); });
 
   // capToType bucket for this device list type
   const typeMap = { switches:'switch', dimmers:'dimmer', fans:'fan', shades:'shade', therms:'therm', colors:'color', colortemps:'color-temp' };
@@ -10569,13 +10576,14 @@ function spDevicesSection() {
   let listHTML = '';
 
   if (_devGroupBy === 'type') {
-    const typeOrder = ['switch','dimmer','color-temp','color','fan','shade','therm'];
+    const typeOrder = ['switch','dimmer','color-temp','color','fan','shade','garage','therm'];
     typeOrder.forEach(type => {
       const devs = allDevices.filter(d => d.type === type);
       if (!devs.length) return;
       const label = type === 'switch' ? 'Switches' : type === 'dimmer' ? 'Dimmers' :
                     type === 'color-temp' ? 'CT Bulbs' : type === 'color' ? 'Color Bulbs' :
-                    type === 'fan' ? 'Fans' : type === 'shade' ? 'Shades' : 'Thermostats';
+                    type === 'fan' ? 'Fans' : type === 'shade' ? 'Shades' :
+                    type === 'garage' ? 'Garage Doors' : 'Thermostats';
       const typeSecId = 'sp-devsec-' + type;
       listHTML += `<div class="sp-dev-section-hdr" onclick="spToggleDevSec('${typeSecId}')" style="cursor:pointer">
         <span class="sp-dev-section-name">${label}</span>
@@ -10691,7 +10699,7 @@ async function spDevAssignRoom(devId, devType, roomId) {
   if (!roomId) {
     // Moving to unassigned — remove from any room, add to staging
     rooms.forEach(r => {
-      ['switches','dimmers','fans','shades'].forEach(t => {
+      ['switches','dimmers','fans','shades','colors','colortemps'].forEach(t => {
         const idx = r[t].findIndex(d => String(d.id) === String(devId));
         if (idx > -1) r[t].splice(idx, 1);
       });
@@ -10704,7 +10712,7 @@ async function spDevAssignRoom(devId, devType, roomId) {
     const devName = spGetDeviceName(devId);
     // Remove from any current room
     rooms.forEach(r => {
-      ['switches','dimmers','fans','shades'].forEach(t => {
+      ['switches','dimmers','fans','shades','colors','colortemps'].forEach(t => {
         const idx = r[t].findIndex(d => String(d.id) === String(devId));
         if (idx > -1) r[t].splice(idx, 1);
       });
@@ -10714,7 +10722,7 @@ async function spDevAssignRoom(devId, devType, roomId) {
     if (si > -1) staging.splice(si, 1);
     // Add to correct room array
     const entry = { id: devId, name: devName };
-    const typeKey = { switch:'switches', dimmer:'dimmers', fan:'fans', shade:'shades', color:'colors', 'color-temp':'colortemps' }[devType];
+    const typeKey = { switch:'switches', dimmer:'dimmers', fan:'fans', shade:'shades', garage:'switches', color:'colors', 'color-temp':'colortemps' }[devType];
     if (typeKey) room[typeKey].push(entry);
   }
   deduplicateStaging();
@@ -10762,7 +10770,7 @@ async function spDevCreateAndAssign(devId, devType) {
 function spGetDeviceName(devId) {
   // Check rooms first
   for (const r of rooms) {
-    for (const t of ['switches','dimmers','fans','shades']) {
+    for (const t of ['switches','dimmers','fans','shades','colors','colortemps']) {
       const d = r[t].find(d => String(d.id) === String(devId));
       if (d) return d.name;
     }
@@ -10777,7 +10785,7 @@ function spGetDeviceName(devId) {
 
 async function spDevRetype(devId, currentRoomId, newType) {
   // Remove from current room array
-  const typeArrayMap = { switch:'switches', dimmer:'dimmers', fan:'fans', shade:'shades', color:'colors', 'color-temp':'colortemps' };
+  const typeArrayMap = { switch:'switches', dimmer:'dimmers', fan:'fans', shade:'shades', garage:'switches', color:'colors', 'color-temp':'colortemps' };
   rooms.forEach(r => {
     Object.values(typeArrayMap).forEach(arr => {
       if (!r[arr]) return;
@@ -10819,7 +10827,7 @@ async function spDevRemove(devId) {
   const name = spGetDeviceName(devId);
   if (!confirm('Remove "' + name + '" from sync? It will no longer be tracked.')) return;
   rooms.forEach(r => {
-    ['switches','dimmers','fans','shades'].forEach(t => {
+    ['switches','dimmers','fans','shades','colors','colortemps'].forEach(t => {
       const idx = r[t].findIndex(d => String(d.id) === String(devId));
       if (idx > -1) r[t].splice(idx, 1);
     });
@@ -11126,15 +11134,19 @@ function spShowSection(id, force) {
       break;
 
     case 'lock':
-      html = `<div class="sp-content-hdr"><span class="sp-content-icon">🚪</span>Door Lock</div>
-        <div class="sp-group">
-          <div class="sp-input-row">
+      const lockRows = (CONFIG.locks || []).map((lk, i) => `
+          <div class="sp-input-row" data-lock-idx="${i}">
             <div class="sp-field" style="flex:1"><label class="sp-label">Device ID</label>
-              <input class="sp-input" id="sp-lock-id" value="${(CONFIG.lock||{}).id||''}" placeholder="13"></div>
+              <input class="sp-input sp-lock-id" value="${lk.id||''}" placeholder="13"></div>
             <div class="sp-field" style="flex:2"><label class="sp-label">Label</label>
-              <input class="sp-input" id="sp-lock-label" value="${(CONFIG.lock||{}).label||'Front Door'}" placeholder="Front Door"></div>
-          </div>
-          <span class="sp-hint">Leave Device ID blank to hide the lock from the ribbon.</span>
+              <input class="sp-input sp-lock-label" value="${lk.label||''}" placeholder="Front Door"></div>
+            <button class="sp-btn-icon" onclick="spRemoveLock(${i})" title="Remove" style="align-self:flex-end;margin-bottom:6px;color:#F87171;background:none;border:none;font-size:16px;cursor:pointer">&times;</button>
+          </div>`).join('');
+      html = `<div class="sp-content-hdr"><span class="sp-content-icon">🚪</span>Door Locks</div>
+        <div class="sp-group">
+          <div id="sp-locks-list">${lockRows || '<span class="sp-hint" style="margin:8px 0;display:block">No locks configured.</span>'}</div>
+          <button class="sp-btn" onclick="spAddLock()" style="margin-top:8px">+ Add Lock</button>
+          <span class="sp-hint">Locks appear in the ribbon and Artemis security panel. Rooms with locks show an unlocked badge.</span>
         </div>`;
       break;
 
@@ -11332,6 +11344,16 @@ function spAddTherm() {
   if (sec) sec.innerHTML = spThermList();
 }
 
+function spAddLock() {
+  if (!CONFIG.locks) CONFIG.locks = [];
+  CONFIG.locks.push({ id: '', label: '' });
+  spShowSection('lock');
+}
+function spRemoveLock(i) {
+  CONFIG.locks.splice(i, 1);
+  spShowSection('lock');
+}
+
 /* ── Save / Export / Import / Reset ── */
 async function saveSettings() {
   // Read hub fields back into CONFIG
@@ -11353,13 +11375,16 @@ async function saveSettings() {
   if (zipEl)   CONFIG.weather.zip   = zipEl.value.trim();
   if (lat)     CONFIG.weather.lat   = parseFloat(lat.value);
   if (lon)     CONFIG.weather.lon   = parseFloat(lon.value);
-  // Lock
-  const lockId    = document.getElementById('sp-lock-id');
-  const lockLabel = document.getElementById('sp-lock-label');
-  if (lockId || lockLabel) {
-    if (!CONFIG.lock) CONFIG.lock = {};
-    if (lockId)    CONFIG.lock.id    = lockId.value.trim();
-    if (lockLabel) CONFIG.lock.label = lockLabel.value.trim() || 'Front Door';
+  // Locks
+  const lockIdEls    = document.querySelectorAll('.sp-lock-id');
+  const lockLabelEls = document.querySelectorAll('.sp-lock-label');
+  if (lockIdEls.length) {
+    CONFIG.locks = [];
+    lockIdEls.forEach((el, i) => {
+      const id = el.value.trim();
+      const label = lockLabelEls[i] ? lockLabelEls[i].value.trim() : '';
+      if (id) CONFIG.locks.push({ id, label: label || 'Lock ' + (i + 1) });
+    });
   }
   // Settings PIN — hash with SHA-512 before storing
   const pinEl = document.getElementById('sp-settings-pin');
@@ -11417,7 +11442,7 @@ function exportSettings() {
     config: {
       hub: CONFIG.hub, appId: CONFIG.appId, token: CONFIG.token, poll: CONFIG.poll,
       defaultRoom: CONFIG.defaultRoom, returnTimeout: CONFIG.returnTimeout,
-      lock: CONFIG.lock, weather: CONFIG.weather, settingsPin: CONFIG.settingsPin,
+      locks: CONFIG.locks, weather: CONFIG.weather, settingsPin: CONFIG.settingsPin,
       artemisEnabled: CONFIG.artemisEnabled, artemisPin: CONFIG.artemisPin,
       artemisExitDelay: CONFIG.artemisExitDelay, artemisEntryDelay: CONFIG.artemisEntryDelay,
       artemisRingDeviceId: CONFIG.artemisRingDeviceId,
@@ -11738,7 +11763,7 @@ function spRoutineDeviceOpts(roomName) {
     });
   }
   thermostats.forEach(t => devices.push({ name: t.name, type: 'thermostat' }));
-  if (CONFIG.lock?.id && CONFIG.lock?.label) devices.push({ name: CONFIG.lock.label, type: 'lock' });
+  (CONFIG.locks || []).forEach(lk => { if (lk.id && lk.label) devices.push({ name: lk.label, type: 'lock' }); });
   return '<option value="">-- select device --</option>' + devices.map(d => `<option value="${d.name}" data-type="${d.type}">${d.name}</option>`).join('');
 }
 
@@ -12791,7 +12816,7 @@ function detectNewDevices(devices) {
     r[t] && r[t].forEach(d => assigned.add(String(d.id)))));
   staging.forEach(d => assigned.add(String(d.id)));
   thermostats.forEach(t => assigned.add(String(t.id)));
-  if (CONFIG.lock && CONFIG.lock.id) assigned.add(String(CONFIG.lock.id));
+  (CONFIG.locks || []).forEach(lk => { if (lk.id) assigned.add(String(lk.id)); });
   // Artemis sensors are managed by Artemis — exclude from unassigned detection
   if (CONFIG.artemisSensors) {
     ['contacts','motions','smokes','waters','glass'].forEach(cat => {
@@ -12820,6 +12845,9 @@ function detectNewDevices(devices) {
     if (!assigned.has(id)) {
       if (type === 'therm') {
         thermostats.push({ id, name: dName, zone: '' });
+      } else if (type === 'lock') {
+        if (!CONFIG.locks) CONFIG.locks = [];
+        CONFIG.locks.push({ id, label: dName });
       } else {
         staging.push({ id, name: dName, type });
       }
@@ -12893,7 +12921,7 @@ function showDeviceToast(msg) {
 }
 function updateGearBadge() {
   const inRoom = new Set();
-  rooms.forEach(r => ['switches','dimmers','fans','shades'].forEach(t =>
+  rooms.forEach(r => ['switches','dimmers','fans','shades','colors','colortemps'].forEach(t =>
     r[t] && r[t].forEach(d => inRoom.add(String(d.id)))));
   const unassignedCount = staging.filter(d => !inRoom.has(String(d.id))).length;
   const removedCount = (state_removedDevices || []).length;
@@ -13070,13 +13098,13 @@ let OB = {
   inventory:  [],   // [{ id, name, type, assign }] assign='staging'|roomId
   roomList:   [],   // [{ id, name, short }] user-created rooms
   thermostats:[],   // [{ id, name, zone, selected }]
-  lock: { id:'', label:'' },
+  locks: [],
   weather: { lat:'', lon:'' },
   testOk: false
 };
 
-const OB_TYPE_LABELS = { switch:'Switch', dimmer:'Dimmer', fan:'Fan', shade:'Shade', therm:'Thermostat', lock:'Lock', color:'Color Bulb', 'color-temp':'CT Bulb' };
-const OB_TYPE_ORDER  = ['switch','dimmer','fan','shade','therm','lock'];
+const OB_TYPE_LABELS = { switch:'Switch', dimmer:'Dimmer', fan:'Fan', shade:'Shade', garage:'Garage Door', therm:'Thermostat', lock:'Lock', color:'Color Bulb', 'color-temp':'CT Bulb' };
+const OB_TYPE_ORDER  = ['switch','dimmer','fan','shade','garage','therm','lock'];
 
 function needsOnboarding() {
   // No config in localStorage AND hub store hasn't supplied one
@@ -13089,6 +13117,7 @@ function capToType(caps, label) {
   if (!caps) return null;
   const c = Array.isArray(caps) ? caps.join(',') : String(caps);
   if (/FanControl/i.test(c))                  return 'fan';
+  if (/GarageDoorControl/i.test(c))            return 'garage';
   if (/WindowBlind|WindowShade/i.test(c))     return 'shade';
   if (/Thermostat/i.test(c))                  return 'therm';
   if (/Lock/i.test(c))                        return 'lock';
@@ -13430,8 +13459,9 @@ function obStep2() {
     OB.thermostats = OB.inventory
       .filter(d => d.type === 'therm')
       .map(d => ({ id: d.id, name: d.name, zone: '', selected: true }));
-    const firstLock = OB.inventory.find(d => d.type === 'lock');
-    if (firstLock) OB.lock = { id: firstLock.id, label: firstLock.name };
+    OB.locks = OB.inventory
+      .filter(d => d.type === 'lock')
+      .map(d => ({ id: d.id, label: d.name }));
   }
 
   const byType = {};
@@ -13553,16 +13583,19 @@ function obStep4() {
       </div>`;
   }).join('');
 
-  const lockDev = OB.inventory.find(d => d.type === 'lock' && d.keep);
-  const lockRow = lockDev ? `
+  const lockDevs = OB.inventory.filter(d => d.type === 'lock' && d.keep);
+  const lockRow = lockDevs.length ? `
     <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border-s)">
-      <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--t3);margin-bottom:8px">Door Lock (topbar)</div>
-      <div class="ob-device-row" style="padding:6px 0">
-        <span class="ob-device-name" style="flex:1">${lockDev.name}</span>
-        <input class="ob-input" style="width:160px;font-size:12px;padding:5px 10px" placeholder="Display label"
-          value="${OB.lock.label||lockDev.name}"
-          onchange="OB.lock.label=this.value">
-      </div>
+      <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--t3);margin-bottom:8px">Door Locks (ribbon &amp; security)</div>
+      ${lockDevs.map((ld, i) => {
+        const lk = (OB.locks || [])[i] || { id: ld.id, label: ld.name };
+        return `<div class="ob-device-row" style="padding:6px 0">
+          <span class="ob-device-name" style="flex:1">${ld.name}</span>
+          <input class="ob-input" style="width:160px;font-size:12px;padding:5px 10px" placeholder="Display label"
+            value="${lk.label||ld.name}"
+            onchange="if(OB.locks[${i}])OB.locks[${i}].label=this.value">
+        </div>`;
+      }).join('')}
     </div>` : '';
 
   const stagingCount = kept.filter(d => d.assign === 'staging').length;
@@ -13630,7 +13663,7 @@ function obFinish() {
   }
   CONFIG.weather.lat = parseFloat(OB.weather.lat) || '';
   CONFIG.weather.lon = parseFloat(OB.weather.lon) || '';
-  if (OB.lock.id) CONFIG.lock = { id: OB.lock.id, label: OB.lock.label || 'Front Door' };
+  CONFIG.locks = (OB.locks || []).filter(lk => lk.id);
 
   // Build rooms from assignments
   rooms.length = 0;
@@ -13690,7 +13723,7 @@ function launchOnboarding() {
   OB = {
     step: 1, hub: CONFIG.hub, appId: CONFIG.appId, token: CONFIG.token,
     devices: [], inventory: [], roomList: [], thermostats: [],
-    lock: { id: CONFIG.lock&&CONFIG.lock.id||'', label: CONFIG.lock&&CONFIG.lock.label||'' },
+    locks: (CONFIG.locks || []).map(lk => ({ id: lk.id, label: lk.label })),
     weather: { lat: CONFIG.weather.lat||'', lon: CONFIG.weather.lon||'' },
     testOk: false
   };
@@ -13907,7 +13940,7 @@ function launchOnboarding() {
         r[t] && r[t].forEach(d => DEVICE_REGISTRY.add(String(d.id))));
     });
     staging.forEach(d => DEVICE_REGISTRY.add(String(d.id)));
-    if (CONFIG.lock && CONFIG.lock.id) DEVICE_REGISTRY.add(String(CONFIG.lock.id));
+    (CONFIG.locks || []).forEach(lk => { if (lk.id) DEVICE_REGISTRY.add(String(lk.id)); });
     thermostats.forEach(t => DEVICE_REGISTRY.add(String(t.id)));
     artemisRegisterSensors(); // Register Artemis sensors before first fetch
     registrySeeded = true;
