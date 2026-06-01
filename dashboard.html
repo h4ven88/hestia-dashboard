@@ -1667,7 +1667,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.5.4';
-const HESTIA_BUILD_DATE = '2026-06-01';
+const HESTIA_BUILD_DATE = '2026-05-30';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 let _cloudSyncDebounce  = null;
@@ -8069,23 +8069,24 @@ function spWallPanelBody() {
   const hubUrl = CONFIG.hub || '';
   const hasStore = !!(HUB_STORE && HUB_STORE.appId && HUB_STORE.token);
 
-  // Build kiosk URL pointing to the hub's local dashboard file.
-  // Using HTTP from the hub avoids mixed-content blocks that occur when
-  // an HTTPS page (hestari.com) tries to reach the local HTTP hub API.
+  // Build kiosk URL from hub IP + companion app credentials
   let kioskUrl = '';
   if (hasStore && hubUrl) {
-    let hubOrigin = hubUrl;
-    try { hubOrigin = new URL(hubUrl).origin; } catch(e) {}
-    kioskUrl = hubOrigin + '/local/index.html?hid=' + encodeURIComponent(HUB_STORE.appId) +
+    // Extract bare hostname/IP from hub URL for clean param
+    let hubParam = hubUrl;
+    try { hubParam = new URL(hubUrl).host; } catch(e) {}
+    kioskUrl = 'https://hestari.com?hub=' + encodeURIComponent(hubParam) +
+               '&hid=' + encodeURIComponent(HUB_STORE.appId) +
                '&htk=' + encodeURIComponent(HUB_STORE.token);
   }
 
   // Fallback: Maker API setup URL (works without companion app)
   let makerUrl = '';
   if (!kioskUrl && hubUrl && CONFIG.appId && CONFIG.token) {
-    let hubOrigin = hubUrl;
-    try { hubOrigin = new URL(hubUrl).origin; } catch(e) {}
-    makerUrl = hubOrigin + '/local/index.html?mid=' + encodeURIComponent(CONFIG.appId) +
+    let hubParam = hubUrl;
+    try { hubParam = new URL(hubUrl).host; } catch(e) {}
+    makerUrl = 'https://hestari.com?hub=' + encodeURIComponent(hubParam) +
+               '&mid=' + encodeURIComponent(CONFIG.appId) +
                '&mtk=' + encodeURIComponent(CONFIG.token);
   }
 
@@ -13801,11 +13802,9 @@ function launchOnboarding() {
   }
 
   // If full credentials are in the URL, construct HUB_STORE directly —
-  // no need to fetch hestia-token.json (which is CORS-blocked cross-origin).
-  // When served from the hub's local file, hub param is omitted — use page origin.
-  if (_urlHid && _urlHtk) {
-    const hubUrl = _hubHint || window.location.origin;
-    HUB_STORE = { appId: _urlHid, token: _urlHtk, _hubUrl: hubUrl };
+  // no need to fetch hestia-token.json (which is CORS-blocked cross-origin)
+  if (_hubHint && _urlHid && _urlHtk) {
+    HUB_STORE = { appId: _urlHid, token: _urlHtk, _hubUrl: _hubHint };
     console.log('[Boot] HUB_STORE constructed from URL parameters');
   } else {
     // ── Discover hub config store (companion Groovy app) ──
@@ -13859,9 +13858,9 @@ function launchOnboarding() {
         renderOnboarding();
         return;
       }
-    } else if (_urlMid && _urlMtk) {
+    } else if (_hubHint && _urlMid && _urlMtk) {
       // Maker API credentials in URL — auto-configure without wizard
-      CONFIG.hub   = _hubHint || window.location.origin;
+      CONFIG.hub   = _hubHint;
       CONFIG.appId = _urlMid;
       CONFIG.token = _urlMtk;
       try {
@@ -13871,7 +13870,7 @@ function launchOnboarding() {
         console.log('[Boot] Auto-configured from Maker API URL params');
         // Fall through to normal boot
       } catch(e) {
-        OB.hub = _hubHint || window.location.origin; OB.appId = _urlMid; OB.token = _urlMtk;
+        OB.hub = _hubHint; OB.appId = _urlMid; OB.token = _urlMtk;
         renderOnboarding();
         return;
       }
