@@ -1667,7 +1667,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.5.4';
-const HESTIA_BUILD_DATE = '2026-05-30';
+const HESTIA_BUILD_DATE = '2026-06-01';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 let _cloudSyncDebounce  = null;
@@ -2278,6 +2278,15 @@ function applyParsedConfig(parsed) {
   try {
     if (parsed.config) {
       Object.assign(CONFIG, parsed.config);
+      // Normalize hub URL: private/local IPs must use HTTP (hubs don't have valid certs)
+      if (CONFIG.hub && CONFIG.hub.startsWith('https://')) {
+        try {
+          const u = new URL(CONFIG.hub);
+          if (/^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.|localhost)/.test(u.hostname)) {
+            CONFIG.hub = CONFIG.hub.replace(/^https:/, 'http:').replace(/:8443\b/, '');
+          }
+        } catch(e) {}
+      }
       // Deep-merge nested objects so missing fields fall back to defaults
       // rather than the whole sub-object being replaced with an incomplete version
       CONFIG.weather = Object.assign(
@@ -13936,14 +13945,6 @@ function launchOnboarding() {
       }
     }
     cloudSyncPush(buildConfigPayload());
-    // Auto-migrate hub URL protocol if page is now served over https but config still has http.
-    // Only applies when loaded directly from the hub over HTTPS — not from hestari.com where
-    // window.location.origin would wrongly overwrite the hub IP with the cloud domain.
-    if (isServedFromHub() && window.location.protocol === 'https:' && CONFIG.hub && CONFIG.hub.startsWith('http://')) {
-      CONFIG.hub = window.location.origin;
-      await saveConfig();
-      console.log('[Boot] Auto-migrated hub URL to HTTPS:', CONFIG.hub);
-    }
   }
 
   try {
