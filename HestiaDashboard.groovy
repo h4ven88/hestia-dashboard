@@ -48,6 +48,7 @@ preferences {
 @Field static final String CONFIG_FILENAME     = "hestia-config.json"
 @Field static final String DASHBOARD_FILENAME  = "index.html"
 @Field static final String DASHBOARD_URL       = "https://raw.githubusercontent.com/h4ven88/hestia-dashboard/main/index.html"
+@Field static final String BUILD_INFO_URL      = "https://raw.githubusercontent.com/h4ven88/hestia-dashboard/main/build-info.json"
 
 // ── CORS headers ──────────────────────────────────────────────────────────
 // Enabled by default — endpoints require OAuth tokens so there is no
@@ -184,15 +185,28 @@ def writeDiscovery() {
 
 // ── Dashboard file download ───────────────────────────────────────────────
 def downloadDashboard(Boolean force) {
-    if (!force && state.dashboardVersion == APP_VERSION) return
+    if (!force) {
+        try {
+            def latestVersion = null
+            httpGet([uri: BUILD_INFO_URL, textParser: false, timeout: 15]) { resp ->
+                if (resp.status == 200) latestVersion = resp.data?.version
+            }
+            if (!latestVersion || latestVersion == state.dashboardVersion) return
+            log.info "Hestia: dashboard update available — local v${state.dashboardVersion ?: '?'}, latest v${latestVersion}"
+        } catch(e) {
+            log.debug "Hestia: could not check for dashboard updates: ${e.message}"
+            return
+        }
+    }
     try {
         httpGet([uri: DASHBOARD_URL, textParser: true, timeout: 30]) { response ->
             if (response.status == 200) {
                 def content = response.data.text
                 uploadHubFile(DASHBOARD_FILENAME, content.getBytes("UTF-8"))
-                state.dashboardVersion  = APP_VERSION
+                def version = (content =~ /HESTIA_VERSION\s*=\s*'([^']+)'/)
+                state.dashboardVersion  = version ? version[0][1] : APP_VERSION
                 state.dashboardInstalled = true
-                log.info "Hestia: dashboard v${APP_VERSION} installed → /local/${DASHBOARD_FILENAME} (${content.length()} bytes)"
+                log.info "Hestia: dashboard v${state.dashboardVersion} installed → /local/${DASHBOARD_FILENAME} (${content.length()} bytes)"
             } else {
                 log.warn "Hestia: dashboard download failed — HTTP ${response.status}"
             }
