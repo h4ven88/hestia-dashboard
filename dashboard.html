@@ -2324,7 +2324,13 @@ function applyParsedConfig(parsed) {
       CONFIG.announceDevices = [{ id: DEVICE_ID, name: DEVICE_NAME }];
     }
     if (parsed.thermostats) { thermostats.length = 0; parsed.thermostats.forEach(t => thermostats.push(t)); }
-    if (parsed.rooms)       { rooms.length = 0;       parsed.rooms.forEach(r => rooms.push(r)); }
+    if (parsed.rooms) {
+      rooms.length = 0;
+      parsed.rooms.forEach(r => {
+        ['switches','dimmers','fans','shades','colors','colortemps','therms','placeholders'].forEach(k => { if (!r[k]) r[k] = []; });
+        rooms.push(r);
+      });
+    }
     if (parsed.staging)     { staging.length = 0;     parsed.staging.forEach(d => staging.push(d)); }
     deduplicateStaging(); // remove stale, duplicate, or already-assigned entries
     return true;
@@ -10735,6 +10741,7 @@ async function spDevAssignRoom(devId, devType, roomId) {
     // Moving to unassigned — remove from any room, add to staging
     rooms.forEach(r => {
       ['switches','dimmers','fans','shades','colors','colortemps'].forEach(t => {
+        if (!r[t]) return;
         const idx = r[t].findIndex(d => String(d.id) === String(devId));
         if (idx > -1) r[t].splice(idx, 1);
       });
@@ -10748,6 +10755,7 @@ async function spDevAssignRoom(devId, devType, roomId) {
     // Remove from any current room
     rooms.forEach(r => {
       ['switches','dimmers','fans','shades','colors','colortemps'].forEach(t => {
+        if (!r[t]) return;
         const idx = r[t].findIndex(d => String(d.id) === String(devId));
         if (idx > -1) r[t].splice(idx, 1);
       });
@@ -10758,7 +10766,10 @@ async function spDevAssignRoom(devId, devType, roomId) {
     // Add to correct room array
     const entry = { id: devId, name: devName };
     const typeKey = { switch:'switches', dimmer:'dimmers', fan:'fans', shade:'shades', garage:'switches', color:'colors', 'color-temp':'colortemps' }[devType];
-    if (typeKey) room[typeKey].push(entry);
+    if (typeKey) {
+      if (!room[typeKey]) room[typeKey] = [];
+      room[typeKey].push(entry);
+    }
   }
   deduplicateStaging();
   await saveConfig();
