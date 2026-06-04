@@ -1667,7 +1667,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.5.5';
-const HESTIA_BUILD_DATE = '2026-06-03';
+const HESTIA_BUILD_DATE = '2026-06-04';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 let _cloudSyncDebounce  = null;
@@ -13908,10 +13908,10 @@ function launchOnboarding() {
       }
     }
   } else {
-    // Compare timestamps — keep whichever config is newest
-    let localSavedAt = 0;
-    try { localSavedAt = JSON.parse(localStorage.getItem('dashboard-config') || '{}').savedAt || 0; } catch(e) {}
+    // Has localStorage config — push to cloud so other devices can discover
+    cloudSyncPush(buildConfigPayload());
 
+    // Sync with hub (source of truth when reachable)
     if (!HUB_STORE && CONFIG.hub && isLocalHubUrl(CONFIG.hub)) {
       await discoverHubStore(CONFIG.hub);
       if (HUB_STORE) console.log('[Boot] Late HUB_STORE discovery via CONFIG.hub');
@@ -13919,17 +13919,11 @@ function launchOnboarding() {
     if (HUB_STORE) {
       const hubCfg = await loadConfigFromHub();
       if (hubCfg) {
-        const hubSavedAt = hubCfg.savedAt || 0;
-        if (hubSavedAt >= localSavedAt) {
-          applyParsedConfig(hubCfg);
-          try { localStorage.setItem('dashboard-config', JSON.stringify(hubCfg)); } catch(e) {}
-          const _athFab = document.getElementById('ath-fab');
-          if (_athFab) _athFab.style.display = CONFIG.athenaEnabled ? 'flex' : 'none';
-          console.log('[Boot] Applied hub config (hub newer or same)');
-        } else {
-          await saveConfigToHub(buildConfigPayload());
-          console.log('[Boot] Local config is newer — pushed to hub');
-        }
+        applyParsedConfig(hubCfg);
+        try { localStorage.setItem('dashboard-config', JSON.stringify(hubCfg)); } catch(e) {}
+        const _athFab = document.getElementById('ath-fab');
+        if (_athFab) _athFab.style.display = CONFIG.athenaEnabled ? 'flex' : 'none';
+        console.log('[Boot] Applied hub config');
       } else {
         await saveConfigToHub(buildConfigPayload());
         console.log('[Boot] Seeded hub config from local cache');
@@ -13937,17 +13931,11 @@ function launchOnboarding() {
     } else {
       const cloudCfg = await cloudSyncDiscover();
       if (cloudCfg) {
-        const cloudSavedAt = cloudCfg.savedAt || 0;
-        if (cloudSavedAt >= localSavedAt) {
-          applyParsedConfig(cloudCfg);
-          try { localStorage.setItem('dashboard-config', JSON.stringify(cloudCfg)); } catch(e) {}
-          console.log('[Boot] Applied cloud config (cloud newer or same)');
-        } else {
-          console.log('[Boot] Local config is newer than cloud — keeping local');
-        }
+        applyParsedConfig(cloudCfg);
+        try { localStorage.setItem('dashboard-config', JSON.stringify(cloudCfg)); } catch(e) {}
+        console.log('[Boot] Applied cloud config');
       }
     }
-    cloudSyncPush(buildConfigPayload());
   }
 
   try {
