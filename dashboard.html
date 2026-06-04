@@ -10361,24 +10361,35 @@ function spGetAvailableDevices(ri, type) {
   // Build a set of all IDs already assigned anywhere (rooms + staging + therms + lock)
   const used = new Set();
   rooms.forEach((r, rIdx) => {
-    ['switches','dimmers','fans','shades','therms'].forEach(t =>
+    ['switches','dimmers','fans','shades','therms','colors','colortemps'].forEach(t =>
       r[t] && r[t].forEach(d => {
-        // Allow reassigning within the same room/type slot
         if (rIdx !== ri) used.add(String(d.id));
       }));
   });
   thermostats.forEach(t => used.add(String(t.id)));
   (CONFIG.locks || []).forEach(lk => { if (lk.id) used.add(String(lk.id)); });
 
-  // capToType bucket for this device list type
   const typeMap = { switches:'switch', dimmers:'dimmer', fans:'fan', shades:'shade', therms:'therm', colors:'color', colortemps:'color-temp' };
   const wantType = typeMap[type];
 
-  // Filter lastPollDevices to matching type, not already used elsewhere
-  return (lastPollDevices || [])
+  const results = (lastPollDevices || [])
     .filter(d => capToType(d.capabilities) === wantType && !used.has(String(d.id)))
-    .map(d => ({ id: String(d.id), name: d.label || d.name || ('Device ' + d.id) }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .map(d => ({ id: String(d.id), name: d.label || d.name || ('Device ' + d.id) }));
+
+  // Dual-capability devices (e.g. Ring floodlights) use virtual IDs (1234:switch)
+  // that don't exist in lastPollDevices — include their switch side when looking for switches
+  if (wantType === 'switch') {
+    (lastPollDevices || []).forEach(d => {
+      if (isDualCapability(d.capabilities)) {
+        const vid = String(d.id) + ':switch';
+        if (!used.has(vid)) {
+          results.push({ id: vid, name: (d.label || d.name || 'Device ' + d.id) + ' (Light)' });
+        }
+      }
+    });
+  }
+
+  return results.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function spDevicePickRow(ri, type, di, d) {
