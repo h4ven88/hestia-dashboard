@@ -1667,7 +1667,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.5.5';
-const HESTIA_BUILD_DATE = '2026-06-04';
+const HESTIA_BUILD_DATE = '2026-06-05';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 let _cloudSyncDebounce  = null;
@@ -2766,6 +2766,7 @@ function applyAttrs(id, attrs) {
 
   } else if (type === 'motion') {
     if (attrs.motion != null) S[id].active = attrs.motion === 'active';
+    if (attrs.presence != null) S[id].active = attrs.presence === 'present';
     const bat = safeNum(attrs.battery); if (bat !== null) S[id].bat = bat;
 
   } else if (type === 'smoke') {
@@ -2919,7 +2920,7 @@ async function fetchAllDevices() {
         if (/CarbonMonoxideDetector/i.test(caps))   return 'smoke';
         if (/WaterSensor|MoistureSensor/i.test(caps)) return 'water';
         if (/GlassBreak|ShockSensor/i.test(caps))   return 'glass';
-        if (/MotionSensor/i.test(caps))             return 'motion';
+        if (/MotionSensor|PresenceSensor/i.test(caps)) return 'motion';
         if (/ContactSensor/i.test(caps))            return 'contact';
         return null;
       })();
@@ -3781,6 +3782,7 @@ function renderThermCard(t) {
 function artemisRegisterSensors() {
   if (!CONFIG.artemisSensors) return;
   // Migrate: deduplicate bare IDs when virtual counterpart exists (e.g. 241 + 241:motion → keep 241:motion)
+  // Also remove duplicate entries within the same category
   let migrated = false;
   Object.keys(CONFIG.artemisSensors).forEach(cat => {
     const arr = CONFIG.artemisSensors[cat];
@@ -3795,6 +3797,13 @@ function artemisRegisterSensors() {
         delete DEVICE_TYPE[id]; delete S[id];
         migrated = true;
       }
+    }
+    // Remove duplicate IDs within this category
+    const seen = new Set();
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const id = String(arr[i].id || arr[i]);
+      if (seen.has(id)) { arr.splice(i, 1); migrated = true; }
+      else seen.add(id);
     }
   });
   if (migrated) saveConfig();
@@ -9112,7 +9121,7 @@ function artemisRenderPicker(alreadyAssigned) {
     if (/CarbonMonoxideDetector/i.test(c))    return 'CO';
     if (/WaterSensor|MoistureSensor/i.test(c)) return 'Water';
     if (/GlassBreak|ShockSensor/i.test(c))    return 'Glass Break';
-    if (/MotionSensor/i.test(c))              return 'Motion';
+    if (/MotionSensor|PresenceSensor/i.test(c)) return 'Motion';
     if (/ContactSensor/i.test(c))             return 'Contact';
     return '';
   }
@@ -13173,7 +13182,7 @@ function capToType(caps, label) {
   if (/SmokeDetector|CarbonMonoxideDetector/i.test(c)) return 'smoke';
   if (/WaterSensor|MoistureSensor/i.test(c))            return 'water';
   if (/GlassBreakSensor|ShockSensor/i.test(c))          return 'glass';
-  if (/MotionSensor/i.test(c))                          return 'motion';
+  if (/MotionSensor|PresenceSensor/i.test(c))             return 'motion';
   if (/ContactSensor/i.test(c))                         return 'contact';
   // Color bulbs: must be checked before dimmer/switch
   if (/ColorControl/i.test(c))                return 'color';        // full RGB+CT
@@ -13192,7 +13201,7 @@ function capToType(caps, label) {
 function isSecurityCapable(caps) {
   if (!caps) return false;
   const c = Array.isArray(caps) ? caps.join(',') : String(caps);
-  return /SmokeDetector|CarbonMonoxideDetector|WaterSensor|MoistureSensor|GlassBreakSensor|ShockSensor|MotionSensor|ContactSensor/i.test(c);
+  return /SmokeDetector|CarbonMonoxideDetector|WaterSensor|MoistureSensor|GlassBreakSensor|ShockSensor|MotionSensor|ContactSensor|PresenceSensor/i.test(c);
 }
 
 function realDeviceId(vid) {
