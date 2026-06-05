@@ -3333,8 +3333,10 @@ function renderHome() {
   // ── Armed status banner — uses the exact same a-status card from the security panel ──
   function armedStatusCard(clickFn) {
     if (!CONFIG.artemisEnabled || artemisMode === 'disarm') return '';
-    return `<div class="a-status" onclick="${clickFn}" style="cursor:pointer;margin-bottom:10px">
-      ${artemisGemSVG(artemisMode, 34, 39)}
+    const gemMode = artemisTransition === 'arming' ? (artemisArmingTarget || 'away') : artemisMode;
+    const gemHTML = artemisTransition ? artemisGemWithRing(gemMode) : artemisGemSVG(artemisMode, 34, 39);
+    return `<div class="a-status" onclick="${clickFn}" style="cursor:pointer;margin-bottom:10px" id="home-armed-card">
+      <span id="home-armed-gem">${gemHTML}</span>
       <div>
         <div class="a-mode-lbl">Artemis Mode</div>
         <div class="a-mode-val">${artemisModeName()}</div>
@@ -8029,6 +8031,11 @@ function artemisTickCountdown() {
   if (!artemisTransition || !artemisCountdownEnd) return;
   const remaining = Math.max(0, Math.ceil((artemisCountdownEnd - Date.now()) / 1000));
   document.querySelectorAll('.a-mode-val, #a-mode-val').forEach(el => el.textContent = artemisModeName());
+  const homeGem = document.getElementById('home-armed-gem');
+  if (homeGem && !homeGem.querySelector('.a-trans-ring')) {
+    const gemMode = artemisTransition === 'arming' ? (artemisArmingTarget || 'away') : artemisMode;
+    homeGem.innerHTML = artemisGemWithRing(gemMode);
+  }
   if (remaining <= 0) {
     if (artemisCountdownInterval) { clearInterval(artemisCountdownInterval); artemisCountdownInterval = null; }
   }
@@ -12589,7 +12596,7 @@ function connectWebSocket() {
           if (alertType === 'intrusion' && !artemisTransition) {
             artemisSetTransition('entry-delay', null);
             announceHsmEvent('Attention — alarm triggering in ' + (CONFIG.artemisEntryDelay || 60) + ' seconds');
-            if (isMobile()) {
+            if (!isDesktop()) {
               selectTab('security');
               artemisOpenSheet();
             }
@@ -12614,7 +12621,7 @@ function connectWebSocket() {
         if (/entry.?delay|alarming|siren|intrusion/i.test(attrVal) && !artemisTransition) {
           artemisSetTransition('entry-delay', null);
           announceHsmEvent('Attention — alarm triggering in ' + (CONFIG.artemisEntryDelay || 60) + ' seconds');
-          if (isMobile()) {
+          if (!isDesktop()) {
             selectTab('security');
             artemisOpenSheet();
           }
