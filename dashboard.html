@@ -1373,7 +1373,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
         <span class="tb-stat-val" id="sv-t1">--</span>
         <span class="tb-stat-lbl">↑</span>
         <span class="tb-stat-val" id="sv-t2">--</span>
-        <span class="tb-stat-lbl">↓ °F</span>
+        <span class="tb-stat-lbl" id="sv-tunit">↓ °F</span>
       </div>
       <div class="tb-stat" title="Hubitat connection" style="padding:5px 9px">
         <div class="conn-dot loading" id="conn-dot"></div>
@@ -1667,7 +1667,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.5.5';
-const HESTIA_BUILD_DATE = '2026-06-05';
+const HESTIA_BUILD_DATE = '2026-06-11';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 let _cloudSyncDebounce  = null;
@@ -2741,6 +2741,7 @@ function applyAttrs(id, attrs) {
         }
       } catch(e) {}
     }
+    if (attrs.temperatureUnit != null) S[id].tempUnit = attrs.temperatureUnit;
     if (attrs.thermostatOperatingState != null) {
       // Normalize extended Hubitat states → our 3 display states
       const raw = String(attrs.thermostatOperatingState).toLowerCase();
@@ -3300,7 +3301,7 @@ function renderHome() {
   const isM = isMobile();
   const thermRows = thermostats.map(t => {
     const st       = S[t.id] || { cur: '--', humidity: '--', state: 'idle', mode: 'heat' };
-    const tempStr  = typeof st.cur === 'number' ? st.cur + '°F' : '--';
+    const tempStr  = typeof st.cur === 'number' ? st.cur + '°' + tempUnit() : '--';
     const humStr   = typeof st.humidity === 'number' ? st.humidity + '%' : '--';
     const state    = st.state || 'idle';
     const stateStr = state === 'heating' ? 'Heating' : state === 'cooling' ? 'Cooling' : 'Idle';
@@ -3666,6 +3667,11 @@ function calcStats() {
   return { lights, fans, shades, temps };
 }
 
+function tempUnit() {
+  const t = thermostats.find(t => S[t.id] && S[t.id].tempUnit);
+  return (t && S[t.id].tempUnit) || 'F';
+}
+
 function updateStats() {
   const c = calcStats();
   // Lock icon — aggregate: unlocked if ANY lock is unlocked
@@ -3697,6 +3703,8 @@ function updateStats() {
   const t2 = document.getElementById('sv-t2');
   if (t1) t1.textContent = c.temps[0] !== null ? c.temps[0] : '--';
   if (t2) t2.textContent = c.temps[1] !== null ? c.temps[1] : '--';
+  const tUnitEl = document.getElementById('sv-tunit');
+  if (tUnitEl) tUnitEl.textContent = '↓ °' + tempUnit();
   document.getElementById('sv-s').textContent = c.shades;
   document.getElementById('sd-s').className   = 'tb-stat-dot ' + (c.shades > 0 ? 'dot-on' : 'dot-off');
   if (currentTab === 'rooms') renderSidebar();
@@ -3737,7 +3745,7 @@ function renderThermCard(t) {
         <div id="tstate-${t.id}" class="therm-state ${state}" style="margin-top:4px">${stateStr}</div>
       </div>
       <div class="climate-temp-row">
-        <div class="climate-temp"><span id="clim-temp-${t.id}">${tempDisp}</span><span class="climate-temp-unit">°F</span></div>
+        <div class="climate-temp"><span id="clim-temp-${t.id}">${tempDisp}</span><span class="climate-temp-unit">°${tempUnit()}</span></div>
         <div class="climate-humidity">
           <div id="thum-${t.id}" class="climate-hum-val">${humStr}</div>
           <div class="climate-hum-lbl">humidity</div>
@@ -5168,9 +5176,10 @@ function athenaSystemPrompt() {
   // Thermostat states
   const thermLines = thermostats.map(t => {
     const st = S[t.id] || {};
-    let line = `- ${t.name} [id:${t.id}]: ${st.cur||'--'}°F, mode: ${st.mode||'heat'}, state: ${st.state||'idle'}`;
-    if (st.heat != null) line += `, heat setpoint: ${st.heat}°F`;
-    if (st.cool != null) line += `, cool setpoint: ${st.cool}°F`;
+    const tu = st.tempUnit || tempUnit();
+    let line = `- ${t.name} [id:${t.id}]: ${st.cur||'--'}°${tu}, mode: ${st.mode||'heat'}, state: ${st.state||'idle'}`;
+    if (st.heat != null) line += `, heat setpoint: ${st.heat}°${tu}`;
+    if (st.cool != null) line += `, cool setpoint: ${st.cool}°${tu}`;
     return line;
   }).join('\n');
 
@@ -5329,7 +5338,7 @@ ROUTINE RULES:
 - If the user says "create a routine that runs every morning at 7am," include both steps AND schedule in the response.
 - If no schedule is mentioned, omit the schedule field — the routine is on-demand only.
 
-Available commands: on, off, setLevel (value 0-100), setColorTemperature (value 2700-6500), setColor (JSON: {"hue":0-100,"saturation":0-100,"level":0-100}), setSpeed (off/low/medium-low/medium/medium-high/high), open, close, setPosition (value 0-100 for shades), lock, unlock, armHome, armAway, setHeatingSetpoint (value in °F), setCoolingSetpoint (value in °F), setThermostatMode (heat/cool/auto/off), setThermostatFanMode (auto/on/circulate)
+Available commands: on, off, setLevel (value 0-100), setColorTemperature (value 2700-6500), setColor (JSON: {"hue":0-100,"saturation":0-100,"level":0-100}), setSpeed (off/low/medium-low/medium/medium-high/high), open, close, setPosition (value 0-100 for shades), lock, unlock, armHome, armAway, setHeatingSetpoint (value in °${tempUnit()}), setCoolingSetpoint (value in °${tempUnit()}), setThermostatMode (heat/cool/auto/off), setThermostatFanMode (auto/on/circulate)
 
 SECURITY RESTRICTION: You CANNOT disarm the security system — disarming requires a PIN entered manually. If asked to disarm, explain that it must be done on the panel directly.
 
@@ -10124,7 +10133,7 @@ function renderRoom(r) {
       return `
         <div class="therm-wrap">
           <div>
-            <div class="therm-cur">${S[t.id].cur}<span class="therm-unit">°F</span></div>
+            <div class="therm-cur">${S[t.id].cur}<span class="therm-unit">°${tempUnit()}</span></div>
             <div style="font-size:11px;color:var(--t3);margin-top:2px">${humStr}</div>
             <div class="therm-state ${state}">${stateStr}</div>
           </div>
@@ -11153,6 +11162,7 @@ function spShowSection(id, force) {
               <option value="fans" ${CONFIG.defaultRoom==='fans'?'selected':''}>Fans</option>
               <option value="blinds" ${CONFIG.defaultRoom==='blinds'?'selected':''}>Blinds</option>
               <option value="climate" ${CONFIG.defaultRoom==='climate'?'selected':''}>Climate</option>
+              ${CONFIG.artemisEnabled ? `<option value="security" ${CONFIG.defaultRoom==='security'?'selected':''}>Security</option>` : ''}
               ${rooms.map(r=>`<option value="${r.id}" ${CONFIG.defaultRoom===r.id?'selected':''}>${h(r.name)}</option>`).join('')}
             </select>
             <span class="sp-hint">View shown on load and after the inactivity timeout.</span></div>
@@ -12209,11 +12219,12 @@ setInterval(tick, 15000);
 
 // Render immediately with default state so the UI appears instantly
 renderSidebar();
-if      (DEFAULT_ROOM === 'home')    renderHome();
-else if (DEFAULT_ROOM === 'climate') renderClimate();
-else if (DEFAULT_ROOM === 'blinds')  renderBlinds();
-else if (DEFAULT_ROOM === 'lights')  renderLights();
-else if (DEFAULT_ROOM === 'fans')    renderFans();
+if      (DEFAULT_ROOM === 'home')     renderHome();
+else if (DEFAULT_ROOM === 'climate')  renderClimate();
+else if (DEFAULT_ROOM === 'blinds')   renderBlinds();
+else if (DEFAULT_ROOM === 'lights')   renderLights();
+else if (DEFAULT_ROOM === 'fans')     renderFans();
+else if (DEFAULT_ROOM === 'security') renderSecurity();
 else {
   const defRoom = rooms.find(r => r.id === DEFAULT_ROOM);
   if (defRoom) renderRoom(defRoom);
@@ -12493,7 +12504,7 @@ function patchHomeStats() {
   thermostats.forEach(function(t) {
     const st        = S[t.id];
     const state     = st.state || 'idle';
-    const tempStr   = typeof st.cur === 'number' ? st.cur + '\u00b0F' : '--';
+    const tempStr   = typeof st.cur === 'number' ? st.cur + '\u00b0' + tempUnit() : '--';
     const humStr    = typeof st.humidity === 'number' ? st.humidity + '%' : '--';
     const stateStr  = state === 'heating' ? 'Heating' : state === 'cooling' ? 'Cooling' : 'Idle';
     const stateIcon = state === 'heating' ? iconFlame(14) : state === 'cooling' ? iconSnowflake(14) : '';
