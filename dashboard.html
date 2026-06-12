@@ -1542,7 +1542,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
       </div>
       <span class="bn-label">Rooms</span>
     </button>
-    <button class="bn-tab" id="bn-blinds" onclick="selectTab('blinds')">
+    <button class="bn-tab" id="bn-blinds" onclick="selectTab('blinds')" style="display:none">
       <div class="bn-icon">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
           <rect x="3" y="3" width="18" height="2.5" rx="1.25" fill="currentColor" opacity="0.85"/>
@@ -1554,7 +1554,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
       </div>
       <span class="bn-label">Blinds</span>
     </button>
-    <button class="bn-tab" id="bn-climate" onclick="selectTab('climate')">
+    <button class="bn-tab" id="bn-climate" onclick="selectTab('climate')" style="display:none">
       <div class="bn-icon">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
           <rect x="10" y="2" width="4" height="12" rx="2" fill="currentColor" opacity="0.4"/>
@@ -1667,7 +1667,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.5.5';
-const HESTIA_BUILD_DATE = '2026-06-11';
+const HESTIA_BUILD_DATE = '2026-06-12';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 let _cloudSyncDebounce  = null;
@@ -2066,6 +2066,7 @@ const CONFIG = {
   announceWater:    true,
   announceOpen:     true,
   announceClose:    true,
+  tempUnit:       'F',            // 'F' | 'C' (label only) | 'C_CONVERT' (convert F→C)
   // Companion app credentials (cached for cross-origin access from hestari.com)
   hestiaAppId:    '',
   hestiaAppToken: '',
@@ -2340,7 +2341,7 @@ function applyParsedConfig(parsed) {
 function buildConfigPayload() {
   return {
     config:      { hub: CONFIG.hub, appId: CONFIG.appId, token: CONFIG.token, poll: CONFIG.poll,
-                   defaultRoom: CONFIG.defaultRoom, returnTimeout: CONFIG.returnTimeout,
+                   defaultRoom: CONFIG.defaultRoom, returnTimeout: CONFIG.returnTimeout, tempUnit: CONFIG.tempUnit,
                    locks: CONFIG.locks, weather: CONFIG.weather, settingsPin: CONFIG.settingsPin,
                    artemisEnabled: CONFIG.artemisEnabled, artemisPin: CONFIG.artemisPin,
                    artemisExitDelay: CONFIG.artemisExitDelay, artemisEntryDelay: CONFIG.artemisEntryDelay,
@@ -3301,7 +3302,7 @@ function renderHome() {
   const isM = isMobile();
   const thermRows = thermostats.map(t => {
     const st       = S[t.id] || { cur: '--', humidity: '--', state: 'idle', mode: 'heat' };
-    const tempStr  = typeof st.cur === 'number' ? st.cur + '°' + tempUnit() : '--';
+    const tempStr  = typeof st.cur === 'number' ? displayTemp(st.cur) + '°' + tempUnit() : '--';
     const humStr   = typeof st.humidity === 'number' ? st.humidity + '%' : '--';
     const state    = st.state || 'idle';
     const stateStr = state === 'heating' ? 'Heating' : state === 'cooling' ? 'Cooling' : 'Idle';
@@ -3358,23 +3359,23 @@ function renderHome() {
             <div id="home-lit-val" class="stat-card-val${totalLit > 0 ? ' amber' : ''}">${totalLit}<span class="stat-card-denom"> / ${totalBulbs}</span></div>
             <div id="home-lit-sub" class="stat-card-sub">${totalLit > 0 ? '<span class="live">' + totalLit + ' on</span>' : 'All off'}</div>
           </div>
-          <div class="stat-card" onclick="navToGlobal('fans')">
+          ${totalFans > 0 ? `<div class="stat-card" onclick="navToGlobal('fans')">
             <div class="stat-card-lbl">Fans</div>
             <div class="stat-card-icon" id="home-fan-icon" data-spd="${topSpd}">${fanSVG(topSpd, 28)}</div>
             <div id="home-fan-val" class="stat-card-val${activeFans > 0 ? ' amber' : ''}">${activeFans}<span class="stat-card-denom"> / ${totalFans}</span></div>
             <div id="home-fan-sub" class="stat-card-sub">${activeFans > 0 ? '<span class="live">' + activeFans + ' running</span>' : 'All off'}</div>
-          </div>
-          <div class="stat-card" onclick="navToGlobal('blinds')">
+          </div>` : ''}
+          ${totalShades > 0 ? `<div class="stat-card" onclick="navToGlobal('blinds')">
             <div class="stat-card-lbl">Blinds</div>
             <div class="stat-card-icon">${iconBlinds(openShades > 0, 28)}</div>
             <div id="home-shade-val" class="stat-card-val${openShades > 0 ? ' amber' : ''}">${openShades}<span class="stat-card-denom"> / ${totalShades}</span></div>
             <div id="home-shade-sub" class="stat-card-sub">${openShades > 0 ? '<span class="live">' + openShades + ' open</span>' : 'All closed'}</div>
-          </div>
+          </div>` : ''}
         </div>
-        <div class="m-climate-card" onclick="navToGlobal('climate')" style="cursor:pointer">
+        ${thermostats.length > 0 ? `<div class="m-climate-card" onclick="navToGlobal('climate')" style="cursor:pointer">
           <div class="sec-lbl" style="margin-top:0;margin-bottom:8px">Climate</div>
           ${thermRows}
-        </div>
+        </div>` : ''}
         ${weatherCardHTML()}
         ${calendarMobileHTML()}
         <div style="display:flex;justify-content:flex-end;padding:3px 14px 5px;border-top:1px solid var(--border-s);margin-top:2px">
@@ -3398,26 +3399,26 @@ function renderHome() {
         <div id="home-lit-val" class="home-stat-val${totalLit > 0 ? ' amber' : ''}">${totalLit}<span style="font-size:16px;color:var(--t3);font-weight:400"> / ${totalBulbs}</span></div>
         <div id="home-lit-sub" class="home-stat-sub">${totalLit > 0 ? '<span class="live">' + totalLit + ' on</span>' : 'All off'}</div>
       </div>
-      <div class="home-stat-card" id="home-fan-card" onclick="navToGlobal('fans')">
+      ${totalFans > 0 ? `<div class="home-stat-card" id="home-fan-card" onclick="navToGlobal('fans')">
         <div class="home-card-top">
           <div class="home-stat-lbl">Fans</div>
           <div class="home-card-icon" id="home-fan-icon" data-spd="${topSpd}">${fanSVG(topSpd, 38)}</div>
         </div>
         <div id="home-fan-val" class="home-stat-val${activeFans > 0 ? ' amber' : ''}">${activeFans}<span style="font-size:16px;color:var(--t3);font-weight:400"> / ${totalFans}</span></div>
         <div id="home-fan-sub" class="home-stat-sub">${activeFans > 0 ? '<span class="live">' + activeFans + ' running</span>' : 'All off'}</div>
-      </div>
-      <div class="home-stat-card" onclick="navToGlobal('blinds')">
+      </div>` : ''}
+      ${totalShades > 0 ? `<div class="home-stat-card" onclick="navToGlobal('blinds')">
         <div class="home-card-top">
           <div class="home-stat-lbl">Blinds</div>
           <div class="home-card-icon">${iconBlinds(openShades > 0, 38)}</div>
         </div>
         <div id="home-shade-val" class="home-stat-val${openShades > 0 ? ' amber' : ''}">${openShades}<span style="font-size:16px;color:var(--t3);font-weight:400"> / ${totalShades}</span></div>
         <div id="home-shade-sub" class="home-stat-sub">${openShades > 0 ? '<span class="live">' + openShades + ' open</span>' : 'All closed'}</div>
-      </div>
-      <div class="home-stat-card" onclick="navToGlobal('climate')" style="grid-column:span 1">
+      </div>` : ''}
+      ${thermostats.length > 0 ? `<div class="home-stat-card" onclick="navToGlobal('climate')" style="grid-column:span 1">
         <div class="home-card-top"><div class="home-stat-lbl">Climate</div></div>
         ${thermRows}
-      </div>
+      </div>` : ''}
       ${weatherCardHTML()}
       ${calendarDesktopHTML()}
     </div>
@@ -3506,9 +3507,10 @@ function adjTherm(id, delta) {
   const key       = isCool ? 'cool'               : 'heat';
   const command   = isCool ? 'setCoolingSetpoint'  : 'setHeatingSetpoint';
   const label     = isCool ? 'Cool'                : 'Heat';
-  S[id][key] = Math.max(60, Math.min(85, S[id][key] + delta));
+  const step      = CONFIG.tempUnit === 'C_CONVERT' ? Math.round(delta * 9 / 5) : delta;
+  S[id][key] = Math.max(40, Math.min(95, S[id][key] + step));
   const el = document.getElementById('tset-' + id);
-  if (el) el.textContent = label + ': ' + S[id][key] + '°';
+  if (el) el.textContent = label + ': ' + displayTemp(S[id][key]) + '°';
   cmd(id, command, S[id][key]);
 }
 
@@ -3668,8 +3670,11 @@ function calcStats() {
 }
 
 function tempUnit() {
-  const t = thermostats.find(t => S[t.id] && S[t.id].tempUnit);
-  return (t && S[t.id].tempUnit) || 'F';
+  return CONFIG.tempUnit === 'F' ? 'F' : 'C';
+}
+function displayTemp(val) {
+  if (typeof val !== 'number') return val;
+  return CONFIG.tempUnit === 'C_CONVERT' ? Math.round((val - 32) * 5 / 9) : val;
 }
 
 function updateStats() {
@@ -3716,9 +3721,10 @@ function updateStats() {
 function adjThermDirect(id, which, delta) {
   const key     = which === 'cool' ? 'cool' : 'heat';
   const command = which === 'cool' ? 'setCoolingSetpoint' : 'setHeatingSetpoint';
-  S[id][key] = Math.max(60, Math.min(85, S[id][key] + delta));
+  const step    = CONFIG.tempUnit === 'C_CONVERT' ? Math.round(delta * 9 / 5) : delta;
+  S[id][key] = Math.max(40, Math.min(95, S[id][key] + step));
   const el = document.getElementById('sp-' + which + '-' + id);
-  if (el) el.textContent = S[id][key] + '°';
+  if (el) el.textContent = displayTemp(S[id][key]) + '°';
   cmd(id, command, S[id][key]);
 }
 
@@ -3732,9 +3738,9 @@ function renderThermCard(t) {
   const stateStr = state === 'heating' ? 'Heating'
                  : state === 'cooling' ? 'Cooling' : 'Idle';
   const humStr   = typeof st.humidity === 'number' ? st.humidity + '%' : '--';
-  const tempDisp = typeof st.cur === 'number' ? st.cur : '--';
-  const heatDisp = (st.heat != null && st.heat !== undefined) ? st.heat : '--';
-  const coolDisp = (st.cool != null && st.cool !== undefined) ? st.cool : '--';
+  const tempDisp = typeof st.cur === 'number' ? displayTemp(st.cur) : '--';
+  const heatDisp = (st.heat != null && st.heat !== undefined) ? displayTemp(st.heat) : '--';
+  const coolDisp = (st.cool != null && st.cool !== undefined) ? displayTemp(st.cool) : '--';
   return `
     <div class="climate-card">
       <div class="climate-card-hdr">
@@ -5176,10 +5182,10 @@ function athenaSystemPrompt() {
   // Thermostat states
   const thermLines = thermostats.map(t => {
     const st = S[t.id] || {};
-    const tu = st.tempUnit || tempUnit();
-    let line = `- ${t.name} [id:${t.id}]: ${st.cur||'--'}°${tu}, mode: ${st.mode||'heat'}, state: ${st.state||'idle'}`;
-    if (st.heat != null) line += `, heat setpoint: ${st.heat}°${tu}`;
-    if (st.cool != null) line += `, cool setpoint: ${st.cool}°${tu}`;
+    const tu = tempUnit();
+    let line = `- ${t.name} [id:${t.id}]: ${typeof st.cur === 'number' ? displayTemp(st.cur) : '--'}°${tu}, mode: ${st.mode||'heat'}, state: ${st.state||'idle'}`;
+    if (st.heat != null) line += `, heat setpoint: ${displayTemp(st.heat)}°${tu}`;
+    if (st.cool != null) line += `, cool setpoint: ${displayTemp(st.cool)}°${tu}`;
     return line;
   }).join('\n');
 
@@ -9241,6 +9247,14 @@ function artemisShowSecurityNav() {
   if (btn) btn.style.display = CONFIG.artemisEnabled ? '' : 'none';
 }
 
+function updateCategoryNav() {
+  const totalShades = rooms.reduce((n, r) => n + r.shades.length, 0);
+  const blindsBtn = document.getElementById('bn-blinds');
+  if (blindsBtn) blindsBtn.style.display = totalShades > 0 ? '' : 'none';
+  const climateBtn = document.getElementById('bn-climate');
+  if (climateBtn) climateBtn.style.display = thermostats.length > 0 ? '' : 'none';
+}
+
 async function artemisNavSaveSettings() {
   const pinInput = document.getElementById('sp-artemis-pin');
   if (pinInput) {
@@ -9975,17 +9989,17 @@ function renderSidebar() {
   // Fans
   const totalFans  = rooms.reduce((n, r) => n + r.fans.length, 0);
   const activeFans = rooms.reduce((n, r) => n + r.fans.filter(f => S[f.id].spd !== 'off').length, 0);
-  items.push(navBtn('fans', 'Fans', activeFans > 0 ? activeFans + ' of ' + totalFans + ' running' : 'All off', activeFans > 0));
+  if (totalFans > 0) items.push(navBtn('fans', 'Fans', activeFans > 0 ? activeFans + ' of ' + totalFans + ' running' : 'All off', activeFans > 0));
 
-  // Blinds — habitual time-of-day adjustments
+  // Blinds
   const totalShades = rooms.reduce((n, r) => n + r.shades.length, 0);
   const openShades  = rooms.reduce((n, r) => n + r.shades.filter(sh => S[sh.id].pct > 0).length, 0);
-  items.push(navBtn('blinds', 'Blinds', totalShades > 0 ? openShades + ' of ' + totalShades + ' open' : 'All blinds', openShades > 0));
+  if (totalShades > 0) items.push(navBtn('blinds', 'Blinds', openShades + ' of ' + totalShades + ' open', openShades > 0));
 
-  // Climate — set and forget, glanceable from topbar
+  // Climate
   const anyHVAC   = thermostats.some(t => S[t.id].state === 'heating' || S[t.id].state === 'cooling');
-  const tempParts = thermostats.filter(t => typeof S[t.id].cur === 'number').map(t => S[t.id].cur + '°');
-  items.push(navBtn('climate', 'Climate', tempParts.length ? tempParts.join(' · ') : 'Climate control', anyHVAC));
+  const tempParts = thermostats.filter(t => typeof S[t.id].cur === 'number').map(t => displayTemp(S[t.id].cur) + '°');
+  if (thermostats.length > 0) items.push(navBtn('climate', 'Climate', tempParts.length ? tempParts.join(' · ') : 'Climate control', anyHVAC));
   if (CONFIG.artemisEnabled) {
     items.push(navBtn('security', 'Security', artemisModeName(), false, 'security'));
   }
@@ -10133,12 +10147,12 @@ function renderRoom(r) {
       return `
         <div class="therm-wrap">
           <div>
-            <div class="therm-cur">${S[t.id].cur}<span class="therm-unit">°${tempUnit()}</span></div>
+            <div class="therm-cur">${displayTemp(S[t.id].cur)}<span class="therm-unit">°${tempUnit()}</span></div>
             <div style="font-size:11px;color:var(--t3);margin-top:2px">${humStr}</div>
             <div class="therm-state ${state}">${stateStr}</div>
           </div>
           <div class="therm-r">
-            <div class="therm-set" id="tset-${t.id}">${isOff ? 'Off' : setLabel + ': ' + setVal + '°'}</div>
+            <div class="therm-set" id="tset-${t.id}">${isOff ? 'Off' : setLabel + ': ' + displayTemp(setVal) + '°'}</div>
             <div class="therm-btns">
               <button class="therm-btn" onclick="adjTherm('${t.id}',-1)" ${isOff ? 'disabled' : ''}>−</button>
               <button class="therm-btn" onclick="adjTherm('${t.id}',1)"  ${isOff ? 'disabled' : ''}>+</button>
@@ -11202,6 +11216,18 @@ function spShowSection(id, force) {
 
     case 'therms':
       html = `<div class="sp-content-hdr"><span class="sp-content-icon">🌡</span>Thermostats</div>
+        <div class="sp-group">
+          <div class="sp-group-lbl">Temperature Unit</div>
+          <div class="sp-field">
+            <select class="sp-input" id="sp-tempunit">
+              <option value="F" ${CONFIG.tempUnit==='F'?'selected':''}>°F — Fahrenheit</option>
+              <option value="C" ${CONFIG.tempUnit==='C'?'selected':''}>°C — Label only (hub already reports Celsius)</option>
+              <option value="C_CONVERT" ${CONFIG.tempUnit==='C_CONVERT'?'selected':''}>°C — Convert from °F</option>
+            </select>
+            <span class="sp-hint">Label only: changes the display symbol. Convert: mathematically converts Fahrenheit values to Celsius.</span>
+          </div>
+        </div>
+        <div class="sp-sep"></div>
         ${spThermList()}`;
       break;
 
@@ -11443,6 +11469,8 @@ async function saveSettings() {
   if (poll)    CONFIG.poll          = Math.max(500, parseInt(poll.value) || 1000);
   if (defroom) CONFIG.defaultRoom   = defroom.value.trim();
   if (timeout) CONFIG.returnTimeout = parseInt(timeout.value) || 0;
+  const tempUnitEl = document.getElementById('sp-tempunit');
+  if (tempUnitEl) CONFIG.tempUnit = tempUnitEl.value;
   const zipEl = document.getElementById('sp-zip');
   if (zipEl)   CONFIG.weather.zip   = zipEl.value.trim();
   if (lat)     CONFIG.weather.lat   = parseFloat(lat.value);
@@ -12016,6 +12044,7 @@ async function spScanDevices() {
         (newTherms > 0 ? ' (' + newTherms + ' thermostat' + (newTherms > 1 ? 's' : '') + ')' : '')
       : 'No new devices found';
     showDeviceToast(msg);
+    if (total > 0) { updateCategoryNav(); renderSidebar(); }
   } catch(e) {
     showDeviceToast('Scan failed — check hub connection');
   }
@@ -12381,7 +12410,7 @@ function patchView() {
           const isOff    = mode === 'off';
           const isCool   = mode === 'cool';
           const stateStr = state === 'heating' ? 'Heating' : state === 'cooling' ? 'Cooling' : 'Idle';
-          const tempStr  = typeof curr.cur === 'number' ? curr.cur : '--';
+          const tempStr  = typeof curr.cur === 'number' ? displayTemp(curr.cur) : '--';
           const humStr   = typeof curr.humidity === 'number' ? curr.humidity + '%' : '--';
 
           const climTemp = el('clim-temp-' + id);
@@ -12395,8 +12424,8 @@ function patchView() {
           if (climTemp) climTemp.textContent = tempStr;
           if (humEl)    humEl.textContent    = humStr;
           if (stEl)     { stEl.textContent = stateStr; stEl.className = 'therm-state ' + state; }
-          if (spHeat)   spHeat.textContent  = (curr.heat != null) ? curr.heat + '°' : '--';
-          if (spCool)   spCool.textContent  = (curr.cool != null) ? curr.cool + '°' : '--';
+          if (spHeat)   spHeat.textContent  = (curr.heat != null) ? displayTemp(curr.heat) + '°' : '--';
+          if (spCool)   spCool.textContent  = (curr.cool != null) ? displayTemp(curr.cool) + '°' : '--';
           if (hWrap)    hWrap.className     = 'climate-sp' + (!isCool && !isOff ? ' active-sp' : '');
           if (cWrap)    cWrap.className     = 'climate-sp' + (isCool && !isOff ? ' active-sp active-cool' : '');
 
@@ -12504,7 +12533,7 @@ function patchHomeStats() {
   thermostats.forEach(function(t) {
     const st        = S[t.id];
     const state     = st.state || 'idle';
-    const tempStr   = typeof st.cur === 'number' ? st.cur + '\u00b0' + tempUnit() : '--';
+    const tempStr   = typeof st.cur === 'number' ? displayTemp(st.cur) + '\u00b0' + tempUnit() : '--';
     const humStr    = typeof st.humidity === 'number' ? st.humidity + '%' : '--';
     const stateStr  = state === 'heating' ? 'Heating' : state === 'cooling' ? 'Cooling' : 'Idle';
     const stateIcon = state === 'heating' ? iconFlame(14) : state === 'cooling' ? iconSnowflake(14) : '';
@@ -14025,6 +14054,7 @@ function launchOnboarding() {
   scheduleNextPoll();
   setTimeout(checkAppVersion, 5000);
   artemisShowSecurityNav();
+  updateCategoryNav();
   // Migrate legacy plain-text PINs to SHA-512 hashes silently on first load
   await migratePinIfNeeded('settingsPin');
   await migratePinIfNeeded('artemisPin');
