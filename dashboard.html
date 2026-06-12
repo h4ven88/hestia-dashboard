@@ -1359,17 +1359,17 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
         <span class="tb-stat-val" id="sv-l">-</span>
         <span class="tb-stat-lbl">lights</span>
       </div>
-      <div class="tb-stat">
+      <div class="tb-stat" id="stat-fans" style="display:none">
         <div class="tb-stat-dot dot-off" id="sd-f"></div>
         <span class="tb-stat-val" id="sv-f">-</span>
         <span class="tb-stat-lbl">fans</span>
       </div>
-      <div class="tb-stat">
+      <div class="tb-stat" id="stat-shades" style="display:none">
         <div class="tb-stat-dot dot-off" id="sd-s"></div>
         <span class="tb-stat-val" id="sv-s">-</span>
         <span class="tb-stat-lbl">shades</span>
       </div>
-      <div class="tb-stat" id="stat-temps">
+      <div class="tb-stat" id="stat-temps" style="display:none">
         <span class="tb-stat-val" id="sv-t1">--</span>
         <span class="tb-stat-lbl">↑</span>
         <span class="tb-stat-val" id="sv-t2">--</span>
@@ -3701,13 +3701,20 @@ function updateStats() {
   } else if (statLockM) { statLockM.style.display = 'none'; }
   document.getElementById('sv-l').textContent = c.lights;
   document.getElementById('sd-l').className   = 'tb-stat-dot ' + (c.lights > 0 ? 'dot-on' : 'dot-off');
+  const totalFansRibbon  = rooms.reduce((n, r) => n + r.fans.length, 0);
+  const totalShadesRibbon = rooms.reduce((n, r) => n + r.shades.length, 0);
+  const statFans   = document.getElementById('stat-fans');
+  const statShades = document.getElementById('stat-shades');
+  const statTemps  = document.getElementById('stat-temps');
+  if (statFans)   statFans.style.display   = totalFansRibbon > 0 ? '' : 'none';
+  if (statShades) statShades.style.display = totalShadesRibbon > 0 ? '' : 'none';
+  if (statTemps)  statTemps.style.display  = thermostats.length > 0 ? '' : 'none';
   document.getElementById('sv-f').textContent = c.fans;
   document.getElementById('sd-f').className   = 'tb-stat-dot ' + (c.fans > 0 ? 'dot-on' : 'dot-off');
-  // Split thermostat temps: thermostats[0]=Upstairs(↑), thermostats[1]=Downstairs(↓)
   const t1 = document.getElementById('sv-t1');
   const t2 = document.getElementById('sv-t2');
-  if (t1) t1.textContent = c.temps[0] !== null ? c.temps[0] : '--';
-  if (t2) t2.textContent = c.temps[1] !== null ? c.temps[1] : '--';
+  if (t1) t1.textContent = c.temps[0] !== null ? displayTemp(c.temps[0]) : '--';
+  if (t2) t2.textContent = c.temps[1] !== null ? displayTemp(c.temps[1]) : '--';
   const tUnitEl = document.getElementById('sv-tunit');
   if (tUnitEl) tUnitEl.textContent = '↓ °' + tempUnit();
   document.getElementById('sv-s').textContent = c.shades;
