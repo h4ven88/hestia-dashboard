@@ -2484,6 +2484,21 @@ async function cloudSyncDiscover() {
 
 /* Re-seed S{} and DEVICE_TYPE{} from current rooms/thermostats */
 function initState() {
+  // Migration: clean up stale :fan suffixed IDs from earlier auto-detection
+  let _migrated = false;
+  rooms.forEach(r => {
+    for (let i = r.fans.length - 1; i >= 0; i--) {
+      const fid = String(r.fans[i].id);
+      if (fid.endsWith(':fan')) {
+        const bare = fid.replace(/:fan$/, '');
+        const dup = r.fans.some((f, j) => j !== i && String(f.id) === bare);
+        if (dup) { r.fans.splice(i, 1); _migrated = true; }
+        else { r.fans[i].id = bare; _migrated = true; }
+        console.log('[Migration] Cleaned fan ID: ' + fid + ' → ' + bare + (dup ? ' (removed duplicate)' : ''));
+      }
+    }
+  });
+  if (_migrated) saveConfig();
   Object.keys(S).forEach(k => delete S[k]);
   Object.keys(DEVICE_TYPE).forEach(k => delete DEVICE_TYPE[k]);
   rooms.forEach(r => {
@@ -10541,7 +10556,7 @@ function spAddFanLight(ri, di) {
   const lid = fan.id + ':dimmer';
   S[lid] = { on: false, val: 0 }; DEVICE_TYPE[lid] = 'dimmer'; DEVICE_REGISTRY.add(lid);
   rooms[ri].dimmers.push({ id: lid, name: fan.name + ' (Light)', linked: true });
-  spRerenderRoomDevices(ri);
+  spShowSection('devices');
   saveConfig();
 }
 
@@ -10558,7 +10573,7 @@ function spChangeFanLight(ri, di, newType) {
   DEVICE_TYPE[lid] = newType; DEVICE_REGISTRY.add(lid);
   const newArr = newType === 'dimmer' ? 'dimmers' : 'switches';
   rooms[ri][newArr].push({ id: lid, name: fan.name + ' (Light)', linked: true });
-  spRerenderRoomDevices(ri);
+  spShowSection('devices');
   saveConfig();
 }
 
@@ -10570,7 +10585,7 @@ function spRemoveFanLight(ri, di) {
   rooms[ri][arr] = rooms[ri][arr].filter(d => d.id !== lid);
   delete S[lid]; delete DEVICE_TYPE[lid]; DEVICE_REGISTRY.delete(lid);
   delete fan.light;
-  spRerenderRoomDevices(ri);
+  spShowSection('devices');
   saveConfig();
 }
 
@@ -10676,6 +10691,27 @@ function spRoomEditor() {
    Inline room assignment dropdown on every row.
    Rooms section remains for structural management only.
 ═══════════════════════════════════════════════════════ */
+function spDevFanLightUI(d) {
+  const ri = rooms.findIndex(r => r.id === d.roomId);
+  if (ri === -1) return '';
+  const di = rooms[ri].fans.findIndex(f => f.id === d.id);
+  if (di === -1) return '';
+  const fan = rooms[ri].fans[di];
+  if (fan.light) {
+    return `<div style="display:flex;align-items:center;gap:6px;padding:4px 0 0">
+      <span style="font-size:11px;color:var(--t3)">Light:</span>
+      <select class="sp-input" style="font-size:11px;width:auto;padding:2px 6px" onchange="spChangeFanLight(${ri},${di},this.value)">
+        <option value="dimmer"${fan.light==='dimmer'?' selected':''}>Dimmer</option>
+        <option value="switch"${fan.light==='switch'?' selected':''}>Switch</option>
+      </select>
+      <button style="background:none;border:none;color:var(--t4);font-size:10px;cursor:pointer;padding:0" onclick="spRemoveFanLight(${ri},${di})">remove</button>
+    </div>`;
+  }
+  return `<div style="padding:4px 0 0">
+    <button style="background:none;border:none;color:var(--accent);font-size:11px;cursor:pointer;padding:0" onclick="spAddFanLight(${ri},${di})">+ Add light control</button>
+  </div>`;
+}
+
 let _devGroupBy = 'type'; // 'type' | 'room'
 
 function spDevicesSection() {
@@ -10687,7 +10723,7 @@ function spDevicesSection() {
   rooms.forEach(r => {
     Object.entries(typeMap).forEach(([key, type]) => {
       (r[key] || []).forEach(d => {
-        allDevices.push({ id: d.id, name: d.name, type, roomId: r.id, roomName: r.name });
+        allDevices.push({ id: d.id, name: d.name, type, roomId: r.id, roomName: r.name, light: d.light, linked: d.linked });
         inRoom.add(String(d.id));
       });
     });
@@ -10764,6 +10800,8 @@ function spDevicesSection() {
           ${selHtml}
           <span class="sp-dev-id">#${d.id}</span>
         </div>
+        ${d.type === 'fan' && d.roomId && d.roomId !== '__therm__' ? spDevFanLightUI(d) : ''}
+        ${d.linked ? `<div style="font-size:10px;color:var(--t4);padding:2px 0 0">Linked from fan · managed in Fans section</div>` : ''}
       </div>
       <div class="sp-dev-create-room" id="sp-create-room-${d.id}">
         <input id="sp-newroom-input-${d.id}" placeholder="Room name…"
