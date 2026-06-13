@@ -2913,15 +2913,13 @@ async function fetchAllDevices() {
       }
       return;
     }
-    // Fan+switch combo: only route to virtual IDs if user has assigned them
-    if (isFanSwitchDual(device.capabilities)) {
-      const fid = id + ':fan', did = id + ':dimmer', sid = id + ':switch';
-      if (DEVICE_TYPE[fid] || DEVICE_TYPE[did] || DEVICE_TYPE[sid]) {
+    // Fan+light combo: route attrs to light virtual IDs if user has linked one
+    {
+      const did = id + ':dimmer', sid = id + ':switch';
+      if (DEVICE_TYPE[did] || DEVICE_TYPE[sid]) {
         const attrs = parseAttrs(device);
-        if (DEVICE_TYPE[fid]) applyAttrs(fid, attrs);
         if (DEVICE_TYPE[did]) applyAttrs(did, attrs);
         if (DEVICE_TYPE[sid]) applyAttrs(sid, attrs);
-        return;
       }
     }
     // Allow if known type OR if it's a registered Artemis sensor
@@ -10476,28 +10474,27 @@ function spGetAvailableDevices(ri, type) {
     .filter(d => capToType(d.capabilities) === wantType && !used.has(String(d.id)) && !isDualCapability(d.capabilities))
     .map(d => ({ id: String(d.id), name: d.label || d.name || ('Device ' + d.id) }));
 
-  // Dual-capability devices use virtual IDs that don't exist in lastPollDevices
-  (lastPollDevices || []).forEach(d => {
-    const name = d.label || d.name || 'Device ' + d.id;
-    // Ring floodlights: security sensor + switch → :switch virtual ID
-    if (wantType === 'switch' && isDualCapability(d.capabilities)) {
-      const vid = String(d.id) + ':switch';
-      if (!used.has(vid)) results.push({ id: vid, name: name + ' (Light)' });
-    }
-    // Fan+switch combos (e.g. Inovelli): show light side for users with combo devices
-    if (isFanSwitchDual(d.capabilities)) {
-      const lt = fanDualLightType(d.capabilities);
-      if (wantType === lt) {
-        const vid = String(d.id) + ':' + lt;
-        if (!used.has(vid)) results.push({ id: vid, name: name + ' (Light)' });
+  // Ring floodlights: security sensor + switch → :switch virtual ID
+  if (wantType === 'switch') {
+    (lastPollDevices || []).forEach(d => {
+      if (isDualCapability(d.capabilities)) {
+        const vid = String(d.id) + ':switch';
+        if (!used.has(vid)) results.push({ id: vid, name: (d.label || d.name || 'Device ' + d.id) + ' (Light)' });
       }
-    }
-  });
+    });
+  }
 
   return results.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function spDevicePickRow(ri, type, di, d) {
+  if (d.linked) {
+    return `
+    <div class="sp-device-row" style="flex-direction:column;align-items:stretch;gap:3px;padding:6px 2px;border-bottom:1px solid var(--border-s);opacity:0.7">
+      <div style="font-size:12px;color:var(--t2)">${h(d.name)}</div>
+      <div style="font-size:10px;color:var(--t4)">ID: ${d.id} · linked from fan · managed in Fans section</div>
+    </div>`;
+  }
   const available = spGetAvailableDevices(ri, type);
   // Include the currently assigned device even if it appears "used" elsewhere
   const hasCurrentInList = available.some(x => x.id === d.id);
@@ -10517,7 +10514,71 @@ function spDevicePickRow(ri, type, di, d) {
         <button class="sp-remove" onclick="spRemoveDevice(${ri},'${type}',${di})">✕</button>
       </div>
       ${d.id ? `<div style="font-size:10px;color:var(--t4);padding:0 2px">ID: ${d.id} · <span style="color:var(--t3)">${h(d.name)}</span></div>` : ''}
+      ${type === 'fans' && d.id ? spFanLightRow(ri, di, d) : ''}
     </div>`;
+}
+
+function spFanLightRow(ri, di, d) {
+  if (d.light) {
+    return `<div style="display:flex;align-items:center;gap:6px;padding:2px 2px 0">
+      <span style="font-size:11px;color:var(--t3)">Light:</span>
+      <select class="sp-input" style="font-size:11px;width:auto;padding:2px 6px" onchange="spChangeFanLight(${ri},${di},this.value)">
+        <option value="dimmer"${d.light==='dimmer'?' selected':''}>Dimmer</option>
+        <option value="switch"${d.light==='switch'?' selected':''}>Switch</option>
+      </select>
+      <button class="sp-remove" style="font-size:10px;padding:0 4px" onclick="spRemoveFanLight(${ri},${di})">remove</button>
+    </div>`;
+  }
+  return `<div style="padding:2px 2px 0">
+    <button style="background:none;border:none;color:var(--accent);font-size:11px;cursor:pointer;padding:0" onclick="spAddFanLight(${ri},${di})">+ Add light control</button>
+  </div>`;
+}
+
+function spAddFanLight(ri, di) {
+  const fan = rooms[ri].fans[di];
+  if (!fan || !fan.id) return;
+  fan.light = 'dimmer';
+  const lid = fan.id + ':dimmer';
+  S[lid] = { on: false, val: 0 }; DEVICE_TYPE[lid] = 'dimmer'; DEVICE_REGISTRY.add(lid);
+  rooms[ri].dimmers.push({ id: lid, name: fan.name + ' (Light)', linked: true });
+  spRerenderRoomDevices(ri);
+  saveConfig();
+}
+
+function spChangeFanLight(ri, di, newType) {
+  const fan = rooms[ri].fans[di];
+  if (!fan || !fan.id) return;
+  const oldLid = fan.id + ':' + fan.light;
+  const oldArr = fan.light === 'dimmer' ? 'dimmers' : 'switches';
+  rooms[ri][oldArr] = rooms[ri][oldArr].filter(d => d.id !== oldLid);
+  delete S[oldLid]; delete DEVICE_TYPE[oldLid]; DEVICE_REGISTRY.delete(oldLid);
+  fan.light = newType;
+  const lid = fan.id + ':' + newType;
+  S[lid] = newType === 'dimmer' ? { on: false, val: 0 } : { on: false };
+  DEVICE_TYPE[lid] = newType; DEVICE_REGISTRY.add(lid);
+  const newArr = newType === 'dimmer' ? 'dimmers' : 'switches';
+  rooms[ri][newArr].push({ id: lid, name: fan.name + ' (Light)', linked: true });
+  spRerenderRoomDevices(ri);
+  saveConfig();
+}
+
+function spRemoveFanLight(ri, di) {
+  const fan = rooms[ri].fans[di];
+  if (!fan || !fan.id || !fan.light) return;
+  const lid = fan.id + ':' + fan.light;
+  const arr = fan.light === 'dimmer' ? 'dimmers' : 'switches';
+  rooms[ri][arr] = rooms[ri][arr].filter(d => d.id !== lid);
+  delete S[lid]; delete DEVICE_TYPE[lid]; DEVICE_REGISTRY.delete(lid);
+  delete fan.light;
+  spRerenderRoomDevices(ri);
+  saveConfig();
+}
+
+function spRerenderRoomDevices(ri) {
+  ['switches','dimmers','fans','shades','colors','colortemps'].forEach(t => {
+    const list = document.getElementById('sp-devlist-' + ri + '-' + t);
+    if (list) list.innerHTML = rooms[ri][t].map((d, i) => spDevicePickRow(ri, t, i, d)).join('');
+  });
 }
 
 function spPickDevice(ri, type, di, id, labelWithId) {
@@ -10535,7 +10596,7 @@ function spDeviceList(roomIdx, type) {
   const room = rooms[roomIdx];
   const list = room[type] || [];
   const rows = list.map((d, i) => spDevicePickRow(roomIdx, type, i, d)).join('');
-  const typeLabel = type.slice(0,-1); // 'switches' → 'switch', etc
+  const typeLabel = type.slice(0,-1);
   return `
     <div class="sp-device-section-lbl">${type.charAt(0).toUpperCase() + type.slice(1)}</div>
     <div class="sp-device-list" id="sp-devlist-${roomIdx}-${type}">${rows}</div>
@@ -11471,7 +11532,15 @@ function spUpdateDevice(ri, type, di, key, val) {
 }
 
 function spRemoveDevice(ri, type, di) {
+  const d = rooms[ri][type][di];
+  if (type === 'fans' && d && d.light) {
+    const lid = d.id + ':' + d.light;
+    const arr = d.light === 'dimmer' ? 'dimmers' : 'switches';
+    rooms[ri][arr] = rooms[ri][arr].filter(x => x.id !== lid);
+    delete S[lid]; delete DEVICE_TYPE[lid]; DEVICE_REGISTRY.delete(lid);
+  }
   rooms[ri][type].splice(di, 1);
+  if (type === 'fans') { spRerenderRoomDevices(ri); return; }
   const list = document.getElementById('sp-devlist-' + ri + '-' + type);
   if (list) list.innerHTML = rooms[ri][type].map((d, i) => spDevicePickRow(ri, type, i, d)).join('');
 }
@@ -13353,17 +13422,6 @@ function isDualCapability(caps) {
   if (!caps) return false;
   const c = Array.isArray(caps) ? caps.join(',') : String(caps);
   return isSecurityCapable(caps) && /\bSwitch\b/i.test(c);
-}
-
-function isFanSwitchDual(caps) {
-  if (!caps) return false;
-  const c = Array.isArray(caps) ? caps.join(',') : String(caps);
-  return /FanControl/i.test(c) && /\bSwitch\b/i.test(c);
-}
-
-function fanDualLightType(caps) {
-  const c = Array.isArray(caps) ? caps.join(',') : String(caps);
-  return /SwitchLevel|Dimmer/i.test(c) ? 'dimmer' : 'switch';
 }
 
 /* ── Render shell ── */
