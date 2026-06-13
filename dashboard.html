@@ -2341,6 +2341,8 @@ function applyParsedConfig(parsed) {
 
 function _cleanOrphanedVirtualIds() {
   let cleaned = false;
+  const fanBareIds = new Set();
+  const fanLightIds = new Set();
   rooms.forEach(r => {
     for (let i = r.fans.length - 1; i >= 0; i--) {
       const fid = String(r.fans[i].id);
@@ -2352,25 +2354,38 @@ function _cleanOrphanedVirtualIds() {
         cleaned = true;
       }
     }
-    const fanLightIds = new Set();
-    r.fans.forEach(f => { if (f.light) fanLightIds.add(f.id + ':' + f.light); });
+    r.fans.forEach(f => {
+      fanBareIds.add(String(f.id));
+      if (f.light) fanLightIds.add(f.id + ':' + f.light);
+    });
+  });
+  rooms.forEach(r => {
     ['dimmers','switches'].forEach(arr => {
       for (let i = (r[arr] || []).length - 1; i >= 0; i--) {
         const did = String(r[arr][i].id);
         if ((did.endsWith(':dimmer') || did.endsWith(':switch')) && !fanLightIds.has(did)) {
-          console.log('[Migration] Removed orphaned virtual ID: ' + did + ' from ' + r.name + ' ' + arr);
-          r[arr].splice(i, 1);
-          cleaned = true;
+          const bare = did.replace(/:(dimmer|switch)$/, '');
+          if (fanBareIds.has(bare)) {
+            console.log('[Migration] Removed orphaned virtual ID: ' + did + ' from ' + r.name + ' ' + arr);
+            r[arr].splice(i, 1);
+            cleaned = true;
+          }
         }
       }
     });
   });
   for (let i = staging.length - 1; i >= 0; i--) {
     const sid = String(staging[i].id);
-    if (sid.endsWith(':dimmer') || sid.endsWith(':switch') || sid.endsWith(':fan')) {
-      console.log('[Migration] Removed orphaned staging entry: ' + sid);
+    if (sid.endsWith(':fan')) {
       staging.splice(i, 1);
       cleaned = true;
+    } else if (sid.endsWith(':dimmer') || sid.endsWith(':switch')) {
+      const bare = sid.replace(/:(dimmer|switch)$/, '');
+      if (fanBareIds.has(bare)) {
+        console.log('[Migration] Removed orphaned fan-light staging entry: ' + sid);
+        staging.splice(i, 1);
+        cleaned = true;
+      }
     }
   }
   return cleaned;
