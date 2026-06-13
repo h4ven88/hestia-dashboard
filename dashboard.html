@@ -2998,77 +2998,91 @@ async function cmd(id, command, arg) {
 }
 
 /* ═══════════════════════════════════════════════════════
-   WEATHER — National Weather Service API (free, no key)
-   Step 1: bootstrap /points/{lat},{lon} once to get grid
-   Step 2: fetch /forecast every CONFIG.weather.refresh ms
+   WEATHER — Open-Meteo API (free, no key, international)
+   Single fetch for current conditions + 3-day daily forecast.
+   Refreshes every CONFIG.weather.refresh ms.
 ═══════════════════════════════════════════════════════ */
-let wxData       = null;   // current weather state
-let wxObsUrl     = null;   // NWS observation stations URL
-let wxForecastUrl = null;  // cached from bootstrap call
-let wxTimer       = null;
+let wxData  = null;
+let wxTimer = null;
 
-async function bootstrapWeather() {
-  try {
-    const res  = await fetch(
-      `https://api.weather.gov/points/${CONFIG.weather.lat},${CONFIG.weather.lon}`,
-      { headers: { 'User-Agent': 'HomePanel/1.0' } }
-    );
-    if (!res.ok) throw new Error(res.status);
-    const data = await res.json();
-    wxForecastUrl = data.properties.forecast;
-    // Also store observation stations URL for humidity data
-    wxObsUrl = data.properties.observationStations;
-    await fetchWeather();
-  } catch(e) {
-    wxData = { error: true };
-    if (activeRoom === 'home') renderHome();
-  }
+function wxTempUnit() {
+  return CONFIG.tempUnit === 'F' ? 'fahrenheit' : 'celsius';
+}
+
+function wxWindDir(deg) {
+  if (deg == null) return '';
+  const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  return dirs[Math.round(deg / 22.5) % 16];
+}
+
+function wxCondition(code) {
+  if (code == null) return 'Unknown';
+  if (code === 0) return 'Clear';
+  if (code <= 3) return ['Mainly Clear','Partly Cloudy','Overcast'][code - 1];
+  if (code === 45 || code === 48) return 'Fog';
+  if (code <= 55) return 'Drizzle';
+  if (code <= 57) return 'Freezing Drizzle';
+  if (code <= 65) return 'Rain';
+  if (code <= 67) return 'Freezing Rain';
+  if (code <= 75) return 'Snow';
+  if (code === 77) return 'Snow Grains';
+  if (code <= 82) return 'Rain Showers';
+  if (code === 85 || code === 86) return 'Snow Showers';
+  if (code === 95) return 'Thunderstorm';
+  if (code === 96 || code === 99) return 'Thunderstorm with Hail';
+  return 'Cloudy';
+}
+
+function wxDayName(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00');
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diff = Math.round((target - today) / 86400000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Tomorrow';
+  return d.toLocaleDateString('en-US', { weekday: 'short' });
 }
 
 async function fetchWeather() {
-  if (!wxForecastUrl) return;
+  if (!CONFIG.weather.lat || !CONFIG.weather.lon) return;
   try {
-    // Fetch forecast and latest observation in parallel for speed
-    const [fRes, obsRes] = await Promise.all([
-      fetch(wxForecastUrl, { headers: { 'User-Agent': 'HomePanel/1.0' } }),
-      wxObsUrl
-        ? fetch(wxObsUrl + '?limit=1', { headers: { 'User-Agent': 'HomePanel/1.0' } })
-            .then(r => r.ok ? r.json() : null)
-            .then(d => {
-              // observationStations returns a list — fetch the first station's latest obs
-              const stationUrl = d && d.features && d.features[0]
-                ? d.features[0].id + '/observations/latest'
-                : null;
-              return stationUrl
-                ? fetch(stationUrl, { headers: { 'User-Agent': 'HomePanel/1.0' } })
-                    .then(r => r.ok ? r.json() : null)
-                : null;
-            })
-            .catch(() => null)
-        : Promise.resolve(null)
-    ]);
-    if (!fRes.ok) throw new Error(fRes.status);
-    const data    = await fRes.json();
-    const periods = data.properties.periods;
-    // Extract humidity from latest observation if available
-    let humidity = null;
-    if (obsRes) {
-      const rh = obsRes.properties && obsRes.properties.relativeHumidity;
-      if (rh && rh.value != null) humidity = Math.round(rh.value);
-    }
-    // Inject humidity into current period so renderWeather can use it
-    const current = { ...periods[0] };
-    if (humidity !== null) current.relativeHumidity = { value: humidity };
+    const u = wxTempUnit();
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${CONFIG.weather.lat}&longitude=${CONFIG.weather.lon}` +
+      `&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m` +
+      `&daily=weather_code,temperature_2m_max,temperature_2m_min` +
+      `&temperature_unit=${u}&wind_speed_unit=mph&timezone=auto&forecast_days=4`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+    const c = data.current;
+    const d = data.daily;
     wxData = {
-      current:  current,
-      forecast: periods.slice(1, 5)
+      current: {
+        temperature: Math.round(c.temperature_2m),
+        temperatureUnit: u === 'fahrenheit' ? 'F' : 'C',
+        relativeHumidity: { value: c.relative_humidity_2m },
+        windSpeed: Math.round(c.wind_speed_10m) + ' mph',
+        windDirection: wxWindDir(c.wind_direction_10m),
+        shortForecast: wxCondition(c.weather_code),
+        weatherCode: c.weather_code
+      },
+      forecast: d.time.slice(1, 4).map(function(t, i) {
+        const idx = i + 1;
+        return {
+          name: wxDayName(t),
+          temperature: Math.round(d.temperature_2m_max[idx]),
+          temperatureLow: Math.round(d.temperature_2m_min[idx]),
+          shortForecast: wxCondition(d.weather_code[idx]),
+          weatherCode: d.weather_code[idx]
+        };
+      })
     };
     if (activeRoom === 'home') renderHome();
   } catch(e) {
     wxData = { error: true };
     if (activeRoom === 'home') renderHome();
   }
-  // Schedule next refresh
   clearTimeout(wxTimer);
   wxTimer = setTimeout(fetchWeather, CONFIG.weather.refresh);
 }
@@ -3147,13 +3161,11 @@ function iconSnowflake(size) {
   </svg>`;
 }
 
-/* Weather condition icon — maps NWS shortForecast text to an SVG */
-function iconWeather(shortForecast, size) {
+/* Weather condition icon — maps WMO weather codes to SVG */
+function iconWeather(codeOrText, size) {
   size = size || 48;
-  const s = (shortForecast || '').toLowerCase();
   const t1 = 'var(--t1)', t3 = 'var(--t3)', amber = 'var(--amber)', cool = 'var(--cool)';
 
-  // Sun
   const sun = `<circle cx="24" cy="24" r="9" fill="${amber}" opacity="0.9"/>
     ${[0,45,90,135,180,225,270,315].map(a => {
       const r1=15, r2=19, ax=Math.cos(a*Math.PI/180), ay=Math.sin(a*Math.PI/180);
@@ -3161,37 +3173,50 @@ function iconWeather(shortForecast, size) {
         stroke="${amber}" stroke-width="2.5" stroke-linecap="round" opacity="0.7"/>`;
     }).join('')}`;
 
-  // Cloud body
   const cloud = `<ellipse cx="26" cy="30" rx="12" ry="8" fill="${t3}" opacity="0.5"/>
     <circle cx="20" cy="30" r="7" fill="${t3}" opacity="0.5"/>
     <circle cx="30" cy="27" r="9" fill="${t3}" opacity="0.45"/>`;
 
-  // Rain drops
   const rain = [20,26,32].map(x =>
     `<line x1="${x}" y1="38" x2="${x-2}" y2="44" stroke="${cool}" stroke-width="2" stroke-linecap="round" opacity="0.8"/>`
   ).join('');
 
-  // Snow dots
   const snow = [20,26,32].map(x =>
     `<circle cx="${x}" cy="42" r="2" fill="${t1}" opacity="0.7"/>`
   ).join('');
 
-  // Lightning bolt
   const bolt = `<path d="M27 22 L22 32 L25 32 L21 42 L30 30 L26 30 Z" fill="${amber}" opacity="0.9"/>`;
 
+  const fog = `<ellipse cx="24" cy="28" rx="14" ry="5" fill="${t3}" opacity="0.35"/>
+    <ellipse cx="24" cy="34" rx="12" ry="4" fill="${t3}" opacity="0.3"/>
+    <ellipse cx="24" cy="40" rx="10" ry="3.5" fill="${t3}" opacity="0.25"/>`;
+
   let inner = '';
-  if      (/thunder|lightning/.test(s))                inner = cloud + bolt;
-  else if (/snow|flurr|blizzard|sleet|freezing/.test(s)) inner = cloud + snow;
-  else if (/rain|shower|drizzle|storm/.test(s))        inner = cloud + rain;
-  else if (/fog|mist|haze|smoke/.test(s))
-    inner = `<ellipse cx="24" cy="28" rx="14" ry="5" fill="${t3}" opacity="0.35"/>
-             <ellipse cx="24" cy="34" rx="12" ry="4" fill="${t3}" opacity="0.3"/>
-             <ellipse cx="24" cy="40" rx="10" ry="3.5" fill="${t3}" opacity="0.25"/>`;
-  else if (/mostly cloudy|overcast/.test(s))           inner = cloud;
-  else if (/partly cloudy|partly sunny/.test(s))
-    inner = `<g transform="translate(-4,-4) scale(0.85)">${sun}</g>` + cloud;
-  else if (/sunny|clear/.test(s))                      inner = sun;
-  else                                                  inner = cloud; // safe default
+  const code = typeof codeOrText === 'number' ? codeOrText : null;
+  if (code !== null) {
+    if (code === 0)                          inner = sun;
+    else if (code === 1)                     inner = `<g transform="translate(-4,-4) scale(0.85)">${sun}</g>` + cloud;
+    else if (code <= 3)                      inner = cloud;
+    else if (code === 45 || code === 48)     inner = fog;
+    else if (code <= 57)                     inner = cloud + rain;
+    else if (code <= 67)                     inner = cloud + rain;
+    else if (code <= 77)                     inner = cloud + snow;
+    else if (code <= 82)                     inner = cloud + rain;
+    else if (code === 85 || code === 86)     inner = cloud + snow;
+    else if (code >= 95)                     inner = cloud + bolt;
+    else                                     inner = cloud;
+  } else {
+    const s = (String(codeOrText) || '').toLowerCase();
+    if      (/thunder|lightning/.test(s))                   inner = cloud + bolt;
+    else if (/snow|flurr|blizzard|sleet|freezing/.test(s)) inner = cloud + snow;
+    else if (/rain|shower|drizzle|storm/.test(s))          inner = cloud + rain;
+    else if (/fog|mist|haze/.test(s))                      inner = fog;
+    else if (/mostly cloudy|overcast/.test(s))             inner = cloud;
+    else if (/partly cloudy|partly sunny/.test(s))
+      inner = `<g transform="translate(-4,-4) scale(0.85)">${sun}</g>` + cloud;
+    else if (/sunny|clear/.test(s))                        inner = sun;
+    else                                                    inner = cloud;
+  }
 
   return `<svg width="${size}" height="${size}" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
 }
@@ -3211,14 +3236,15 @@ function weatherCardHTML() {
   const unit  = cur.temperatureUnit === 'F' ? '°F' : '°C';
   const wind  = cur.windSpeed + ' ' + cur.windDirection;
   const short = cur.shortForecast;
+  const wcode = cur.weatherCode;
   const humid = cur.relativeHumidity ? cur.relativeHumidity.value + '%' : '--';
 
   if (isM) {
     const forecasts = (wxData.forecast || []).map(p => `
       <div class="m-wx-period">
         <div class="m-wx-period-name">${p.name}</div>
-        <div style="margin:3px auto;display:flex;justify-content:center">${iconWeather(p.shortForecast, 22)}</div>
-        <div class="m-wx-period-temp">${p.temperature}°</div>
+        <div style="margin:3px auto;display:flex;justify-content:center">${iconWeather(p.weatherCode != null ? p.weatherCode : p.shortForecast, 22)}</div>
+        <div class="m-wx-period-temp">${p.temperature}°<span style="font-size:10px;color:var(--t3)">/${p.temperatureLow != null ? p.temperatureLow : ''}°</span></div>
       </div>`).join('');
     return `
       <div class="m-weather-card">
@@ -3226,7 +3252,7 @@ function weatherCardHTML() {
         <div class="m-wx-top">
           <div style="display:flex;align-items:flex-end;gap:10px">
             <div class="m-wx-temp">${temp}<span class="m-wx-unit">${unit}</span></div>
-            ${iconWeather(short, 44)}
+            ${iconWeather(wcode != null ? wcode : short, 44)}
           </div>
           <div class="m-wx-right">
             <div class="m-wx-condition">${short}</div>
@@ -3240,8 +3266,8 @@ function weatherCardHTML() {
   const forecastPeriods = (wxData.forecast || []).map(p => `
     <div class="wx-period">
       <div class="wx-period-name">${p.name}</div>
-      <div style="margin:4px auto;display:flex;justify-content:center">${iconWeather(p.shortForecast, 26)}</div>
-      <div class="wx-period-temp">${p.temperature}°</div>
+      <div style="margin:4px auto;display:flex;justify-content:center">${iconWeather(p.weatherCode != null ? p.weatherCode : p.shortForecast, 26)}</div>
+      <div class="wx-period-temp">${p.temperature}°<span style="font-size:11px;color:var(--t3)">/${p.temperatureLow != null ? p.temperatureLow : ''}°</span></div>
     </div>`).join('');
 
   return `
@@ -3252,7 +3278,7 @@ function weatherCardHTML() {
       <div class="wx-top">
         <div class="wx-left">
           <div class="wx-temp">${temp}<span class="wx-unit">${unit}</span></div>
-          <div class="wx-icon-wrap">${iconWeather(short, 52)}</div>
+          <div class="wx-icon-wrap">${iconWeather(wcode != null ? wcode : short, 52)}</div>
         </div>
         <div class="wx-right">
           <div class="wx-condition">${short}</div>
@@ -11061,36 +11087,68 @@ async function spAssignFromStaging(si) {
 }
 
 
-/* ZIP → lat/lon via US Census Geocoder (free, no key needed) */
-async function spLookupZip() {
-  const zipEl    = document.getElementById('sp-zip');
-  const statusEl = document.getElementById('sp-zip-status');
-  const zip = zipEl ? zipEl.value.trim() : '';
-  if (!zip || !/^\d{5}$/.test(zip)) {
-    if (statusEl) { statusEl.textContent = 'Enter a valid 5-digit ZIP'; statusEl.style.color = 'var(--conn-err)'; }
+/* City → lat/lon via Open-Meteo Geocoding (free, no key, international) */
+async function spSearchLocation() {
+  const inputEl  = document.getElementById('sp-wx-city');
+  const statusEl = document.getElementById('sp-wx-status');
+  const listEl   = document.getElementById('sp-wx-results');
+  const query = inputEl ? inputEl.value.trim() : '';
+  if (!query || query.length < 2) {
+    if (statusEl) { statusEl.textContent = 'Enter a city name (at least 2 characters)'; statusEl.style.color = 'var(--conn-err)'; }
+    if (listEl) listEl.innerHTML = '';
     return;
   }
-  if (statusEl) { statusEl.textContent = 'Looking up\u2026'; statusEl.style.color = 'var(--t3)'; }
+  if (statusEl) { statusEl.textContent = 'Searching\u2026'; statusEl.style.color = 'var(--t3)'; }
+  if (listEl) listEl.innerHTML = '';
   try {
-    // Zippopotam.us — free ZIP-to-coordinates service, no API key required
-    const res = await fetch(`https://api.zippopotam.us/us/${zip}`);
-    if (!res.ok) throw new Error('ZIP not found');
-    const data  = await res.json();
-    const place = data.places && data.places[0];
-    if (!place) throw new Error('No location data');
-    const lat  = parseFloat(place.latitude).toFixed(4);
-    const lon  = parseFloat(place.longitude).toFixed(4);
-    const city = place['place name'] + ', ' + place['state abbreviation'];
-    const latEl = document.getElementById('sp-lat');
-    const lonEl = document.getElementById('sp-lon');
-    if (latEl) latEl.value = lat;
-    if (lonEl) lonEl.value = lon;
-    CONFIG.weather.zip  = zip;
-    CONFIG.weather.city = city;
-    if (statusEl) { statusEl.textContent = '\u2713 ' + city + ' \u2014 ' + lat + ', ' + lon; statusEl.style.color = 'var(--t2)'; }
+    const res = await fetch('https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(query) + '&count=5&language=en&format=json');
+    if (!res.ok) throw new Error('Search failed');
+    const data = await res.json();
+    if (!data.results || !data.results.length) {
+      if (statusEl) { statusEl.textContent = 'No results found'; statusEl.style.color = 'var(--conn-err)'; }
+      return;
+    }
+    if (statusEl) statusEl.textContent = '';
+    var userLat = parseFloat(CONFIG.weather.lat) || null;
+    var userLon = parseFloat(CONFIG.weather.lon) || null;
+    var results = data.results.map(function(r) {
+      var dist = null;
+      if (userLat !== null && userLon !== null) {
+        var dLat = r.latitude - userLat, dLon = r.longitude - userLon;
+        dist = Math.sqrt(dLat * dLat + dLon * dLon);
+      }
+      return Object.assign(r, { _dist: dist });
+    });
+    if (userLat !== null) results.sort(function(a, b) { return (a._dist || 9999) - (b._dist || 9999); });
+    listEl.innerHTML = results.map(function(r, i) {
+      var label = r.name + (r.admin1 ? ', ' + r.admin1 : '') + ', ' + r.country;
+      return '<div class="sp-wx-result" onclick="spSelectLocation(' + i + ')" style="padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--border-s);font-size:12px;color:var(--t1)" onmouseenter="this.style.background=\'var(--bg-hover)\'" onmouseleave="this.style.background=\'\'">' + h(label) + '</div>';
+    }).join('');
+    window._wxSearchResults = results;
   } catch(e) {
-    if (statusEl) { statusEl.textContent = 'ZIP not found \u2014 check the code or enter coordinates manually'; statusEl.style.color = 'var(--conn-err)'; }
+    if (statusEl) { statusEl.textContent = 'Search failed \u2014 try again'; statusEl.style.color = 'var(--conn-err)'; }
   }
+}
+
+function spSelectLocation(idx) {
+  var r = window._wxSearchResults && window._wxSearchResults[idx];
+  if (!r) return;
+  var lat = r.latitude.toFixed(4);
+  var lon = r.longitude.toFixed(4);
+  var city = r.name + (r.admin1 ? ', ' + r.admin1 : '') + ', ' + r.country;
+  var latEl = document.getElementById('sp-lat');
+  var lonEl = document.getElementById('sp-lon');
+  if (latEl) latEl.value = lat;
+  if (lonEl) lonEl.value = lon;
+  CONFIG.weather.lat  = lat;
+  CONFIG.weather.lon  = lon;
+  CONFIG.weather.city = city;
+  var statusEl = document.getElementById('sp-wx-status');
+  if (statusEl) { statusEl.textContent = '\u2713 ' + city; statusEl.style.color = 'var(--t2)'; }
+  var listEl = document.getElementById('sp-wx-results');
+  if (listEl) listEl.innerHTML = '';
+  var inputEl = document.getElementById('sp-wx-city');
+  if (inputEl) inputEl.value = city;
 }
 
 // ── Settings nav state ────────────────────────────────────────────────
@@ -11258,20 +11316,21 @@ function spShowSection(id, force) {
     case 'wx':
       html = `<div class="sp-content-hdr"><span class="sp-content-icon">🌤</span>Weather</div>
         <div class="sp-group">
-          <div class="sp-field"><label class="sp-label">ZIP Code</label>
+          <div class="sp-field"><label class="sp-label">City or Location</label>
             <div style="display:flex;gap:8px;align-items:center">
-              <input class="sp-input" id="sp-zip" placeholder="37663" value="${CONFIG.weather.zip||''}" style="width:120px;flex-shrink:0">
-              <button class="sp-btn sp-btn-secondary" style="height:34px;padding:0 14px;font-size:12px;white-space:nowrap" onclick="spLookupZip()">Look up</button>
-              <span id="sp-zip-status" style="font-size:11px;color:var(--t3)"></span>
+              <input class="sp-input" id="sp-wx-city" placeholder="Edmonton, Alberta" value="${CONFIG.weather.city||''}" style="flex:1">
+              <button class="sp-btn sp-btn-secondary" style="height:34px;padding:0 14px;font-size:12px;white-space:nowrap" onclick="spSearchLocation()">Search</button>
             </div>
-            <span class="sp-hint">US ZIP code — automatically resolves to coordinates.</span></div>
+            <span id="sp-wx-status" style="font-size:11px;color:var(--t3);margin-top:4px;display:block"></span>
+            <div id="sp-wx-results" style="border:1px solid var(--border-s);border-radius:8px;overflow:hidden;margin-top:4px"></div>
+            <span class="sp-hint">Search any city worldwide. Select from results to set coordinates.</span></div>
           <div class="sp-input-row" style="margin-top:4px">
             <div class="sp-field" style="flex:1"><label class="sp-label">Latitude</label>
               <input class="sp-input" id="sp-lat" type="number" step="0.0001" value="${CONFIG.weather.lat}"></div>
             <div class="sp-field" style="flex:1"><label class="sp-label">Longitude</label>
               <input class="sp-input" id="sp-lon" type="number" step="0.0001" value="${CONFIG.weather.lon}"></div>
           </div>
-          <span class="sp-hint">Coordinates override ZIP.</span>
+          <span class="sp-hint">Coordinates can also be entered manually.</span>
         </div>`;
       break;
 
@@ -11478,8 +11537,8 @@ async function saveSettings() {
   if (timeout) CONFIG.returnTimeout = parseInt(timeout.value) || 0;
   const tempUnitEl = document.getElementById('sp-tempunit');
   if (tempUnitEl) CONFIG.tempUnit = tempUnitEl.value;
-  const zipEl = document.getElementById('sp-zip');
-  if (zipEl)   CONFIG.weather.zip   = zipEl.value.trim();
+  const cityEl = document.getElementById('sp-wx-city');
+  if (cityEl)  CONFIG.weather.city  = cityEl.value.trim();
   if (lat)     CONFIG.weather.lat   = parseFloat(lat.value);
   if (lon)     CONFIG.weather.lon   = parseFloat(lon.value);
   // Locks
@@ -11538,7 +11597,7 @@ async function saveSettings() {
   closeSettings();
   // Re-bootstrap weather if coordinates changed
   wxData = null; wxForecastUrl = null;
-  bootstrapWeather();
+  fetchWeather();
   // Flash confirmation
   const saved = document.getElementById('sp-saved');
   if (saved) { saved.textContent = '✓ Saved and applied'; setTimeout(() => { saved.textContent = ''; }, 3000); }
@@ -13451,7 +13510,7 @@ function obImportConfig(evt) {
       document.querySelector('.panel').style.display = '';
       loadTheme();
       syncTopbar();
-      bootstrapWeather();
+      fetchWeather();
       if (!isMobile()) {
         document.addEventListener('pointerdown', resetInactivityTimer);
         resetInactivityTimer();
@@ -13533,7 +13592,7 @@ async function obTestConnection() {
         const wrap = document.getElementById('ob-wrap');
         if (wrap) wrap.remove();
         document.querySelector('.panel').style.display = '';
-        loadTheme(); syncTopbar(); bootstrapWeather();
+        loadTheme(); syncTopbar(); fetchWeather();
         if (!isMobile()) { document.addEventListener('pointerdown', resetInactivityTimer); resetInactivityTimer(); }
         scheduleNextPoll();
         return;
@@ -13821,7 +13880,7 @@ function obFinish() {
 
   loadTheme();
   syncTopbar();
-  bootstrapWeather();
+  fetchWeather();
   if (!isMobile()) {
     document.addEventListener('pointerdown', resetInactivityTimer);
     resetInactivityTimer();
@@ -14051,7 +14110,7 @@ function launchOnboarding() {
 
   syncTopbar();
 
-  bootstrapWeather();
+  fetchWeather();
 
   if (!isMobile()) {
     document.addEventListener('pointerdown', resetInactivityTimer);
