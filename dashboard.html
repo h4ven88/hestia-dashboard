@@ -2333,9 +2333,47 @@ function applyParsedConfig(parsed) {
       });
     }
     if (parsed.staging)     { staging.length = 0;     parsed.staging.forEach(d => staging.push(d)); }
-    deduplicateStaging(); // remove stale, duplicate, or already-assigned entries
+    deduplicateStaging();
+    _cleanOrphanedVirtualIds();
     return true;
   } catch(e) { return false; }
+}
+
+function _cleanOrphanedVirtualIds() {
+  let cleaned = false;
+  rooms.forEach(r => {
+    for (let i = r.fans.length - 1; i >= 0; i--) {
+      const fid = String(r.fans[i].id);
+      if (fid.endsWith(':fan')) {
+        const bare = fid.replace(/:fan$/, '');
+        const dup = r.fans.some((f, j) => j !== i && String(f.id) === bare);
+        if (dup) { r.fans.splice(i, 1); } else { r.fans[i].id = bare; }
+        console.log('[Migration] Cleaned fan ID: ' + fid + ' → ' + bare + (dup ? ' (removed duplicate)' : ''));
+        cleaned = true;
+      }
+    }
+    const fanLightIds = new Set();
+    r.fans.forEach(f => { if (f.light) fanLightIds.add(f.id + ':' + f.light); });
+    ['dimmers','switches'].forEach(arr => {
+      for (let i = (r[arr] || []).length - 1; i >= 0; i--) {
+        const did = String(r[arr][i].id);
+        if ((did.endsWith(':dimmer') || did.endsWith(':switch')) && !fanLightIds.has(did)) {
+          console.log('[Migration] Removed orphaned virtual ID: ' + did + ' from ' + r.name + ' ' + arr);
+          r[arr].splice(i, 1);
+          cleaned = true;
+        }
+      }
+    });
+  });
+  for (let i = staging.length - 1; i >= 0; i--) {
+    const sid = String(staging[i].id);
+    if (sid.endsWith(':dimmer') || sid.endsWith(':switch') || sid.endsWith(':fan')) {
+      console.log('[Migration] Removed orphaned staging entry: ' + sid);
+      staging.splice(i, 1);
+      cleaned = true;
+    }
+  }
+  return cleaned;
 }
 
 function buildConfigPayload() {
@@ -2484,42 +2522,7 @@ async function cloudSyncDiscover() {
 
 /* Re-seed S{} and DEVICE_TYPE{} from current rooms/thermostats */
 function initState() {
-  // Migration: clean up stale virtual IDs from earlier auto-detection
-  let _migrated = false;
-  rooms.forEach(r => {
-    for (let i = r.fans.length - 1; i >= 0; i--) {
-      const fid = String(r.fans[i].id);
-      if (fid.endsWith(':fan')) {
-        const bare = fid.replace(/:fan$/, '');
-        const dup = r.fans.some((f, j) => j !== i && String(f.id) === bare);
-        if (dup) { r.fans.splice(i, 1); } else { r.fans[i].id = bare; }
-        console.log('[Migration] Cleaned fan ID: ' + fid + ' → ' + bare + (dup ? ' (removed duplicate)' : ''));
-        _migrated = true;
-      }
-    }
-    // Remove orphaned :dimmer/:switch entries not linked from a fan
-    const fanLightIds = new Set();
-    r.fans.forEach(f => { if (f.light) fanLightIds.add(f.id + ':' + f.light); });
-    ['dimmers','switches'].forEach(arr => {
-      for (let i = (r[arr] || []).length - 1; i >= 0; i--) {
-        const did = String(r[arr][i].id);
-        if ((did.endsWith(':dimmer') || did.endsWith(':switch')) && !fanLightIds.has(did)) {
-          console.log('[Migration] Removed orphaned virtual ID: ' + did + ' from ' + r.name + ' ' + arr);
-          r[arr].splice(i, 1);
-          _migrated = true;
-        }
-      }
-    });
-  });
-  // Also clean orphaned virtual IDs from staging
-  for (let i = staging.length - 1; i >= 0; i--) {
-    const sid = String(staging[i].id);
-    if (sid.endsWith(':dimmer') || sid.endsWith(':switch') || sid.endsWith(':fan')) {
-      console.log('[Migration] Removed orphaned staging entry: ' + sid);
-      staging.splice(i, 1);
-      _migrated = true;
-    }
-  }
+  const _migrated = _cleanOrphanedVirtualIds();
   Object.keys(S).forEach(k => delete S[k]);
   Object.keys(DEVICE_TYPE).forEach(k => delete DEVICE_TYPE[k]);
   rooms.forEach(r => {
