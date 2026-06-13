@@ -2484,7 +2484,7 @@ async function cloudSyncDiscover() {
 
 /* Re-seed S{} and DEVICE_TYPE{} from current rooms/thermostats */
 function initState() {
-  // Migration: clean up stale :fan suffixed IDs from earlier auto-detection
+  // Migration: clean up stale virtual IDs from earlier auto-detection
   let _migrated = false;
   rooms.forEach(r => {
     for (let i = r.fans.length - 1; i >= 0; i--) {
@@ -2492,12 +2492,34 @@ function initState() {
       if (fid.endsWith(':fan')) {
         const bare = fid.replace(/:fan$/, '');
         const dup = r.fans.some((f, j) => j !== i && String(f.id) === bare);
-        if (dup) { r.fans.splice(i, 1); _migrated = true; }
-        else { r.fans[i].id = bare; _migrated = true; }
+        if (dup) { r.fans.splice(i, 1); } else { r.fans[i].id = bare; }
         console.log('[Migration] Cleaned fan ID: ' + fid + ' → ' + bare + (dup ? ' (removed duplicate)' : ''));
+        _migrated = true;
       }
     }
+    // Remove orphaned :dimmer/:switch entries not linked from a fan
+    const fanLightIds = new Set();
+    r.fans.forEach(f => { if (f.light) fanLightIds.add(f.id + ':' + f.light); });
+    ['dimmers','switches'].forEach(arr => {
+      for (let i = (r[arr] || []).length - 1; i >= 0; i--) {
+        const did = String(r[arr][i].id);
+        if ((did.endsWith(':dimmer') || did.endsWith(':switch')) && !fanLightIds.has(did)) {
+          console.log('[Migration] Removed orphaned virtual ID: ' + did + ' from ' + r.name + ' ' + arr);
+          r[arr].splice(i, 1);
+          _migrated = true;
+        }
+      }
+    });
   });
+  // Also clean orphaned virtual IDs from staging
+  for (let i = staging.length - 1; i >= 0; i--) {
+    const sid = String(staging[i].id);
+    if (sid.endsWith(':dimmer') || sid.endsWith(':switch') || sid.endsWith(':fan')) {
+      console.log('[Migration] Removed orphaned staging entry: ' + sid);
+      staging.splice(i, 1);
+      _migrated = true;
+    }
+  }
   Object.keys(S).forEach(k => delete S[k]);
   Object.keys(DEVICE_TYPE).forEach(k => delete DEVICE_TYPE[k]);
   rooms.forEach(r => {
@@ -10529,7 +10551,7 @@ function spDevicePickRow(ri, type, di, d) {
         <button class="sp-remove" onclick="spRemoveDevice(${ri},'${type}',${di})">✕</button>
       </div>
       ${d.id ? `<div style="font-size:10px;color:var(--t4);padding:0 2px">ID: ${d.id} · <span style="color:var(--t3)">${h(d.name)}</span></div>` : ''}
-      ${type === 'fans' && d.id ? spFanLightRow(ri, di, d) : ''}
+      ${type === 'fans' && d.id ? `<div id="sp-fan-light-${d.id}">${spFanLightRow(ri, di, d)}</div>` : ''}
     </div>`;
 }
 
@@ -10549,6 +10571,12 @@ function spFanLightRow(ri, di, d) {
   </div>`;
 }
 
+function _spRefreshFanLightUI(ri, di, fanId) {
+  const fan = rooms[ri].fans[di];
+  const wrap = document.getElementById('sp-fan-light-' + fanId);
+  if (wrap) wrap.innerHTML = spFanLightRow(ri, di, fan);
+}
+
 function spAddFanLight(ri, di) {
   const fan = rooms[ri].fans[di];
   if (!fan || !fan.id) return;
@@ -10556,7 +10584,7 @@ function spAddFanLight(ri, di) {
   const lid = fan.id + ':dimmer';
   S[lid] = { on: false, val: 0 }; DEVICE_TYPE[lid] = 'dimmer'; DEVICE_REGISTRY.add(lid);
   rooms[ri].dimmers.push({ id: lid, name: fan.name + ' (Light)', linked: true });
-  spShowSection('devices');
+  _spRefreshFanLightUI(ri, di, fan.id);
   saveConfig();
 }
 
@@ -10573,7 +10601,7 @@ function spChangeFanLight(ri, di, newType) {
   DEVICE_TYPE[lid] = newType; DEVICE_REGISTRY.add(lid);
   const newArr = newType === 'dimmer' ? 'dimmers' : 'switches';
   rooms[ri][newArr].push({ id: lid, name: fan.name + ' (Light)', linked: true });
-  spShowSection('devices');
+  _spRefreshFanLightUI(ri, di, fan.id);
   saveConfig();
 }
 
@@ -10585,7 +10613,7 @@ function spRemoveFanLight(ri, di) {
   rooms[ri][arr] = rooms[ri][arr].filter(d => d.id !== lid);
   delete S[lid]; delete DEVICE_TYPE[lid]; DEVICE_REGISTRY.delete(lid);
   delete fan.light;
-  spShowSection('devices');
+  _spRefreshFanLightUI(ri, di, fan.id);
   saveConfig();
 }
 
@@ -10696,20 +10724,7 @@ function spDevFanLightUI(d) {
   if (ri === -1) return '';
   const di = rooms[ri].fans.findIndex(f => f.id === d.id);
   if (di === -1) return '';
-  const fan = rooms[ri].fans[di];
-  if (fan.light) {
-    return `<div style="display:flex;align-items:center;gap:6px;padding:4px 0 0">
-      <span style="font-size:11px;color:var(--t3)">Light:</span>
-      <select class="sp-input" style="font-size:11px;width:auto;padding:2px 6px" onchange="spChangeFanLight(${ri},${di},this.value)">
-        <option value="dimmer"${fan.light==='dimmer'?' selected':''}>Dimmer</option>
-        <option value="switch"${fan.light==='switch'?' selected':''}>Switch</option>
-      </select>
-      <button style="background:none;border:none;color:var(--t4);font-size:10px;cursor:pointer;padding:0" onclick="spRemoveFanLight(${ri},${di})">remove</button>
-    </div>`;
-  }
-  return `<div style="padding:4px 0 0">
-    <button style="background:none;border:none;color:var(--accent);font-size:11px;cursor:pointer;padding:0" onclick="spAddFanLight(${ri},${di})">+ Add light control</button>
-  </div>`;
+  return `<div id="sp-fan-light-${d.id}">${spFanLightRow(ri, di, rooms[ri].fans[di])}</div>`;
 }
 
 let _devGroupBy = 'type'; // 'type' | 'room'
