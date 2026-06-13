@@ -2913,17 +2913,16 @@ async function fetchAllDevices() {
       }
       return;
     }
-    // Fan+switch dual-capability devices (e.g. Inovelli Blue fan/light combos)
+    // Fan+switch combo: only route to virtual IDs if user has assigned them
     if (isFanSwitchDual(device.capabilities)) {
-      const fid = id + ':fan';
-      const lt = fanDualLightType(device.capabilities);
-      const lid = id + ':' + lt;
-      if (!DEVICE_TYPE[fid]) { DEVICE_TYPE[fid] = 'fan'; S[fid] = S[fid] || { spd: 'off' }; DEVICE_REGISTRY.add(fid); }
-      if (!DEVICE_TYPE[lid]) { DEVICE_TYPE[lid] = lt; S[lid] = S[lid] || (lt === 'dimmer' ? { on: false, val: 0 } : { on: false }); DEVICE_REGISTRY.add(lid); }
-      const attrs = parseAttrs(device);
-      applyAttrs(fid, attrs);
-      applyAttrs(lid, attrs);
-      return;
+      const fid = id + ':fan', did = id + ':dimmer', sid = id + ':switch';
+      if (DEVICE_TYPE[fid] || DEVICE_TYPE[did] || DEVICE_TYPE[sid]) {
+        const attrs = parseAttrs(device);
+        if (DEVICE_TYPE[fid]) applyAttrs(fid, attrs);
+        if (DEVICE_TYPE[did]) applyAttrs(did, attrs);
+        if (DEVICE_TYPE[sid]) applyAttrs(sid, attrs);
+        return;
+      }
     }
     // Allow if known type OR if it's a registered Artemis sensor
     if (!DEVICE_TYPE[id] && !DEVICE_REGISTRY.has(id)) return;
@@ -2982,52 +2981,7 @@ async function fetchAllDevices() {
     console.log(`[Artemis] Alarm base station auto-detected: device ${detectedAlarm}${alarmOfficial ? ' (official)' : ' (community)'}`);
   }
   if (!_announceInitialized) _announceInitialized = true;
-  migrateFanSwitchDualIds(devices);
   setConn('ok');
-}
-
-let _fanDualMigrated = false;
-function migrateFanSwitchDualIds(devices) {
-  if (_fanDualMigrated) return;
-  _fanDualMigrated = true;
-  const dualIds = new Set();
-  devices.forEach(d => { if (isFanSwitchDual(d.capabilities)) dualIds.add(String(d.id)); });
-  if (!dualIds.size) return;
-  let changed = false;
-  rooms.forEach(r => {
-    ['fans'].forEach(arr => {
-      for (let i = 0; i < r[arr].length; i++) {
-        const d = r[arr][i];
-        const bare = String(d.id);
-        if (bare.indexOf(':') === -1 && dualIds.has(bare)) {
-          const vid = bare + ':fan';
-          console.log('[Migration] Fan+switch: ' + bare + ' → ' + vid + ' in ' + r.name + ' fans');
-          r[arr][i] = { id: vid, name: d.name };
-          S[vid] = S[vid] || { spd: 'off' }; DEVICE_TYPE[vid] = 'fan'; DEVICE_REGISTRY.add(vid);
-          delete S[bare]; delete DEVICE_TYPE[bare];
-          changed = true;
-        }
-      }
-    });
-    ['switches','dimmers'].forEach(arr => {
-      for (let i = 0; i < r[arr].length; i++) {
-        const d = r[arr][i];
-        const bare = String(d.id);
-        if (bare.indexOf(':') === -1 && dualIds.has(bare)) {
-          const dev = devices.find(x => String(x.id) === bare);
-          const lt = dev ? fanDualLightType(dev.capabilities) : 'dimmer';
-          const vid = bare + ':' + lt;
-          console.log('[Migration] Fan+switch: ' + bare + ' → ' + vid + ' in ' + r.name + ' ' + arr);
-          r[arr][i] = { id: vid, name: d.name };
-          S[vid] = S[vid] || (lt === 'dimmer' ? { on: false, val: 0 } : { on: false });
-          DEVICE_TYPE[vid] = lt; DEVICE_REGISTRY.add(vid);
-          delete S[bare]; delete DEVICE_TYPE[bare];
-          changed = true;
-        }
-      }
-    });
-  });
-  if (changed) saveConfig();
 }
 
 /* Fire a command. arg is optional (e.g. setSpeed needs 'low', on/off doesn't). */
@@ -10519,7 +10473,7 @@ function spGetAvailableDevices(ri, type) {
   const wantType = typeMap[type];
 
   const results = (lastPollDevices || [])
-    .filter(d => capToType(d.capabilities) === wantType && !used.has(String(d.id)) && !isDualCapability(d.capabilities) && !isFanSwitchDual(d.capabilities))
+    .filter(d => capToType(d.capabilities) === wantType && !used.has(String(d.id)) && !isDualCapability(d.capabilities))
     .map(d => ({ id: String(d.id), name: d.label || d.name || ('Device ' + d.id) }));
 
   // Dual-capability devices use virtual IDs that don't exist in lastPollDevices
@@ -10530,13 +10484,9 @@ function spGetAvailableDevices(ri, type) {
       const vid = String(d.id) + ':switch';
       if (!used.has(vid)) results.push({ id: vid, name: name + ' (Light)' });
     }
-    // Fan+switch combos (e.g. Inovelli): fan + light virtual IDs
+    // Fan+switch combos (e.g. Inovelli): show light side for users with combo devices
     if (isFanSwitchDual(d.capabilities)) {
       const lt = fanDualLightType(d.capabilities);
-      if (wantType === 'fan') {
-        const vid = String(d.id) + ':fan';
-        if (!used.has(vid)) results.push({ id: vid, name: name + ' (Fan)' });
-      }
       if (wantType === lt) {
         const vid = String(d.id) + ':' + lt;
         if (!used.has(vid)) results.push({ id: vid, name: name + ' (Light)' });
@@ -13083,23 +13033,6 @@ function detectNewDevices(devices) {
       }
       return;
     }
-    // Dual-capability: fan + switch/dimmer (e.g. Inovelli fan/light combos)
-    if (isFanSwitchDual(d.capabilities)) {
-      const dName = d.label || d.name || ('Device ' + id);
-      const lt = fanDualLightType(d.capabilities);
-      const fid = id + ':fan', lid = id + ':' + lt;
-      if (!assigned.has(fid)) {
-        staging.push({ id: fid, name: dName + ' (Fan)', type: 'fan' });
-        DEVICE_REGISTRY.add(fid);
-        found++;
-      }
-      if (!assigned.has(lid)) {
-        staging.push({ id: lid, name: dName + ' (Light)', type: lt });
-        DEVICE_REGISTRY.add(lid);
-        found++;
-      }
-      return;
-    }
     if (isSecurityCapable(d.capabilities)) return;
     const dName = d.label || d.name || ('Device ' + id);
     const type = capToType(d.capabilities, dName);
@@ -13720,17 +13653,15 @@ async function obTestConnection() {
 function obStep2() {
   // Build inventory on first entry to this step
   if (!OB.inventory.length) {
-    OB.inventory = [];
-    OB.devices.forEach(d => {
+    OB.inventory = OB.devices.map(d => {
       const nm = d.label || d.name || ('Device ' + d.id);
-      const id = String(d.id);
-      if (isFanSwitchDual(d.capabilities)) {
-        const lt = fanDualLightType(d.capabilities);
-        OB.inventory.push({ id: id + ':fan', name: nm + ' (Fan)', type: 'fan', assign: 'staging', keep: true });
-        OB.inventory.push({ id: id + ':' + lt, name: nm + ' (Light)', type: lt, assign: 'staging', keep: true });
-      } else {
-        OB.inventory.push({ id, name: nm, type: capToType(d.capabilities, nm), assign: 'staging', keep: true });
-      }
+      return {
+        id:     String(d.id),
+        name:   nm,
+        type:   capToType(d.capabilities, nm),
+        assign: 'staging',
+        keep:   true
+      };
     });
     // Pre-fill thermostats and lock
     OB.thermostats = OB.inventory
