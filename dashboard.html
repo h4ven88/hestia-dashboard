@@ -1667,7 +1667,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.5.5';
-const HESTIA_BUILD_DATE = '2026-06-12';
+const HESTIA_BUILD_DATE = '2026-06-13';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 let _cloudSyncDebounce  = null;
@@ -3018,18 +3018,18 @@ function wxWindDir(deg) {
 function wxCondition(code) {
   if (code == null) return 'Unknown';
   if (code === 0) return 'Clear';
-  if (code <= 3) return ['Mainly Clear','Partly Cloudy','Overcast'][code - 1];
+  if (code <= 3) return ['Mostly Clear','Partly Cloudy','Cloudy'][code - 1];
   if (code === 45 || code === 48) return 'Fog';
   if (code <= 55) return 'Drizzle';
   if (code <= 57) return 'Freezing Drizzle';
   if (code <= 65) return 'Rain';
   if (code <= 67) return 'Freezing Rain';
   if (code <= 75) return 'Snow';
-  if (code === 77) return 'Snow Grains';
-  if (code <= 82) return 'Rain Showers';
+  if (code === 77) return 'Flurries';
+  if (code <= 82) return 'Showers';
   if (code === 85 || code === 86) return 'Snow Showers';
   if (code === 95) return 'Thunderstorm';
-  if (code === 96 || code === 99) return 'Thunderstorm with Hail';
+  if (code === 96 || code === 99) return 'Severe Thunderstorm';
   return 'Cloudy';
 }
 
@@ -3050,7 +3050,7 @@ async function fetchWeather() {
     const u = wxTempUnit();
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${CONFIG.weather.lat}&longitude=${CONFIG.weather.lon}` +
       `&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m` +
-      `&daily=weather_code,temperature_2m_max,temperature_2m_min` +
+      `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max` +
       `&temperature_unit=${u}&wind_speed_unit=mph&timezone=auto&forecast_days=4`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(res.status);
@@ -3067,16 +3067,25 @@ async function fetchWeather() {
         shortForecast: wxCondition(c.weather_code),
         weatherCode: c.weather_code
       },
-      forecast: d.time.slice(1, 4).map(function(t, i) {
-        const idx = i + 1;
-        return {
-          name: wxDayName(t),
-          temperature: Math.round(d.temperature_2m_max[idx]),
-          temperatureLow: Math.round(d.temperature_2m_min[idx]),
-          shortForecast: wxCondition(d.weather_code[idx]),
-          weatherCode: d.weather_code[idx]
-        };
-      })
+      forecast: (function() {
+        var periods = [];
+        var now = new Date();
+        var isEvening = now.getHours() >= 18;
+        for (var i = 0; i < d.time.length && periods.length < 4; i++) {
+          var dayLabel = wxDayName(d.time[i]);
+          if (i === 0 && isEvening) {
+            periods.push({ name: 'Tonight', temperature: Math.round(d.temperature_2m_min[i]), shortForecast: wxCondition(d.weather_code[i]), weatherCode: d.weather_code[i], precipChance: d.precipitation_probability_max[i] });
+          } else if (i === 0) {
+            continue;
+          } else {
+            periods.push({ name: dayLabel, temperature: Math.round(d.temperature_2m_max[i]), shortForecast: wxCondition(d.weather_code[i]), weatherCode: d.weather_code[i], precipChance: d.precipitation_probability_max[i] });
+            if (periods.length < 4) {
+              periods.push({ name: dayLabel + ' Night', temperature: Math.round(d.temperature_2m_min[i]), shortForecast: wxCondition(d.weather_code[i]), weatherCode: d.weather_code[i], precipChance: d.precipitation_probability_max[i] });
+            }
+          }
+        }
+        return periods;
+      })()
     };
     if (activeRoom === 'home') renderHome();
   } catch(e) {
@@ -3173,23 +3182,23 @@ function iconWeather(codeOrText, size) {
         stroke="${amber}" stroke-width="2.5" stroke-linecap="round" opacity="0.7"/>`;
     }).join('')}`;
 
-  const cloud = `<ellipse cx="26" cy="30" rx="12" ry="8" fill="${t3}" opacity="0.5"/>
-    <circle cx="20" cy="30" r="7" fill="${t3}" opacity="0.5"/>
-    <circle cx="30" cy="27" r="9" fill="${t3}" opacity="0.45"/>`;
+  const cloud = `<ellipse cx="26" cy="30" rx="12" ry="8" fill="${t1}" opacity="0.35"/>
+    <circle cx="20" cy="30" r="7" fill="${t1}" opacity="0.35"/>
+    <circle cx="30" cy="27" r="9" fill="${t1}" opacity="0.3"/>`;
 
   const rain = [20,26,32].map(x =>
-    `<line x1="${x}" y1="38" x2="${x-2}" y2="44" stroke="${cool}" stroke-width="2" stroke-linecap="round" opacity="0.8"/>`
+    `<line x1="${x}" y1="38" x2="${x-2}" y2="44" stroke="${cool}" stroke-width="2" stroke-linecap="round" opacity="0.85"/>`
   ).join('');
 
   const snow = [20,26,32].map(x =>
-    `<circle cx="${x}" cy="42" r="2" fill="${t1}" opacity="0.7"/>`
+    `<circle cx="${x}" cy="42" r="2" fill="${t1}" opacity="0.75"/>`
   ).join('');
 
   const bolt = `<path d="M27 22 L22 32 L25 32 L21 42 L30 30 L26 30 Z" fill="${amber}" opacity="0.9"/>`;
 
-  const fog = `<ellipse cx="24" cy="28" rx="14" ry="5" fill="${t3}" opacity="0.35"/>
-    <ellipse cx="24" cy="34" rx="12" ry="4" fill="${t3}" opacity="0.3"/>
-    <ellipse cx="24" cy="40" rx="10" ry="3.5" fill="${t3}" opacity="0.25"/>`;
+  const fog = `<ellipse cx="24" cy="28" rx="14" ry="5" fill="${t1}" opacity="0.25"/>
+    <ellipse cx="24" cy="34" rx="12" ry="4" fill="${t1}" opacity="0.2"/>
+    <ellipse cx="24" cy="40" rx="10" ry="3.5" fill="${t1}" opacity="0.18"/>`;
 
   let inner = '';
   const code = typeof codeOrText === 'number' ? codeOrText : null;
@@ -3244,7 +3253,8 @@ function weatherCardHTML() {
       <div class="m-wx-period">
         <div class="m-wx-period-name">${p.name}</div>
         <div style="margin:3px auto;display:flex;justify-content:center">${iconWeather(p.weatherCode != null ? p.weatherCode : p.shortForecast, 22)}</div>
-        <div class="m-wx-period-temp">${p.temperature}°<span style="font-size:10px;color:var(--t3)">/${p.temperatureLow != null ? p.temperatureLow : ''}°</span></div>
+        <div class="m-wx-period-temp">${p.temperature}°</div>
+        ${p.precipChance > 20 ? `<div style="font-size:10px;color:var(--accent);margin-top:1px">${iconDrop('var(--accent)',10)} ${p.precipChance}%</div>` : ''}
       </div>`).join('');
     return `
       <div class="m-weather-card">
@@ -3267,7 +3277,8 @@ function weatherCardHTML() {
     <div class="wx-period">
       <div class="wx-period-name">${p.name}</div>
       <div style="margin:4px auto;display:flex;justify-content:center">${iconWeather(p.weatherCode != null ? p.weatherCode : p.shortForecast, 26)}</div>
-      <div class="wx-period-temp">${p.temperature}°<span style="font-size:11px;color:var(--t3)">/${p.temperatureLow != null ? p.temperatureLow : ''}°</span></div>
+      <div class="wx-period-temp">${p.temperature}°</div>
+      ${p.precipChance > 20 ? `<div style="font-size:11px;color:var(--accent);margin-top:2px">${iconDrop('var(--accent)',11)} ${p.precipChance}%</div>` : ''}
     </div>`).join('');
 
   return `
