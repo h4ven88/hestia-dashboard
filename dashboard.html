@@ -2498,7 +2498,6 @@ function initState() {
       }
     }
   });
-  if (_migrated) saveConfig();
   Object.keys(S).forEach(k => delete S[k]);
   Object.keys(DEVICE_TYPE).forEach(k => delete DEVICE_TYPE[k]);
   rooms.forEach(r => {
@@ -2531,6 +2530,7 @@ function initState() {
   (CONFIG.locks || []).forEach(lk => {
     if (lk.id) { S[lk.id] = { locked: true }; DEVICE_TYPE[lk.id] = 'lock'; }
   });
+  if (_migrated) setTimeout(() => saveConfig(), 100);
 }
 
 /* Apply saved config — rebuild state, re-render, restart polling */
