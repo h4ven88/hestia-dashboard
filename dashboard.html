@@ -1667,7 +1667,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.5.6';
-const HESTIA_BUILD_DATE = '2026-06-13';
+const HESTIA_BUILD_DATE = '2026-06-14';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 let _cloudSyncDebounce  = null;
@@ -2026,6 +2026,7 @@ const CONFIG = {
   poll:          1000,
   defaultRoom:   'home',
   returnTimeout: 60000,
+  roomSort:      '',
   locks: [],
   settingsPin: '',
   artemisEnabled: false,
@@ -2394,7 +2395,7 @@ function _cleanOrphanedVirtualIds() {
 function buildConfigPayload() {
   return {
     config:      { hub: CONFIG.hub, appId: CONFIG.appId, token: CONFIG.token, poll: CONFIG.poll,
-                   defaultRoom: CONFIG.defaultRoom, returnTimeout: CONFIG.returnTimeout, tempUnit: CONFIG.tempUnit,
+                   defaultRoom: CONFIG.defaultRoom, returnTimeout: CONFIG.returnTimeout, roomSort: CONFIG.roomSort, tempUnit: CONFIG.tempUnit,
                    locks: CONFIG.locks, weather: CONFIG.weather, settingsPin: CONFIG.settingsPin,
                    artemisEnabled: CONFIG.artemisEnabled, artemisPin: CONFIG.artemisPin,
                    artemisExitDelay: CONFIG.artemisExitDelay, artemisEntryDelay: CONFIG.artemisEntryDelay,
@@ -10077,6 +10078,18 @@ function navBtn(id, label, status, isLive) {
     </button>`;
 }
 
+function _sortedRooms() {
+  const s = CONFIG.roomSort;
+  if (!s) return rooms;
+  const copy = rooms.slice();
+  if (s === 'alpha-asc')  return copy.sort((a, b) => a.name.localeCompare(b.name));
+  if (s === 'alpha-desc') return copy.sort((a, b) => b.name.localeCompare(a.name));
+  const numKey = n => { const m = n.match(/^\d+/); return m ? parseInt(m[0]) : Infinity; };
+  if (s === 'num-asc')  return copy.sort((a, b) => numKey(a.name) - numKey(b.name) || a.name.localeCompare(b.name));
+  if (s === 'num-desc') return copy.sort((a, b) => numKey(b.name) - numKey(a.name) || b.name.localeCompare(a.name));
+  return rooms;
+}
+
 function renderSidebar() {
   const items = [];
 
@@ -10118,7 +10131,8 @@ function renderSidebar() {
 
   const roomSecState = computeRoomSecState();
 
-  rooms.forEach(r => {
+  const sortedRooms = _sortedRooms();
+  sortedRooms.forEach(r => {
     const activity = roomActivity(r);
     const sec = roomSecState[r.id] || null;
     const isLive = activity !== 'All off';
@@ -11407,6 +11421,15 @@ function spShowSection(id, force) {
           <div class="sp-field"><label class="sp-label">Inactivity Timeout (ms)</label>
             <input class="sp-input" id="sp-timeout" type="number" value="${CONFIG.returnTimeout}" min="0">
             <span class="sp-hint">0 = disabled. 60000 = return to default room after 60s.</span></div>
+          <div class="sp-field"><label class="sp-label">Room Sort Order</label>
+            <select class="sp-input" id="sp-roomsort">
+              <option value="" ${!CONFIG.roomSort?'selected':''}>Manual (config order)</option>
+              <option value="alpha-asc" ${CONFIG.roomSort==='alpha-asc'?'selected':''}>Alphabetical A → Z</option>
+              <option value="alpha-desc" ${CONFIG.roomSort==='alpha-desc'?'selected':''}>Alphabetical Z → A</option>
+              <option value="num-asc" ${CONFIG.roomSort==='num-asc'?'selected':''}>Numerical 0 → 9</option>
+              <option value="num-desc" ${CONFIG.roomSort==='num-desc'?'selected':''}>Numerical 9 → 0</option>
+            </select>
+            <span class="sp-hint">Sort rooms in the sidebar and mobile view. Numerical sorts by leading numbers (e.g. "1. Kitchen" before "2. Office").</span></div>
         </div>`;
       break;
     }
@@ -11702,6 +11725,8 @@ async function saveSettings() {
   if (poll)    CONFIG.poll          = Math.max(500, parseInt(poll.value) || 1000);
   if (defroom) CONFIG.defaultRoom   = defroom.value.trim();
   if (timeout) CONFIG.returnTimeout = parseInt(timeout.value) || 0;
+  const roomSortEl = document.getElementById('sp-roomsort');
+  if (roomSortEl) CONFIG.roomSort = roomSortEl.value;
   const tempUnitEl = document.getElementById('sp-tempunit');
   if (tempUnitEl) CONFIG.tempUnit = tempUnitEl.value;
   const cityEl = document.getElementById('sp-wx-city');
