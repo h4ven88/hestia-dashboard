@@ -1667,7 +1667,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.5.6';
-const HESTIA_BUILD_DATE = '2026-06-14';
+const HESTIA_BUILD_DATE = '2026-06-19';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 let _cloudSyncDebounce  = null;
@@ -10863,13 +10863,13 @@ function spDevicesSection() {
 
   if (_devGroupBy === 'type') {
     const typeOrder = ['switch','dimmer','color-temp','color','fan','shade','garage','therm'];
+    const typeLabels = { switch:'Switches', dimmer:'Dimmers', 'color-temp':'CT Bulbs', color:'Color Bulbs',
+                         fan:'Fans', shade:'Shades', garage:'Garage Doors', therm:'Thermostats' };
+    const knownTypes = new Set(typeOrder);
     typeOrder.forEach(type => {
       const devs = allDevices.filter(d => d.type === type);
       if (!devs.length) return;
-      const label = type === 'switch' ? 'Switches' : type === 'dimmer' ? 'Dimmers' :
-                    type === 'color-temp' ? 'CT Bulbs' : type === 'color' ? 'Color Bulbs' :
-                    type === 'fan' ? 'Fans' : type === 'shade' ? 'Shades' :
-                    type === 'garage' ? 'Garage Doors' : 'Thermostats';
+      const label = typeLabels[type] || type;
       const typeSecId = 'sp-devsec-' + type;
       listHTML += `<div class="sp-dev-section-hdr" onclick="spToggleDevSec('${typeSecId}')" style="cursor:pointer">
         <span class="sp-dev-section-name">${label}</span>
@@ -10882,6 +10882,19 @@ function spDevicesSection() {
       listHTML += devs.map(d => deviceRow(d)).join('');
       listHTML += '</div>';
     });
+    const otherDevs = allDevices.filter(d => !knownTypes.has(d.type));
+    if (otherDevs.length) {
+      listHTML += `<div class="sp-dev-section-hdr unassigned" onclick="spToggleDevSec('sp-devsec-unassigned')" style="cursor:pointer">
+        <span class="sp-dev-section-name">Unassigned</span>
+        <span style="display:flex;align-items:center;gap:8px">
+          <span class="sp-dev-section-count" style="color:var(--amber)">${otherDevs.length}</span>
+          <span class="sp-section-arrow open" id="arr-sp-devsec-unassigned" style="font-size:9px;color:var(--amber)">▼</span>
+        </span>
+      </div>
+      <div id="sp-devsec-unassigned" class="sp-section-body open">`;
+      listHTML += otherDevs.map(d => deviceRow(d)).join('');
+      listHTML += '</div>';
+    }
   } else {
     // Group by room — rooms first, then unassigned
     const roomGroups = {};
@@ -13198,9 +13211,9 @@ function detectNewDevices(devices) {
       }
       return;
     }
-    if (isSecurityCapable(d.capabilities)) return;
     const dName = d.label || d.name || ('Device ' + id);
     const type = capToType(d.capabilities, dName);
+    if (isSecurityCapable(d.capabilities) && type !== 'lock') return;
     if (!type) return;
     if (DEVICE_REGISTRY.has(id) && assigned.has(id)) return;
     if (assigned.has(id)) return;
