@@ -1667,7 +1667,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.5.6';
-const HESTIA_BUILD_DATE = '2026-06-19';
+const HESTIA_BUILD_DATE = '2026-06-29';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 let _cloudSyncDebounce  = null;
@@ -13505,9 +13505,12 @@ function capToType(caps, label) {
   // Color bulbs: must be checked before dimmer/switch
   if (/ColorControl/i.test(c))                return 'color';        // full RGB+CT
   if (/ColorTemperature/i.test(c) && /SwitchLevel|Dimmer/i.test(c)) return 'color-temp'; // CT-only
-  // Name-based fan fallback: some fan drivers (Bond, community) only report Switch/SwitchLevel
+  // Name-based fallbacks: some drivers only report Switch/SwitchLevel
   if (label && /\bfan\b/i.test(label)) {
     if (/SwitchLevel|Dimmer|Switch/i.test(c)) return 'fan';
+  }
+  if (label && /\bgarage\b/i.test(label)) {
+    if (/Switch/i.test(c)) return 'garage';
   }
   if (/SwitchLevel|Dimmer/i.test(c))          return 'dimmer';
   if (/Switch/i.test(c))                      return 'switch';
