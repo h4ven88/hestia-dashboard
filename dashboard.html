@@ -1666,8 +1666,8 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    Copyright © 2026 Haven. CC BY-NC 4.0.
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
-const HESTIA_VERSION    = '1.5.6';
-const HESTIA_BUILD_DATE = '2026-06-29';
+const HESTIA_VERSION    = '1.5.7';
+const HESTIA_BUILD_DATE = '2026-07-22';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 let _cloudSyncDebounce  = null;
@@ -13213,7 +13213,10 @@ function detectNewDevices(devices) {
     }
     const dName = d.label || d.name || ('Device ' + id);
     const type = capToType(d.capabilities, dName);
-    if (isSecurityCapable(d.capabilities) && type !== 'lock') return;
+    // Locks and garage doors are legitimately dual-purpose (security-relevant
+    // but user-controllable) — don't let a security capability on the same
+    // device (e.g. a relay's paired contact input) hide it from staging.
+    if (isSecurityCapable(d.capabilities) && type !== 'lock' && type !== 'garage') return;
     if (!type) return;
     if (DEVICE_REGISTRY.has(id) && assigned.has(id)) return;
     if (assigned.has(id)) return;
@@ -13496,6 +13499,13 @@ function capToType(caps, label) {
   if (/WindowBlind|WindowShade/i.test(c))     return 'shade';
   if (/Thermostat/i.test(c))                  return 'therm';
   if (/Lock/i.test(c))                        return 'lock';
+  // Name-based garage fallback: checked before ContactSensor below because some
+  // relay drivers (Zooz Zen17 etc.) pair a physical door sensor onto the same
+  // child device, reporting Switch + ContactSensor together. Without this check
+  // running first, that combo would be misclassified as a plain contact sensor.
+  if (label && /\bgarage\b/i.test(label)) {
+    if (/Switch/i.test(c)) return 'garage';
+  }
   // Artemis sensor types
   if (/SmokeDetector|CarbonMonoxideDetector/i.test(c)) return 'smoke';
   if (/WaterSensor|MoistureSensor/i.test(c))            return 'water';
@@ -13505,12 +13515,9 @@ function capToType(caps, label) {
   // Color bulbs: must be checked before dimmer/switch
   if (/ColorControl/i.test(c))                return 'color';        // full RGB+CT
   if (/ColorTemperature/i.test(c) && /SwitchLevel|Dimmer/i.test(c)) return 'color-temp'; // CT-only
-  // Name-based fallbacks: some drivers only report Switch/SwitchLevel
+  // Name-based fan fallback: some fan drivers (Bond, community) only report Switch/SwitchLevel
   if (label && /\bfan\b/i.test(label)) {
     if (/SwitchLevel|Dimmer|Switch/i.test(c)) return 'fan';
-  }
-  if (label && /\bgarage\b/i.test(label)) {
-    if (/Switch/i.test(c)) return 'garage';
   }
   if (/SwitchLevel|Dimmer/i.test(c))          return 'dimmer';
   if (/Switch/i.test(c))                      return 'switch';
