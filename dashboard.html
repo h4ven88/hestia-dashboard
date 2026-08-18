@@ -886,6 +886,35 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 .home-stat-val.amber{color:var(--amber);text-shadow:var(--ts-amber)}
 .home-stat-sub{font-size:12px;color:var(--t3);margin-top:3px;line-height:1.6}
 .home-stat-sub span.live{color:var(--t2)}
+.cam-mini-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px;border-radius:8px;overflow:hidden}
+.cam-mini-tile{aspect-ratio:4/3;background:var(--bg-hover);position:relative;overflow:hidden}
+.cam-mini-tile img{width:100%;height:100%;object-fit:cover;display:block}
+.cam-mini-tile.cam-mini-offline img{visibility:hidden}
+.cam-mini-dot{position:absolute;top:4px;left:5px;width:6px;height:6px;border-radius:50%;background:var(--amber)}
+.cam-mini-dot.off{background:var(--t4)}
+.cam-mini-more{display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;color:var(--t3)}
+.cam-refresh-all-btn{height:34px;padding:0 14px;border:1px solid var(--border);border-radius:9px;background:transparent;color:var(--t2);font-size:12px;font-family:inherit;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s}
+.cam-refresh-all-btn:hover{background:var(--bg-hover);color:var(--t1)}
+.cam-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:18px 20px}
+.cam-tile,.cam-list-tile{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.cam-tile-img{aspect-ratio:16/9;background:var(--bg-hover);position:relative}
+.cam-tile-img img{width:100%;height:100%;object-fit:cover;display:block}
+.cam-tile-offline .cam-tile-img img{visibility:hidden}
+.cam-live-badge{position:absolute;top:8px;left:8px;background:rgba(0,0,0,.55);border-radius:6px;padding:3px 8px;display:flex;align-items:center;gap:5px;font-size:11px;font-weight:500;color:#fff}
+.cam-live-dot{width:6px;height:6px;border-radius:50%;background:var(--amber)}
+.cam-live-badge.off .cam-live-dot{background:var(--t4)}
+.cam-expand-btn,.cam-refresh-btn{background:rgba(0,0,0,.55);border:none;border-radius:6px;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px}
+.cam-expand-btn{position:absolute;top:8px;right:8px;width:26px;height:26px}
+.cam-tile-meta{padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.cam-tile-name{font-size:13px;color:var(--t1);font-weight:500}
+.cam-tile-room{font-size:11px;color:var(--t3)}
+.cam-refresh-btn{width:26px;height:26px;flex-shrink:0;background:var(--bg-hover);color:var(--t2)}
+.cam-refresh-btn:hover{color:var(--t1)}
+.cam-page-dots{display:flex;justify-content:center;gap:6px;padding:0 20px 18px}
+.cam-page-dot{width:6px;height:6px;border-radius:50%;background:var(--border);cursor:pointer}
+.cam-page-dot.active{background:var(--amber)}
+.cam-detail-img{aspect-ratio:16/9;background:var(--bg-hover);border-radius:12px;overflow:hidden;margin:0 20px}
+.cam-detail-img img{width:100%;height:100%;object-fit:cover;display:block}
 .home-climate-row{display:flex;flex-direction:column;padding:8px 0;border-bottom:1px solid var(--border-s)}
 .home-climate-row:last-child{border-bottom:none;padding-bottom:0}
 .home-climate-name{font-size:11px;font-weight:600;color:var(--t2);margin-bottom:6px;letter-spacing:.05em;text-transform:uppercase}
@@ -1627,6 +1656,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
       <div class="sp-nav-item"        id="spn-devices"  onclick="spShowSection('devices')">  <span class="sp-nav-icon">💡</span>Rooms &amp; Devices</div>
       <div class="sp-nav-item"        id="spn-therms"   onclick="spShowSection('therms')">   <span class="sp-nav-icon">🌡</span>Thermostats</div>
       <div class="sp-nav-item"        id="spn-lock"     onclick="spShowSection('lock')">     <span class="sp-nav-icon">🚪</span>Door Locks</div>
+      <div class="sp-nav-item"        id="spn-cameras"  onclick="spShowSection('cameras')">  <span class="sp-nav-icon">📷</span>Cameras</div>
       <div class="sp-nav-group">Modules</div>
       <div class="sp-nav-item"        id="spn-artemis"  onclick="spShowSection('artemis')">  <span class="sp-nav-icon">🛡</span>Artemis Security</div>
       <div class="sp-nav-item"        id="spn-athena"   onclick="spShowSection('athena')">   <span class="sp-nav-icon">◈</span>Athena Voice<span class="sp-nav-badge" style="display:none" id="spn-athena-badge">New</span></div>
@@ -1666,8 +1696,8 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    Copyright © 2026 Haven. CC BY-NC 4.0.
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
-const HESTIA_VERSION    = '1.5.8';
-const HESTIA_BUILD_DATE = '2026-08-16';
+const HESTIA_VERSION    = '1.6.0';
+const HESTIA_BUILD_DATE = '2026-08-17';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 let _cloudSyncDebounce  = null;
@@ -2028,6 +2058,7 @@ const CONFIG = {
   returnTimeout: 60000,
   roomSort:      '',
   locks: [],
+  cameras: [],
   settingsPin: '',
   artemisEnabled: false,
   artemisPin:     '',
@@ -2396,7 +2427,7 @@ function buildConfigPayload() {
   return {
     config:      { hub: CONFIG.hub, appId: CONFIG.appId, token: CONFIG.token, poll: CONFIG.poll,
                    defaultRoom: CONFIG.defaultRoom, returnTimeout: CONFIG.returnTimeout, roomSort: CONFIG.roomSort, tempUnit: CONFIG.tempUnit,
-                   locks: CONFIG.locks, weather: CONFIG.weather, settingsPin: CONFIG.settingsPin,
+                   locks: CONFIG.locks, cameras: CONFIG.cameras || [], weather: CONFIG.weather, settingsPin: CONFIG.settingsPin,
                    artemisEnabled: CONFIG.artemisEnabled, artemisPin: CONFIG.artemisPin,
                    artemisExitDelay: CONFIG.artemisExitDelay, artemisEntryDelay: CONFIG.artemisEntryDelay,
                    artemisRingDeviceId: CONFIG.artemisRingDeviceId,
@@ -2641,6 +2672,10 @@ let registrySeeded = false; // guard: don't detect new devices until first apply
 const S = {};
 const DEVICE_TYPE = {};
 const dimmerTimers = {};
+
+// Camera runtime state, keyed by CONFIG.cameras array index (not persisted).
+// { online: bool, lastFetch: epoch ms, cacheBust: number }
+let CAM_STATE = {};
 
 // Load any saved config before seeding state
 loadConfig();
@@ -3196,6 +3231,17 @@ function iconBlinds(open, size) {
   </svg>`;
 }
 
+function iconCamera(active, size) {
+  size = size || 32;
+  const col = active ? 'var(--amber)' : 'var(--t4)';
+  const op  = active ? '1' : '0.35';
+  return `<svg width="${size}" height="${size}" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+    <path d="M11 8l1.6-2.4c.3-.4.8-.6 1.3-.6h4.2c.5 0 1 .2 1.3.6L20.9 8H26c1.1 0 2 .9 2 2v13c0 1.1-.9 2-2 2H6c-1.1 0-2-.9-2-2V10c0-1.1.9-2 2-2h5z" fill="${col}" opacity="${op}"/>
+    <circle cx="16" cy="17.5" r="5.5" fill="var(--bg-card)"/>
+    <circle cx="16" cy="17.5" r="4" fill="${col}" opacity="${active ? '0.9' : '0.5'}"/>
+  </svg>`;
+}
+
 function iconThermometer(color, size) {
   size = size || 20;
   return `<svg width="${size}" height="${size}" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
@@ -3293,6 +3339,31 @@ function iconWeather(codeOrText, size) {
   }
 
   return `<svg width="${size}" height="${size}" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
+}
+
+// Desktop-only home card — mobile surfaces cameras via the Security tab instead.
+function cameraHomeCardHTML() {
+  const cams = CONFIG.cameras || [];
+  if (!cams.length || isMobile()) return '';
+  const showCount = cams.length > 4 ? 3 : 4;
+  const tiles = cams.slice(0, showCount).map((cam, i) => {
+    const state = CAM_STATE[i] || {};
+    const bust = state.cacheBust || 0;
+    const sep = cam.snapshotUrl.includes('?') ? '&' : '?';
+    const src = h(cam.snapshotUrl) + sep + '_hb=' + bust;
+    return `<div class="cam-mini-tile">
+        <img src="${src}" alt="" onerror="this.closest('.cam-mini-tile').classList.add('cam-mini-offline')" onload="this.closest('.cam-mini-tile').classList.remove('cam-mini-offline')">
+        <span class="cam-mini-dot${state.online === false ? ' off' : ''}"></span>
+      </div>`;
+  }).join('');
+  const more = cams.length > 4 ? `<div class="cam-mini-tile cam-mini-more">+${cams.length - 4}</div>` : '';
+  return `<div class="home-stat-card" onclick="navToGlobal('cameras')">
+      <div class="home-card-top">
+        <div class="home-stat-lbl">Cameras</div>
+        <div class="home-card-icon">${iconCamera(true, 38)}</div>
+      </div>
+      <div class="cam-mini-grid">${tiles}${more}</div>
+    </div>`;
 }
 function weatherCardHTML() {
   const isM = isMobile();
@@ -3521,6 +3592,7 @@ function renderHome() {
         <div class="home-card-top"><div class="home-stat-lbl">Climate</div></div>
         ${thermRows}
       </div>` : ''}
+      ${cameraHomeCardHTML()}
       ${weatherCardHTML()}
       ${calendarDesktopHTML()}
     </div>
@@ -7657,6 +7729,51 @@ function artemisLocksHTML() {
     <span class="a-cnt ${allLocked?'a-secure':'a-alert'}">${allLocked?'All Locked':'Unlocked'}</span></div>${rows}</div>`;
 }
 
+// ── Cameras summary row — mobile only, desktop has its own sidebar view ──
+let artemisCamerasView = false;
+function artemisCamerasHTML() {
+  const cams = CONFIG.cameras || [];
+  if (!cams.length) return '';
+  const online = cams.reduce((n, c, i) => n + ((CAM_STATE[i] && CAM_STATE[i].online) ? 1 : 0), 0);
+  return `<div class="a-card" style="cursor:pointer" onclick="artemisOpenCameras()">
+    <div class="a-lrow" style="border:none">
+      <div class="a-si a-ok">${iconCamera(true, 18)}</div>
+      <div class="a-li" style="flex:1"><div class="a-ln">Cameras</div></div>
+      <span class="a-cnt ${online === cams.length ? 'a-secure' : 'a-alert'}">${cams.length} &middot; ${online} online</span>
+    </div>
+  </div>`;
+}
+function artemisOpenCameras() {
+  artemisCamerasView = true;
+  renderSecurity();
+}
+function artemisCloseCameras() {
+  artemisCamerasView = false;
+  renderSecurity();
+}
+function artemisCamerasListHTML() {
+  const cams = CONFIG.cameras || [];
+  const rows = cams.map((cam, i) => {
+    const state = CAM_STATE[i] || {};
+    const offline = state.online === false;
+    return `<div class="cam-list-tile ${offline ? 'cam-tile-offline' : ''}">
+        <div class="cam-tile-img">
+          <img src="${camSrc(cam, i)}" alt="" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">
+          <span class="cam-live-badge ${offline ? 'off' : ''}"><span class="cam-live-dot"></span>${offline ? 'Offline' : 'Live'}</span>
+        </div>
+        <div class="cam-tile-meta">
+          <span class="cam-tile-name">${h(cam.name || 'Camera ' + (i + 1))}</span>
+          <span class="cam-tile-room">${camTimeAgo(state.lastFetch)}</span>
+        </div>
+      </div>`;
+  }).join('');
+  return `<div class="a-card-hdr" style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="artemisCloseCameras()">
+      <span>&larr;</span> Cameras
+      <button class="cam-refresh-all-btn" style="margin-left:auto" onclick="event.stopPropagation();camRefreshAll()">&#8635;</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">${rows}</div>`;
+}
+
 
 // ── Environmental card HTML ───────────────────────────────────────────
 function artemisEnvHTML() {
@@ -7849,9 +7966,11 @@ function renderSecurity() {
 
   if (isM) {
     // Mobile: single column — sensors first, then mode/brand only (no inline keypad)
+    const camerasNested = artemisCamerasView && (CONFIG.cameras || []).length > 0;
     ma.innerHTML = `<div class="artemis-panel" style="grid-template-columns:1fr">
       ${alarmHTML}
       <div style="display:flex;flex-direction:column;gap:8px;padding:12px">
+        ${camerasNested ? artemisCamerasListHTML() : `
         ${mobileNoHsmHTML || `
         <div class="a-status">
           ${artemisTransition ? artemisGemWithRing(artemisTransition === 'arming' ? (artemisArmingTarget || 'away') : artemisMode) : artemisGemSVG(artemisMode, 34, 39)}
@@ -7865,6 +7984,7 @@ function renderSecurity() {
           ${artemisModeBtn('home',  'Home',   artemisMode==='home')}
           ${artemisModeBtn('away',  'Away',   artemisMode==='away')}
         </div>`}
+        ${artemisCamerasHTML()}
         ${artemisEntrySensorsHTML()}
         ${artemisLocksHTML()}
         ${artemisEnvHTML()}
@@ -7874,7 +7994,7 @@ function renderSecurity() {
             <div class="a-brand-sub">Home Security</div>
           </div>
           ${artemisGemMark(26,30)}
-        </div>
+        </div>`}
       </div>
     </div>`;
   } else {
@@ -10123,6 +10243,10 @@ function renderSidebar() {
   const anyHVAC   = thermostats.some(t => S[t.id].state === 'heating' || S[t.id].state === 'cooling');
   const tempParts = thermostats.filter(t => typeof S[t.id].cur === 'number').map(t => displayTemp(S[t.id].cur) + '°');
   if (thermostats.length > 0) items.push(navBtn('climate', 'Climate', tempParts.length ? tempParts.join(' · ') : 'Climate control', anyHVAC));
+  if ((CONFIG.cameras || []).length > 0) {
+    const camOnline = (CONFIG.cameras || []).reduce((n, c, i) => n + ((CAM_STATE[i] && CAM_STATE[i].online) ? 1 : 0), 0);
+    items.push(navBtn('cameras', 'Cameras', camOnline + ' of ' + CONFIG.cameras.length + ' online', camOnline > 0));
+  }
   if (CONFIG.artemisEnabled) {
     items.push(navBtn('security', 'Security', artemisModeName(), false, 'security'));
   }
@@ -10338,9 +10462,142 @@ function selectRoom(id) {
   if      (id === 'blinds')   { renderBlinds();   return; }
   if      (id === 'lights')   { renderLights();   return; }
   if      (id === 'security') { artemisHsmSync(); renderSecurity(); return; }
+  if      (id === 'cameras')  { renderCameras();  return; }
 
   const room = rooms.find(r => r.id === id);
   if (room) renderRoom(room);
+}
+
+/* ── Cameras (dedicated view) ── */
+let camPage = 0;
+let camDetailIdx = null;
+
+function camTimeAgo(ts) {
+  if (!ts) return '—';
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 5) return 'just now';
+  if (s < 60) return s + 's ago';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm ago';
+  return Math.floor(m / 60) + 'h ago';
+}
+
+function camSrc(cam, i) {
+  const state = CAM_STATE[i] || {};
+  const sep = cam.snapshotUrl.includes('?') ? '&' : '?';
+  return h(cam.snapshotUrl) + sep + '_hb=' + (state.cacheBust || 0);
+}
+
+// Re-renders whichever surface is currently showing camera tiles, if any.
+// Desktop dedicated view, mobile Security-nested list, or neither (e.g. an
+// image loaded quietly in the background via a polling refresh).
+function camRerenderCurrentView() {
+  if (!isMobile() && activeRoom === 'cameras') { renderCameras(); return; }
+  if (isMobile() && activeTab === 'security' && artemisCamerasView) { renderSecurity(); return; }
+}
+function camMarkOnline(i) {
+  const was = CAM_STATE[i] && CAM_STATE[i].online;
+  CAM_STATE[i] = Object.assign({}, CAM_STATE[i], { online: true, lastFetch: Date.now() });
+  if (was !== true && !isMobile()) renderSidebar(); // sidebar shows online count on desktop only
+}
+function camMarkOffline(i) {
+  const was = CAM_STATE[i] && CAM_STATE[i].online;
+  CAM_STATE[i] = Object.assign({}, CAM_STATE[i], { online: false, lastFetch: Date.now() });
+  if (was !== false && !isMobile()) renderSidebar();
+  camRerenderCurrentView();
+}
+function camRefreshOne(i) {
+  CAM_STATE[i] = Object.assign({}, CAM_STATE[i], { cacheBust: Date.now() });
+  camRerenderCurrentView();
+}
+function camRefreshAll() {
+  const cams = CONFIG.cameras || [];
+  cams.forEach((c, i) => { CAM_STATE[i] = Object.assign({}, CAM_STATE[i], { cacheBust: Date.now() }); });
+  camRerenderCurrentView();
+}
+// Background auto-refresh — only fires while a camera-viewing surface is
+// actually on screen, so idle screens don't waste bandwidth re-fetching
+// images nobody's looking at.
+const CAM_AUTO_REFRESH_MS = 30000;
+let camAutoRefreshTimer = null;
+function camAutoRefreshTick() {
+  const desktopVisible = !isMobile() && activeRoom === 'cameras' && camDetailIdx === null;
+  const mobileVisible  = isMobile() && activeTab === 'security' && artemisCamerasView;
+  if (!desktopVisible && !mobileVisible) return;
+  camRefreshAll();
+}
+function camStartAutoRefresh() {
+  if (camAutoRefreshTimer) return;
+  camAutoRefreshTimer = setInterval(camAutoRefreshTick, CAM_AUTO_REFRESH_MS);
+}
+
+function camGoPage(p) {
+  camPage = p;
+  renderCameras();
+}
+function camExpand(i) {
+  camDetailIdx = i;
+  renderCameras();
+}
+function camCloseDetail() {
+  camDetailIdx = null;
+  renderCameras();
+}
+
+function renderCameras() {
+  const ma = document.getElementById('main-area');
+  const cams = CONFIG.cameras || [];
+
+  if (!cams.length) {
+    ma.innerHTML = roomHeader('', 'Cameras', 'No cameras configured') +
+      `<div class="empty-room"><strong>No cameras yet</strong>Add one in Settings &gt; Cameras.</div>`;
+    return;
+  }
+
+  if (camDetailIdx !== null && cams[camDetailIdx]) {
+    const i = camDetailIdx;
+    const cam = cams[i];
+    ma.innerHTML = roomHeader('Cameras', cam.name || ('Camera ' + (i + 1)), cam.room || '') +
+      `<div class="cam-detail-img">
+        <img src="${camSrc(cam, i)}" alt="" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">
+      </div>
+      <div style="padding:14px 20px;display:flex;gap:10px">
+        <button class="cam-refresh-all-btn" onclick="camCloseDetail()">&larr; Back</button>
+        <button class="cam-refresh-all-btn" onclick="camRefreshOne(${i})">&#8635; Refresh</button>
+      </div>`;
+    return;
+  }
+
+  const perPage = 4;
+  const totalPages = Math.max(1, Math.ceil(cams.length / perPage));
+  if (camPage >= totalPages) camPage = totalPages - 1;
+  const pageCams = cams.slice(camPage * perPage, camPage * perPage + perPage);
+
+  const tiles = pageCams.map((cam, pi) => {
+    const i = camPage * perPage + pi;
+    const state = CAM_STATE[i] || {};
+    const offline = state.online === false;
+    return `
+      <div class="cam-tile ${offline ? 'cam-tile-offline' : ''}">
+        <div class="cam-tile-img">
+          <img src="${camSrc(cam, i)}" alt="" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">
+          <span class="cam-live-badge ${offline ? 'off' : ''}"><span class="cam-live-dot"></span>${offline ? 'Offline' : 'Live'}</span>
+          <button class="cam-expand-btn" onclick="camExpand(${i})" title="Expand" aria-label="Expand ${h(cam.name || '')}">&#10530;</button>
+        </div>
+        <div class="cam-tile-meta">
+          <div><div class="cam-tile-name">${h(cam.name || 'Camera ' + (i + 1))}</div><div class="cam-tile-room">${h(cam.room || '')}${cam.room ? ' &middot; ' : ''}${camTimeAgo(state.lastFetch)}</div></div>
+          <button class="cam-refresh-btn" onclick="camRefreshOne(${i})" title="Refresh">&#8635;</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  const dots = totalPages > 1 ? `<div class="cam-page-dots">${Array.from({ length: totalPages }).map((_, p) =>
+    `<span class="cam-page-dot ${p === camPage ? 'active' : ''}" onclick="camGoPage(${p})"></span>`).join('')}</div>` : '';
+
+  ma.innerHTML = roomHeader('', 'Cameras', 'Showing ' + (camPage * perPage + 1) + '-' + Math.min(camPage * perPage + perPage, cams.length) + ' of ' + cams.length,
+    `<span style="font-size:11px;color:var(--t4);margin-right:10px">Auto-refresh: ${CAM_AUTO_REFRESH_MS / 1000}s</span>
+     <button class="cam-refresh-all-btn" onclick="camRefreshAll()">&#8635; Refresh all</button>`) +
+    `<div class="cam-grid">${tiles}</div>${dots}`;
 }
 
 function navToGlobal(view) {
@@ -11510,6 +11767,27 @@ function spShowSection(id, force) {
         </div>`;
       break;
 
+    case 'cameras':
+      const cameraRows = (CONFIG.cameras || []).map((cam, i) => `
+          <div class="sp-input-row" data-camera-idx="${i}" style="align-items:flex-end">
+            <div class="sp-field" style="flex:1"><label class="sp-label">Name</label>
+              <input class="sp-input sp-camera-name" value="${cam.name||''}" placeholder="Front Door"></div>
+            <div class="sp-field" style="flex:1"><label class="sp-label">Room</label>
+              <input class="sp-input sp-camera-room" value="${cam.room||''}" placeholder="Porch"></div>
+            <div class="sp-field" style="flex:2"><label class="sp-label">Snapshot URL</label>
+              <input class="sp-input sp-camera-url" value="${cam.snapshotUrl||''}" placeholder="http://192.168.1.50/snapshot.jpg"></div>
+            <button class="sp-btn-icon" onclick="spMoveCameraUp(${i})" title="Move up" ${i===0?'disabled':''} style="margin-bottom:6px;color:var(--t3);background:none;border:none;font-size:14px;cursor:pointer">&uarr;</button>
+            <button class="sp-btn-icon" onclick="spMoveCameraDown(${i})" title="Move down" ${i===(CONFIG.cameras||[]).length-1?'disabled':''} style="margin-bottom:6px;color:var(--t3);background:none;border:none;font-size:14px;cursor:pointer">&darr;</button>
+            <button class="sp-btn-icon" onclick="spRemoveCamera(${i})" title="Remove" style="margin-bottom:6px;color:#F87171;background:none;border:none;font-size:16px;cursor:pointer">&times;</button>
+          </div>`).join('');
+      html = `<div class="sp-content-hdr"><span class="sp-content-icon">📷</span>Cameras</div>
+        <div class="sp-group">
+          <div id="sp-cameras-list">${cameraRows || '<span class="sp-hint" style="margin:8px 0;display:block">No cameras configured.</span>'}</div>
+          <button class="sp-btn" onclick="spAddCamera()" style="margin-top:8px">+ Add Camera</button>
+          <span class="sp-hint">Snapshot URL must return a still image (JPEG/PNG) when fetched — not a video stream. This is typically provided by your camera's own local API, an NVR, or a bridge like go2rtc. List order controls display order everywhere cameras appear.</span>
+        </div>`;
+      break;
+
     case 'wx':
       html = `<div class="sp-content-hdr"><span class="sp-content-icon">🌤</span>Weather</div>
         <div class="sp-group">
@@ -11723,6 +12001,28 @@ function spRemoveLock(i) {
   spShowSection('lock');
 }
 
+function spAddCamera() {
+  if (!CONFIG.cameras) CONFIG.cameras = [];
+  CONFIG.cameras.push({ name: '', room: '', snapshotUrl: '' });
+  spShowSection('cameras');
+}
+function spRemoveCamera(i) {
+  CONFIG.cameras.splice(i, 1);
+  spShowSection('cameras');
+}
+function spMoveCameraUp(i) {
+  if (i <= 0) return;
+  const arr = CONFIG.cameras;
+  [arr[i - 1], arr[i]] = [arr[i], arr[i - 1]];
+  spShowSection('cameras');
+}
+function spMoveCameraDown(i) {
+  const arr = CONFIG.cameras;
+  if (i >= arr.length - 1) return;
+  [arr[i + 1], arr[i]] = [arr[i], arr[i + 1]];
+  spShowSection('cameras');
+}
+
 /* ── Save / Export / Import / Reset ── */
 async function saveSettings() {
   // Read hub fields back into CONFIG
@@ -11757,6 +12057,20 @@ async function saveSettings() {
       const id = el.value.trim();
       const label = lockLabelEls[i] ? lockLabelEls[i].value.trim() : '';
       if (id) CONFIG.locks.push({ id, label: label || 'Lock ' + (i + 1) });
+    });
+  }
+  // Cameras
+  const cameraNameEls = document.querySelectorAll('.sp-camera-name');
+  const cameraRoomEls = document.querySelectorAll('.sp-camera-room');
+  const cameraUrlEls  = document.querySelectorAll('.sp-camera-url');
+  if (cameraNameEls.length) {
+    CONFIG.cameras = [];
+    cameraNameEls.forEach((el, i) => {
+      const snapshotUrl = cameraUrlEls[i] ? cameraUrlEls[i].value.trim() : '';
+      if (!snapshotUrl) return;
+      const name = el.value.trim() || 'Camera ' + (i + 1);
+      const room = cameraRoomEls[i] ? cameraRoomEls[i].value.trim() : '';
+      CONFIG.cameras.push({ name, room, snapshotUrl });
     });
   }
   // Settings PIN — hash with SHA-512 before storing
@@ -11815,7 +12129,7 @@ function exportSettings() {
     config: {
       hub: CONFIG.hub, appId: CONFIG.appId, token: CONFIG.token, poll: CONFIG.poll,
       defaultRoom: CONFIG.defaultRoom, returnTimeout: CONFIG.returnTimeout,
-      locks: CONFIG.locks, weather: CONFIG.weather, settingsPin: CONFIG.settingsPin,
+      locks: CONFIG.locks, cameras: CONFIG.cameras || [], weather: CONFIG.weather, settingsPin: CONFIG.settingsPin,
       artemisEnabled: CONFIG.artemisEnabled, artemisPin: CONFIG.artemisPin,
       artemisExitDelay: CONFIG.artemisExitDelay, artemisEntryDelay: CONFIG.artemisEntryDelay,
       artemisRingDeviceId: CONFIG.artemisRingDeviceId,
@@ -12518,6 +12832,7 @@ function tick() {
 ═══════════════════════════════════════════════════════ */
 tick();
 setInterval(tick, 15000);
+camStartAutoRefresh();
 
 // Render immediately with default state so the UI appears instantly
 renderSidebar();
