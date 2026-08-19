@@ -893,16 +893,37 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 .cam-mini-dot{position:absolute;top:4px;left:5px;width:6px;height:6px;border-radius:50%;background:var(--amber)}
 .cam-mini-dot.off{background:var(--t4)}
 .cam-mini-more{display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;color:var(--t3)}
+.cam-strip-wrap{padding:14px 0 18px;border-top:1px solid var(--border-s)}
+.cam-strip{display:flex;gap:10px;overflow-x:auto;padding:0 20px 4px;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
+.cam-strip::-webkit-scrollbar{height:6px}
+.cam-strip::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.cam-strip-tile{flex:0 0 auto;width:200px;aspect-ratio:16/9;border-radius:10px;overflow:hidden;position:relative;background:var(--bg-hover);cursor:pointer;scroll-snap-align:start;border:1px solid var(--border)}
+.cam-strip-tile img{width:100%;height:100%;object-fit:cover;display:block}
+.cam-strip-tile.cam-mini-offline img{visibility:hidden}
+.cam-strip-name{position:absolute;left:8px;bottom:6px;font-size:11px;font-weight:500;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7)}
 .cam-refresh-all-btn{height:34px;padding:0 14px;border:1px solid var(--border);border-radius:9px;background:transparent;color:var(--t2);font-size:12px;font-family:inherit;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s}
 .cam-refresh-all-btn:hover{background:var(--bg-hover);color:var(--t1)}
 .cam-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:18px 20px}
 .cam-tile,.cam-list-tile{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.cam-tile-empty{background:transparent;border:1px dashed var(--border-s)}
+.cam-tile-empty .cam-tile-img{background:transparent}
+.cam-tile-empty .cam-tile-meta{visibility:hidden}
 .cam-tile-img{aspect-ratio:16/9;background:var(--bg-hover);position:relative}
 .cam-tile-img img{width:100%;height:100%;object-fit:cover;display:block}
 .cam-tile-offline .cam-tile-img img{visibility:hidden}
 .cam-live-badge{position:absolute;top:8px;left:8px;background:rgba(0,0,0,.55);border-radius:6px;padding:3px 8px;display:flex;align-items:center;gap:5px;font-size:11px;font-weight:500;color:#fff}
 .cam-live-dot{width:6px;height:6px;border-radius:50%;background:var(--amber)}
 .cam-live-badge.off .cam-live-dot{background:var(--t4)}
+.cam-live-badge.streaming{background:rgba(220,38,38,.85)}
+.cam-live-badge.streaming .cam-live-dot{background:#fff;animation:camPulse 1.4s ease-in-out infinite}
+@keyframes camPulse{0%,100%{opacity:1}50%{opacity:.3}}
+.cam-tile-placeholder{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--t3)}
+.cam-tile-placeholder span{font-size:11px}
+.cam-stream-error{position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:var(--t3);font-size:12px;background:var(--bg-hover)}
+.cam-stream-broken .cam-stream-error{display:flex}
+.cam-stream-broken img{visibility:hidden}
+.cam-cfg-card{padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border-s)}
+.cam-cfg-card:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
 .cam-expand-btn,.cam-refresh-btn{background:rgba(0,0,0,.55);border:none;border-radius:6px;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px}
 .cam-expand-btn{position:absolute;top:8px;right:8px;width:26px;height:26px}
 .cam-tile-meta{padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -1446,6 +1467,13 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
     <span id="app-update-msg">A new version of Hestia is available</span>
     <button onclick="dismissAppUpdateBanner()" style="background:none;border:none;cursor:pointer;color:var(--amber);font-size:16px;line-height:1;padding:0 4px;opacity:.7">✕</button>
   </div>
+  <div class="app-update-banner" id="cfg-stale-banner">
+    <span id="cfg-stale-msg">Settings changed on another device</span>
+    <span style="display:flex;gap:10px;align-items:center;flex-shrink:0">
+      <button onclick="cfgApplyPendingRefresh()" style="background:none;border:1px solid var(--amber);border-radius:5px;cursor:pointer;color:var(--amber);font-size:11px;padding:2px 10px">Refresh</button>
+      <button onclick="cfgDismissStaleBanner()" style="background:none;border:none;cursor:pointer;color:var(--amber);font-size:16px;line-height:1;padding:0 4px;opacity:.7">✕</button>
+    </span>
+  </div>
   <div class="body">
     <div class="sidebar">
       <div class="sb-tabs">
@@ -1696,8 +1724,8 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    Copyright © 2026 Haven. CC BY-NC 4.0.
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
-const HESTIA_VERSION    = '1.6.0';
-const HESTIA_BUILD_DATE = '2026-08-17';
+const HESTIA_VERSION    = '1.6.1';
+const HESTIA_BUILD_DATE = '2026-08-19';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 let _cloudSyncDebounce  = null;
@@ -2306,6 +2334,10 @@ function deduplicateStaging() {
   }
 }
 
+// savedAt of whatever config this tab currently has applied — compared
+// against the hub's savedAt by the periodic staleness check below.
+let _cfgAppliedSavedAt = null;
+
 function applyParsedConfig(parsed) {
   if (!parsed) return false;
   try {
@@ -2367,6 +2399,7 @@ function applyParsedConfig(parsed) {
     if (parsed.staging)     { staging.length = 0;     parsed.staging.forEach(d => staging.push(d)); }
     deduplicateStaging();
     _cleanOrphanedVirtualIds();
+    _cfgAppliedSavedAt = parsed.savedAt || Date.now();
     return true;
   } catch(e) { return false; }
 }
@@ -2922,6 +2955,72 @@ function dismissAppUpdateBanner() {
   // Snooze for 24 hours
   try { localStorage.setItem('hestia-app-update-snooze', Date.now() + 24 * 60 * 60 * 1000); } catch(e) {}
 }
+
+/* ── Config staleness check ──
+   Config (rooms/staging/reminders/routines/etc.) is only pulled from the
+   hub at boot — there's no live push while a tab stays open, so a second
+   device's changes never show up here until this tab reloads. This timer
+   periodically compares the hub's savedAt against what we last applied and
+   either banners it or, once the screen has been idle a while AND nothing
+   would be interrupted, reloads automatically.
+   IMPORTANT: this only ever decides *when* to trigger a real page reload,
+   which re-runs the existing boot flow that unconditionally trusts the hub.
+   It must never compare timestamps to decide whether to skip applying the
+   hub's config, the way an earlier (reverted) attempt did — that caused
+   devices to lose room assignments. See project memory: config sync
+   regression, hub-is-truth model. */
+let _lastUserActivity   = Date.now();
+let _cfgStaleCheckTimer = null;
+const CFG_STALE_CHECK_MS  = 30000; // how often to ask the hub for its savedAt
+const CFG_IDLE_REFRESH_MS = 30000; // how long the screen must be untouched before auto-reloading
+
+function _cfgTrackActivity() { _lastUserActivity = Date.now(); }
+
+// Only auto-reload when nothing on screen would lose state: no open
+// Settings form, no Artemis PIN entry, no active Athena session, no one
+// mid-watch on a live camera stream.
+function _cfgRefreshSafe() {
+  if (document.getElementById('settings-overlay')?.classList.contains('open')) return false;
+  if (document.getElementById('a-pin-sheet')?.classList.contains('open')) return false;
+  if (document.getElementById('ath-overlay')?.classList.contains('open')) return false;
+  if (typeof camDetailIdx !== 'undefined' && camDetailIdx !== null) return false;
+  return true;
+}
+
+let _cfgStaleDismissedSavedAt = null; // suppress re-showing the banner for a staleness the user already dismissed
+let _cfgLastSeenHubSavedAt    = null; // the hub savedAt value the banner (if visible) currently reflects
+
+async function _cfgCheckStale() {
+  if (!HUB_STORE) return;
+  const hubCfg = await loadConfigFromHub();
+  if (!hubCfg || !hubCfg.savedAt || !_cfgAppliedSavedAt) return;
+  if (hubCfg.savedAt <= _cfgAppliedSavedAt) return;
+
+  _cfgLastSeenHubSavedAt = hubCfg.savedAt;
+  // Only re-show if this is a newer change than the one already dismissed —
+  // dismiss shouldn't get overridden by the next tick seeing the same stale state.
+  if (hubCfg.savedAt !== _cfgStaleDismissedSavedAt) {
+    const banner = document.getElementById('cfg-stale-banner');
+    if (banner) banner.classList.add('visible');
+  }
+
+  // Idle auto-refresh still applies even if the banner was dismissed —
+  // dismissing just quiets the nag, it doesn't opt out of the ambient sync.
+  const idleMs = Date.now() - _lastUserActivity;
+  if (idleMs >= CFG_IDLE_REFRESH_MS && _cfgRefreshSafe()) location.reload();
+}
+function cfgApplyPendingRefresh() { location.reload(); }
+function cfgDismissStaleBanner() {
+  const banner = document.getElementById('cfg-stale-banner');
+  if (banner) banner.classList.remove('visible');
+  if (_cfgLastSeenHubSavedAt) _cfgStaleDismissedSavedAt = _cfgLastSeenHubSavedAt;
+}
+function cfgStartStaleCheck() {
+  document.addEventListener('pointerdown', _cfgTrackActivity, { passive: true });
+  document.addEventListener('keydown', _cfgTrackActivity, { passive: true });
+  if (_cfgStaleCheckTimer) return;
+  _cfgStaleCheckTimer = setInterval(_cfgCheckStale, CFG_STALE_CHECK_MS);
+}
 function setConn(state) {
   const cls = 'conn-dot' + (state === 'ok' ? '' : state === 'err' ? ' err' : ' loading');
   const dot  = document.getElementById('conn-dot');
@@ -3341,28 +3440,36 @@ function iconWeather(codeOrText, size) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
 }
 
-// Desktop-only home card — mobile surfaces cameras via the Security tab instead.
-function cameraHomeCardHTML() {
+// Desktop-only home row — full-width filmstrip below the calendar, not a grid
+// tile, so it doesn't compete with the compact Lights/Fans/Climate cards.
+// Mobile surfaces cameras via the Security tab instead.
+function cameraHomeRowHTML() {
   const cams = CONFIG.cameras || [];
   if (!cams.length || isMobile()) return '';
-  const showCount = cams.length > 4 ? 3 : 4;
-  const tiles = cams.slice(0, showCount).map((cam, i) => {
+  const tiles = cams.map((cam, i) => {
     const state = CAM_STATE[i] || {};
-    const bust = state.cacheBust || 0;
-    const sep = cam.snapshotUrl.includes('?') ? '&' : '?';
-    const src = h(cam.snapshotUrl) + sep + '_hb=' + bust;
-    return `<div class="cam-mini-tile">
-        <img src="${src}" alt="" onerror="this.closest('.cam-mini-tile').classList.add('cam-mini-offline')" onload="this.closest('.cam-mini-tile').classList.remove('cam-mini-offline')">
-        <span class="cam-mini-dot${state.online === false ? ' off' : ''}"></span>
+    const hasThumb = !!cam.snapshotUrl;
+    let media;
+    if (hasThumb) {
+      const bust = state.cacheBust || 0;
+      const sep = cam.snapshotUrl.includes('?') ? '&' : '?';
+      const src = h(cam.snapshotUrl) + sep + '_hb=' + bust;
+      media = `<img src="${src}" alt="" onerror="this.closest('.cam-strip-tile').classList.add('cam-mini-offline')" onload="this.closest('.cam-strip-tile').classList.remove('cam-mini-offline')">
+        <span class="cam-mini-dot${state.online === false ? ' off' : ''}"></span>`;
+    } else {
+      media = camPlaceholderHTML(cam);
+    }
+    return `<div class="cam-strip-tile" onclick="navToGlobal('cameras')">
+        ${media}
+        <span class="cam-strip-name">${h(cam.name || 'Camera ' + (i + 1))}</span>
       </div>`;
   }).join('');
-  const more = cams.length > 4 ? `<div class="cam-mini-tile cam-mini-more">+${cams.length - 4}</div>` : '';
-  return `<div class="home-stat-card" onclick="navToGlobal('cameras')">
-      <div class="home-card-top">
+  return `<div class="cam-strip-wrap">
+      <div class="home-card-top" style="padding:0 20px;margin-bottom:8px">
         <div class="home-stat-lbl">Cameras</div>
-        <div class="home-card-icon">${iconCamera(true, 38)}</div>
+        <div class="home-card-icon">${iconCamera(true, 22)}</div>
       </div>
-      <div class="cam-mini-grid">${tiles}${more}</div>
+      <div class="cam-strip">${tiles}</div>
     </div>`;
 }
 function weatherCardHTML() {
@@ -3592,10 +3699,10 @@ function renderHome() {
         <div class="home-card-top"><div class="home-stat-lbl">Climate</div></div>
         ${thermRows}
       </div>` : ''}
-      ${cameraHomeCardHTML()}
       ${weatherCardHTML()}
       ${calendarDesktopHTML()}
     </div>
+    ${cameraHomeRowHTML()}
     <div style="display:flex;justify-content:flex-end;padding:6px 20px 8px;border-top:1px solid var(--border-s);margin-top:2px">
   <span style="font-size:10px;color:var(--t4);letter-spacing:.04em">© 2026 Haven &nbsp;·&nbsp; CC BY-NC 4.0 &nbsp;·&nbsp; Personal use only</span>
 </div>`;
@@ -7756,14 +7863,18 @@ function artemisCamerasListHTML() {
   const rows = cams.map((cam, i) => {
     const state = CAM_STATE[i] || {};
     const offline = state.online === false;
-    return `<div class="cam-list-tile ${offline ? 'cam-tile-offline' : ''}">
+    const hasThumb = !!cam.snapshotUrl;
+    const media = hasThumb
+      ? `<img src="${camSrc(cam, i)}" alt="" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">
+         <span class="cam-live-badge ${offline ? 'off' : ''}"><span class="cam-live-dot"></span>${offline ? 'Offline' : 'Online'}</span>`
+      : camPlaceholderHTML(cam);
+    return `<div class="cam-list-tile ${hasThumb && offline ? 'cam-tile-offline' : ''}">
         <div class="cam-tile-img">
-          <img src="${camSrc(cam, i)}" alt="" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">
-          <span class="cam-live-badge ${offline ? 'off' : ''}"><span class="cam-live-dot"></span>${offline ? 'Offline' : 'Live'}</span>
+          ${media}
         </div>
         <div class="cam-tile-meta">
           <span class="cam-tile-name">${h(cam.name || 'Camera ' + (i + 1))}</span>
-          <span class="cam-tile-room">${camTimeAgo(state.lastFetch)}</span>
+          <span class="cam-tile-room">${hasThumb ? camTimeAgo(state.lastFetch) : (cam.streamUrl ? 'Live only' : '')}</span>
         </div>
       </div>`;
   }).join('');
@@ -10487,6 +10598,18 @@ function camSrc(cam, i) {
   const sep = cam.snapshotUrl.includes('?') ? '&' : '?';
   return h(cam.snapshotUrl) + sep + '_hb=' + (state.cacheBust || 0);
 }
+// Live MJPEG stream URL (e.g. Hubitat's RTSP-to-MJPEG driver) — no
+// cache-busting, the browser keeps one connection open and the frames
+// just keep coming.
+function camStreamSrc(cam) {
+  return h(cam.streamUrl);
+}
+// Cameras with no still-image URL (stream-only) get a lightweight icon
+// tile in grids/lists instead of an <img> — avoids opening a live MJPEG
+// connection just to render a thumbnail nobody asked to watch yet.
+function camPlaceholderHTML(cam) {
+  return `<div class="cam-tile-placeholder">${iconCamera(false, 24)}<span>${cam.streamUrl ? 'Live only' : 'No preview'}</span></div>`;
+}
 
 // Re-renders whichever surface is currently showing camera tiles, if any.
 // Desktop dedicated view, mobile Security-nested list, or neither (e.g. an
@@ -10509,6 +10632,12 @@ function camMarkOffline(i) {
 function camRefreshOne(i) {
   CAM_STATE[i] = Object.assign({}, CAM_STATE[i], { cacheBust: Date.now() });
   camRerenderCurrentView();
+}
+// Force a live MJPEG <img> to drop and reopen its connection to the hub —
+// unlike a snapshot, a stream URL never changes, so a plain re-render
+// wouldn't reload it; re-render the detail view fresh instead.
+function camRestartStream(i) {
+  if (camDetailIdx === i) renderCameras();
 }
 function camRefreshAll() {
   const cams = CONFIG.cameras || [];
@@ -10535,6 +10664,20 @@ function camGoPage(p) {
   camPage = p;
   renderCameras();
 }
+let camSwipeStartX = null;
+function camSwipeStart(e) {
+  camSwipeStartX = e.touches ? e.touches[0].clientX : e.clientX;
+}
+function camSwipeEnd(e) {
+  if (camSwipeStartX === null) return;
+  const endX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
+  const dx = endX - camSwipeStartX;
+  camSwipeStartX = null;
+  const totalPages = Math.max(1, Math.ceil((CONFIG.cameras || []).length / 4));
+  if (Math.abs(dx) < 40 || totalPages <= 1) return;
+  if (dx < 0 && camPage < totalPages - 1) camGoPage(camPage + 1);
+  else if (dx > 0 && camPage > 0) camGoPage(camPage - 1);
+}
 function camExpand(i) {
   camDetailIdx = i;
   renderCameras();
@@ -10557,39 +10700,63 @@ function renderCameras() {
   if (camDetailIdx !== null && cams[camDetailIdx]) {
     const i = camDetailIdx;
     const cam = cams[i];
-    ma.innerHTML = roomHeader('Cameras', cam.name || ('Camera ' + (i + 1)), cam.room || '') +
-      `<div class="cam-detail-img">
-        <img src="${camSrc(cam, i)}" alt="" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">
-      </div>
+    const live = !!cam.streamUrl;
+    const media = live
+      ? `<img src="${camStreamSrc(cam)}" alt="" onerror="this.closest('.cam-detail-img').classList.add('cam-stream-broken')">
+         <span class="cam-live-badge streaming"><span class="cam-live-dot"></span>LIVE</span>
+         <div class="cam-stream-error">Stream unavailable</div>`
+      : `<img src="${camSrc(cam, i)}" alt="" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">`;
+    ma.innerHTML = roomHeader('Cameras', cam.name || ('Camera ' + (i + 1))) +
+      `<div class="cam-detail-img" style="position:relative">${media}</div>
       <div style="padding:14px 20px;display:flex;gap:10px">
         <button class="cam-refresh-all-btn" onclick="camCloseDetail()">&larr; Back</button>
-        <button class="cam-refresh-all-btn" onclick="camRefreshOne(${i})">&#8635; Refresh</button>
+        <button class="cam-refresh-all-btn" onclick="${live ? `camRestartStream(${i})` : `camRefreshOne(${i})`}">&#8635; ${live ? 'Reconnect' : 'Refresh'}</button>
       </div>`;
     return;
   }
 
+  // Always fill a 4-slot grid at a fixed tile size, whether you have 1
+  // camera or 40 -- empty slots stay blank rather than letting real tiles
+  // stretch to fill unused space. Extra cameras page in on swipe (or the
+  // dots) rather than resizing anything.
   const perPage = 4;
   const totalPages = Math.max(1, Math.ceil(cams.length / perPage));
   if (camPage >= totalPages) camPage = totalPages - 1;
   const pageCams = cams.slice(camPage * perPage, camPage * perPage + perPage);
 
-  const tiles = pageCams.map((cam, pi) => {
+  const realTiles = pageCams.map((cam, pi) => {
     const i = camPage * perPage + pi;
     const state = CAM_STATE[i] || {};
     const offline = state.online === false;
+    const hasThumb = !!cam.snapshotUrl;
+    const media = hasThumb
+      ? `<img src="${camSrc(cam, i)}" alt="" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">
+         <span class="cam-live-badge ${offline ? 'off' : ''}"><span class="cam-live-dot"></span>${offline ? 'Offline' : 'Online'}</span>`
+      : camPlaceholderHTML(cam);
     return `
-      <div class="cam-tile ${offline ? 'cam-tile-offline' : ''}">
+      <div class="cam-tile ${hasThumb && offline ? 'cam-tile-offline' : ''}">
         <div class="cam-tile-img">
-          <img src="${camSrc(cam, i)}" alt="" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">
-          <span class="cam-live-badge ${offline ? 'off' : ''}"><span class="cam-live-dot"></span>${offline ? 'Offline' : 'Live'}</span>
+          ${media}
           <button class="cam-expand-btn" onclick="camExpand(${i})" title="Expand" aria-label="Expand ${h(cam.name || '')}">&#10530;</button>
         </div>
         <div class="cam-tile-meta">
-          <div><div class="cam-tile-name">${h(cam.name || 'Camera ' + (i + 1))}</div><div class="cam-tile-room">${h(cam.room || '')}${cam.room ? ' &middot; ' : ''}${camTimeAgo(state.lastFetch)}</div></div>
-          <button class="cam-refresh-btn" onclick="camRefreshOne(${i})" title="Refresh">&#8635;</button>
+          <div><div class="cam-tile-name">${h(cam.name || 'Camera ' + (i + 1))}</div><div class="cam-tile-room">${hasThumb ? camTimeAgo(state.lastFetch) : (cam.streamUrl ? 'Tap to view live' : '')}</div></div>
+          <button class="cam-refresh-btn" onclick="camRefreshOne(${i})" title="Refresh" ${hasThumb ? '' : 'style="visibility:hidden"'}>&#8635;</button>
         </div>
       </div>`;
   }).join('');
+  const emptyCount = perPage - pageCams.length;
+  const placeholders = emptyCount > 0
+    ? Array.from({ length: emptyCount }).map(() => `
+      <div class="cam-tile cam-tile-empty">
+        <div class="cam-tile-img"></div>
+        <div class="cam-tile-meta">
+          <div><div class="cam-tile-name">&nbsp;</div><div class="cam-tile-room">&nbsp;</div></div>
+          <button class="cam-refresh-btn" tabindex="-1">&#8635;</button>
+        </div>
+      </div>`).join('')
+    : '';
+  const tiles = realTiles + placeholders;
 
   const dots = totalPages > 1 ? `<div class="cam-page-dots">${Array.from({ length: totalPages }).map((_, p) =>
     `<span class="cam-page-dot ${p === camPage ? 'active' : ''}" onclick="camGoPage(${p})"></span>`).join('')}</div>` : '';
@@ -10597,7 +10764,7 @@ function renderCameras() {
   ma.innerHTML = roomHeader('', 'Cameras', 'Showing ' + (camPage * perPage + 1) + '-' + Math.min(camPage * perPage + perPage, cams.length) + ' of ' + cams.length,
     `<span style="font-size:11px;color:var(--t4);margin-right:10px">Auto-refresh: ${CAM_AUTO_REFRESH_MS / 1000}s</span>
      <button class="cam-refresh-all-btn" onclick="camRefreshAll()">&#8635; Refresh all</button>`) +
-    `<div class="cam-grid">${tiles}</div>${dots}`;
+    `<div class="cam-grid" ontouchstart="camSwipeStart(event)" ontouchend="camSwipeEnd(event)">${tiles}</div>${dots}`;
 }
 
 function navToGlobal(view) {
@@ -11769,22 +11936,25 @@ function spShowSection(id, force) {
 
     case 'cameras':
       const cameraRows = (CONFIG.cameras || []).map((cam, i) => `
-          <div class="sp-input-row" data-camera-idx="${i}" style="align-items:flex-end">
-            <div class="sp-field" style="flex:1"><label class="sp-label">Name</label>
-              <input class="sp-input sp-camera-name" value="${cam.name||''}" placeholder="Front Door"></div>
-            <div class="sp-field" style="flex:1"><label class="sp-label">Room</label>
-              <input class="sp-input sp-camera-room" value="${cam.room||''}" placeholder="Porch"></div>
-            <div class="sp-field" style="flex:2"><label class="sp-label">Snapshot URL</label>
-              <input class="sp-input sp-camera-url" value="${cam.snapshotUrl||''}" placeholder="http://192.168.1.50/snapshot.jpg"></div>
-            <button class="sp-btn-icon" onclick="spMoveCameraUp(${i})" title="Move up" ${i===0?'disabled':''} style="margin-bottom:6px;color:var(--t3);background:none;border:none;font-size:14px;cursor:pointer">&uarr;</button>
-            <button class="sp-btn-icon" onclick="spMoveCameraDown(${i})" title="Move down" ${i===(CONFIG.cameras||[]).length-1?'disabled':''} style="margin-bottom:6px;color:var(--t3);background:none;border:none;font-size:14px;cursor:pointer">&darr;</button>
-            <button class="sp-btn-icon" onclick="spRemoveCamera(${i})" title="Remove" style="margin-bottom:6px;color:#F87171;background:none;border:none;font-size:16px;cursor:pointer">&times;</button>
+          <div class="cam-cfg-card" data-camera-idx="${i}">
+            <div class="sp-input-row" style="align-items:flex-end">
+              <div class="sp-field" style="flex:1"><label class="sp-label">Name</label>
+                <input class="sp-input sp-camera-name" value="${cam.name||''}" placeholder="Front Door"></div>
+              <div class="sp-field" style="flex:2"><label class="sp-label">Snapshot URL</label>
+                <input class="sp-input sp-camera-url" value="${cam.snapshotUrl||''}" placeholder="http://192.168.1.50/snapshot.jpg"></div>
+              <button class="sp-btn-icon" onclick="spMoveCameraUp(${i})" title="Move up" ${i===0?'disabled':''} style="margin-bottom:6px;color:var(--t3);background:none;border:none;font-size:14px;cursor:pointer">&uarr;</button>
+              <button class="sp-btn-icon" onclick="spMoveCameraDown(${i})" title="Move down" ${i===(CONFIG.cameras||[]).length-1?'disabled':''} style="margin-bottom:6px;color:var(--t3);background:none;border:none;font-size:14px;cursor:pointer">&darr;</button>
+              <button class="sp-btn-icon" onclick="spRemoveCamera(${i})" title="Remove" style="margin-bottom:6px;color:#F87171;background:none;border:none;font-size:16px;cursor:pointer">&times;</button>
+            </div>
+            <div class="sp-field" style="margin-bottom:0">
+              <label class="sp-label">Live Stream URL <span style="opacity:.65;font-weight:400;text-transform:none;letter-spacing:0">(optional, MJPEG)</span></label>
+              <input class="sp-input sp-camera-stream" value="${cam.streamUrl||''}" placeholder="http://<hub-ip>/hub2/videoStream/<id>.mjpg"></div>
           </div>`).join('');
       html = `<div class="sp-content-hdr"><span class="sp-content-icon">📷</span>Cameras</div>
         <div class="sp-group">
           <div id="sp-cameras-list">${cameraRows || '<span class="sp-hint" style="margin:8px 0;display:block">No cameras configured.</span>'}</div>
-          <button class="sp-btn" onclick="spAddCamera()" style="margin-top:8px">+ Add Camera</button>
-          <span class="sp-hint">Snapshot URL must return a still image (JPEG/PNG) when fetched — not a video stream. This is typically provided by your camera's own local API, an NVR, or a bridge like go2rtc. List order controls display order everywhere cameras appear.</span>
+          <button class="sp-btn sp-btn-secondary" onclick="spAddCamera()" style="padding:0 16px;margin-top:8px;align-self:flex-start">+ Add Camera</button>
+          <span class="sp-hint">Snapshot URL must return a still image (JPEG/PNG) and is used for thumbnails. Live Stream URL is optional and must be an MJPEG stream (multipart HTTP), e.g. Hubitat's built-in RTSP Camera Stream driver on C-8 Pro hubs -- add it to view a real live feed when you expand a camera. A camera needs at least one of the two. List order controls display order everywhere cameras appear.</span>
         </div>`;
       break;
 
@@ -12003,7 +12173,7 @@ function spRemoveLock(i) {
 
 function spAddCamera() {
   if (!CONFIG.cameras) CONFIG.cameras = [];
-  CONFIG.cameras.push({ name: '', room: '', snapshotUrl: '' });
+  CONFIG.cameras.push({ name: '', snapshotUrl: '', streamUrl: '' });
   spShowSection('cameras');
 }
 function spRemoveCamera(i) {
@@ -12060,17 +12230,17 @@ async function saveSettings() {
     });
   }
   // Cameras
-  const cameraNameEls = document.querySelectorAll('.sp-camera-name');
-  const cameraRoomEls = document.querySelectorAll('.sp-camera-room');
-  const cameraUrlEls  = document.querySelectorAll('.sp-camera-url');
+  const cameraNameEls   = document.querySelectorAll('.sp-camera-name');
+  const cameraUrlEls    = document.querySelectorAll('.sp-camera-url');
+  const cameraStreamEls = document.querySelectorAll('.sp-camera-stream');
   if (cameraNameEls.length) {
     CONFIG.cameras = [];
     cameraNameEls.forEach((el, i) => {
       const snapshotUrl = cameraUrlEls[i] ? cameraUrlEls[i].value.trim() : '';
-      if (!snapshotUrl) return;
+      const streamUrl   = cameraStreamEls[i] ? cameraStreamEls[i].value.trim() : '';
+      if (!snapshotUrl && !streamUrl) return;
       const name = el.value.trim() || 'Camera ' + (i + 1);
-      const room = cameraRoomEls[i] ? cameraRoomEls[i].value.trim() : '';
-      CONFIG.cameras.push({ name, room, snapshotUrl });
+      CONFIG.cameras.push({ name, snapshotUrl, streamUrl });
     });
   }
   // Settings PIN — hash with SHA-512 before storing
@@ -13582,7 +13752,11 @@ function detectNewSecurityDevices(devices) {
     // Dual-capability: use virtual motion ID
     const vid = isDualCapability(d.capabilities) ? id + ':motion' : id;
     if (assigned.has(vid)) return;
-    const type = capToType(d.capabilities);
+    // Pass label so name-based fallbacks (garage relays reporting Switch +
+    // ContactSensor together, e.g. Zooz Zen17) resolve correctly instead of
+    // falling through to the generic ContactSensor check below and getting
+    // misclassified as a plain door sensor here.
+    const type = capToType(d.capabilities, d.label || d.name);
     const cat  = typeToCat[type];
     if (!cat) return;
     if (!CONFIG.artemisSensors[cat]) CONFIG.artemisSensors[cat] = [];
@@ -14651,6 +14825,7 @@ function launchOnboarding() {
 
   scheduleNextPoll();
   setTimeout(checkAppVersion, 5000);
+  cfgStartStaleCheck();
   artemisShowSecurityNav();
   updateCategoryNav();
   // Migrate legacy plain-text PINs to SHA-512 hashes silently on first load
