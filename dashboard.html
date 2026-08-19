@@ -2646,6 +2646,7 @@ function applyConfig() {
   rooms.forEach(r => VALID_ROOMS.add(r.id));
   ['home','lights','fans','blinds','climate'].forEach(v => VALID_ROOMS.add(v));
   if (CONFIG.artemisEnabled) VALID_ROOMS.add('security');
+  if ((CONFIG.cameras || []).length > 0) VALID_ROOMS.add('cameras');
   VALID_ROOMS.add('controls');
   // Re-snapshot and re-render
   snapshotState();
@@ -2723,6 +2724,8 @@ let VALID_ROOMS = new Set(
   rooms.map(r => r.id).concat(
     ['home','lights','fans','blinds','climate','controls'].concat(
       (typeof CONFIG !== 'undefined' && CONFIG.artemisEnabled) ? ['security'] : []
+    ).concat(
+      (typeof CONFIG !== 'undefined' && (CONFIG.cameras || []).length > 0) ? ['cameras'] : []
     )
   )
 );
@@ -9584,6 +9587,7 @@ function artemisToggleEnabled(val) {
   VALID_ROOMS.clear();
   rooms.map(r => r.id).concat(['home','lights','fans','blinds','climate','controls']).forEach(v => VALID_ROOMS.add(v));
   if (val) VALID_ROOMS.add('security');
+  if ((CONFIG.cameras || []).length > 0) VALID_ROOMS.add('cameras');
   renderSidebar();
   spShowSection(spActiveSection);
 }
@@ -11857,6 +11861,7 @@ function spShowSection(id, force) {
               <option value="fans" ${CONFIG.defaultRoom==='fans'?'selected':''}>Fans</option>
               <option value="blinds" ${CONFIG.defaultRoom==='blinds'?'selected':''}>Blinds</option>
               <option value="climate" ${CONFIG.defaultRoom==='climate'?'selected':''}>Climate</option>
+              ${(CONFIG.cameras || []).length > 0 ? `<option value="cameras" ${CONFIG.defaultRoom==='cameras'?'selected':''}>Cameras</option>` : ''}
               ${CONFIG.artemisEnabled ? `<option value="security" ${CONFIG.defaultRoom==='security'?'selected':''}>Security</option>` : ''}
               ${rooms.map(r=>`<option value="${r.id}" ${CONFIG.defaultRoom===r.id?'selected':''}>${h(r.name)}</option>`).join('')}
             </select>
@@ -13016,6 +13021,7 @@ else if (DEFAULT_ROOM === 'blinds')   renderBlinds();
 else if (DEFAULT_ROOM === 'lights')   renderLights();
 else if (DEFAULT_ROOM === 'fans')     renderFans();
 else if (DEFAULT_ROOM === 'security') renderSecurity();
+else if (DEFAULT_ROOM === 'cameras')  { isMobile() ? renderHome() : renderCameras(); } // desktop/tablet view only -- mobile nests cameras in Security instead
 else {
   const defRoom = rooms.find(r => r.id === DEFAULT_ROOM);
   if (defRoom) renderRoom(defRoom);
