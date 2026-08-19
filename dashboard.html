@@ -3440,10 +3440,12 @@ function iconWeather(codeOrText, size) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
 }
 
-// Desktop-only home row — full-width filmstrip below the calendar, not a grid
-// tile, so it doesn't compete with the compact Lights/Fans/Climate cards.
-// Mobile surfaces cameras via the Security tab instead.
-function cameraHomeRowHTML() {
+// Desktop-only camera filmstrip — full-width row of tiles, used on both the
+// Home screen (as the last item inside .home-grid, no padding needed) and
+// the Security page (as a standalone sibling outside any padded container,
+// so it needs its own horizontal inset to line up with the page's edges).
+// Mobile surfaces cameras via the Security tab instead (see artemisCamerasHTML).
+function cameraHomeRowHTML(standalone) {
   const cams = CONFIG.cameras || [];
   if (!cams.length || isMobile()) return '';
   const tiles = cams.map((cam, i) => {
@@ -3464,7 +3466,8 @@ function cameraHomeRowHTML() {
         <span class="cam-strip-name">${h(cam.name || 'Camera ' + (i + 1))}</span>
       </div>`;
   }).join('');
-  return `<div class="cam-strip-wrap" style="grid-column:1/-1">
+  const pad = standalone ? 'padding-left:16px;padding-right:16px;padding-bottom:16px;' : '';
+  return `<div class="cam-strip-wrap" style="grid-column:1/-1;${pad}">
       <div class="home-card-top" style="margin-bottom:8px">
         <div class="home-stat-lbl">Cameras</div>
         <div class="home-card-icon">${iconCamera(true, 22)}</div>
@@ -8112,6 +8115,7 @@ function renderSecurity() {
     ma.innerHTML = `<div style="display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden">
       ${alarmHTML}
       <div class="artemis-panel" style="flex:1;min-height:0">${leftHTML}${rightHTML}</div>
+      ${cameraHomeRowHTML(true)}
     </div>`;
   }
   } catch(err) {
