@@ -903,7 +903,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 .cam-strip-name{position:absolute;left:8px;bottom:6px;font-size:12px;font-weight:500;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7)}
 .cam-refresh-all-btn{height:34px;padding:0 14px;border:1px solid var(--border);border-radius:9px;background:transparent;color:var(--t2);font-size:12px;font-family:inherit;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s}
 .cam-refresh-all-btn:hover{background:var(--bg-hover);color:var(--t1)}
-.cam-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:18px 20px}
+.cam-grid{display:grid;grid-template-columns:repeat(2,minmax(0,560px));grid-auto-rows:min-content;justify-content:center;gap:14px;padding:18px 20px;flex:1;min-height:0;overflow-y:auto;align-content:start}
 .cam-tile,.cam-list-tile{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;overflow:hidden}
 .cam-tile-empty{background:transparent;border:1px dashed var(--border-s)}
 .cam-tile-empty .cam-tile-img{background:transparent}
@@ -1725,7 +1725,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.6.1';
-const HESTIA_BUILD_DATE = '2026-08-19';
+const HESTIA_BUILD_DATE = '2026-08-20';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 let _cloudSyncDebounce  = null;
