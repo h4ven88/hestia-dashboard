@@ -924,6 +924,8 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 .cam-stream-broken img{visibility:hidden}
 .cam-cfg-card{padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border-s)}
 .cam-cfg-card:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
+.lock-cfg-card{padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border-s)}
+.lock-cfg-card:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
 .cam-expand-btn,.cam-refresh-btn{background:rgba(0,0,0,.55);border:none;border-radius:6px;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px}
 .cam-expand-btn{position:absolute;top:8px;right:8px;width:26px;height:26px}
 .cam-tile-meta{padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -3894,35 +3896,63 @@ function computeRoomSecState() {
   return roomSecState;
 }
 
-// Surgically update only the security portion of each room button's status line.
-// Called on every poll when Artemis is enabled — avoids full sidebar rebuild.
+// Per-room unlocked-lock counts, keyed by room id. Independent of Artemis --
+// locks work whether or not the security module is enabled.
+function computeRoomLockState() {
+  const state = {};
+  (CONFIG.locks || []).forEach(lk => {
+    if (!lk.room || !lk.id || !S[lk.id]) return;
+    state[lk.room] = state[lk.room] || { unlocked: 0 };
+    if (!S[lk.id].locked) state[lk.room].unlocked++;
+  });
+  return state;
+}
+
+// Builds the combined security + lock badge portion of a room button's
+// status line -- shared by the initial sidebar render and the surgical
+// per-poll patch below, so both stay in sync with the same logic.
+function roomBadgeHTML(r, roomSecState, roomLockState) {
+  const sec = roomSecState[r.id] || null;
+  const lock = roomLockState[r.id] || null;
+  let secText = '';
+  let isAlert = false, isMotion = false;
+  if (sec) {
+    if (sec.open > 0) {
+      secText = sec.open === 1 ? '1 open' : sec.open + ' open';
+      isAlert = true;
+    }
+    if (sec.motion) {
+      secText += (secText ? ' · ' : '') + 'Motion detected';
+      isMotion = !isAlert;
+    }
+  }
+  const secHtml = secText
+    ? `<span class="rb-sec-${isAlert ? 'alert' : 'motion'}">${secText}</span>`
+    : '';
+  const unlocked = lock && lock.unlocked > 0;
+  const lockHtml = unlocked
+    ? `<span class="rb-sec-alert">${lock.unlocked > 1 ? lock.unlocked + ' unlocked' : 'Unlocked'}</span>`
+    : '';
+  const badgeHtml = [secHtml, lockHtml].filter(Boolean).join(' · ');
+  return { badgeHtml, isAlert: isAlert || unlocked, isMotion };
+}
+
+// Surgically update only the badge portion of each room button's status
+// line. Called on every poll -- locks and security state can change
+// without a full sidebar rebuild.
 function patchSidebarSecurity() {
   const roomSecState = computeRoomSecState();
+  const roomLockState = computeRoomLockState();
   rooms.forEach(r => {
     const btn = document.querySelector(`[data-room-id="${r.id}"]`);
     if (!btn) return;
     const statusEl = btn.querySelector('.rb-status');
     if (!statusEl) return;
-    const sec = roomSecState[r.id] || null;
     const activity = roomActivity(r);
     const isLive = activity !== 'All off';
-    let secText = '';
-    let isAlert = false, isMotion = false;
-    if (sec) {
-      if (sec.open > 0) {
-        secText = sec.open === 1 ? '1 open' : sec.open + ' open';
-        isAlert = true;
-      }
-      if (sec.motion) {
-        secText += (secText ? ' · ' : '') + 'Motion detected';
-        isMotion = !isAlert;
-      }
-    }
+    const { badgeHtml, isAlert, isMotion } = roomBadgeHTML(r, roomSecState, roomLockState);
     const parts = activity !== 'All off' ? [activity] : [];
-    const secHtml = secText
-      ? `<span class="rb-sec-${isAlert ? 'alert' : 'motion'}">${secText}</span>`
-      : '';
-    const joined = parts.length ? parts.join(', ') + (secHtml ? ' · ' + secHtml : '') : (secHtml || 'All off');
+    const joined = parts.length ? parts.join(', ') + (badgeHtml ? ' · ' + badgeHtml : '') : (badgeHtml || 'All off');
     statusEl.innerHTML = joined;
     statusEl.className = 'rb-status' + (isLive || isAlert || isMotion ? ' live' : '');
   });
@@ -10399,28 +10429,15 @@ function renderSidebar() {
   items.push('<div class="sb-section-lbl">Rooms</div>');
 
   const roomSecState = computeRoomSecState();
+  const roomLockState = computeRoomLockState();
 
   const sortedRooms = _sortedRooms();
   sortedRooms.forEach(r => {
     const activity = roomActivity(r);
-    const sec = roomSecState[r.id] || null;
     const isLive = activity !== 'All off';
-    let secText = '', isAlert = false, isMotion = false;
-    if (sec) {
-      if (sec.open > 0) {
-        secText = sec.open === 1 ? '1 open' : sec.open + ' open';
-        isAlert = true;
-      }
-      if (sec.motion) {
-        secText += (secText ? ' · ' : '') + 'Motion detected';
-        isMotion = !isAlert;
-      }
-    }
+    const { badgeHtml, isAlert, isMotion } = roomBadgeHTML(r, roomSecState, roomLockState);
     const parts = activity !== 'All off' ? [activity] : [];
-    const secHtml = secText
-      ? `<span class="rb-sec-${isAlert ? 'alert' : 'motion'}">${secText}</span>`
-      : '';
-    const statusHtml = parts.length ? parts.join(', ') + (secHtml ? ' · ' + secHtml : '') : (secHtml || 'All off');
+    const statusHtml = parts.length ? parts.join(', ') + (badgeHtml ? ' · ' + badgeHtml : '') : (badgeHtml || 'All off');
 
     items.push(`
       <button class="room-btn ${activeRoom === r.id ? 'active' : ''}" onclick="selectRoom('${r.id}')" data-room-id="${r.id}">
@@ -11958,12 +11975,21 @@ function spShowSection(id, force) {
 
     case 'lock':
       const lockRows = (CONFIG.locks || []).map((lk, i) => `
-          <div class="sp-input-row" data-lock-idx="${i}">
-            <div class="sp-field" style="flex:1"><label class="sp-label">Device ID</label>
-              <input class="sp-input sp-lock-id" value="${lk.id||''}" placeholder="13"></div>
-            <div class="sp-field" style="flex:2"><label class="sp-label">Label</label>
-              <input class="sp-input sp-lock-label" value="${lk.label||''}" placeholder="Front Door"></div>
-            <button class="sp-btn-icon" onclick="spRemoveLock(${i})" title="Remove" style="align-self:flex-end;margin-bottom:6px;color:#F87171;background:none;border:none;font-size:16px;cursor:pointer">&times;</button>
+          <div class="lock-cfg-card" data-lock-idx="${i}">
+            <div class="sp-input-row">
+              <div class="sp-field" style="flex:1"><label class="sp-label">Device ID</label>
+                <input class="sp-input sp-lock-id" value="${lk.id||''}" placeholder="13"></div>
+              <div class="sp-field" style="flex:2"><label class="sp-label">Label</label>
+                <input class="sp-input sp-lock-label" value="${lk.label||''}" placeholder="Front Door"></div>
+              <button class="sp-btn-icon" onclick="spRemoveLock(${i})" title="Remove" style="align-self:flex-end;margin-bottom:6px;color:#F87171;background:none;border:none;font-size:16px;cursor:pointer">&times;</button>
+            </div>
+            <div class="sp-field" style="margin-bottom:0">
+              <label class="sp-label">Room <span style="opacity:.65;font-weight:400;text-transform:none;letter-spacing:0">(optional -- shows an unlocked badge on that room)</span></label>
+              <select class="sp-input sp-lock-room">
+                <option value="">No room</option>
+                ${rooms.map(r => `<option value="${r.id}"${lk.room===r.id?' selected':''}>${h(r.name)}</option>`).join('')}
+              </select>
+            </div>
           </div>`).join('');
       html = `<div class="sp-content-hdr"><span class="sp-content-icon">🚪</span>Door Locks</div>
         <div class="sp-group">
@@ -12202,7 +12228,7 @@ function spAddTherm() {
 
 function spAddLock() {
   if (!CONFIG.locks) CONFIG.locks = [];
-  CONFIG.locks.push({ id: '', label: '' });
+  CONFIG.locks.push({ id: '', label: '', room: '' });
   spShowSection('lock');
 }
 function spRemoveLock(i) {
@@ -12260,12 +12286,14 @@ async function saveSettings() {
   // Locks
   const lockIdEls    = document.querySelectorAll('.sp-lock-id');
   const lockLabelEls = document.querySelectorAll('.sp-lock-label');
+  const lockRoomEls  = document.querySelectorAll('.sp-lock-room');
   if (lockIdEls.length) {
     CONFIG.locks = [];
     lockIdEls.forEach((el, i) => {
       const id = el.value.trim();
       const label = lockLabelEls[i] ? lockLabelEls[i].value.trim() : '';
-      if (id) CONFIG.locks.push({ id, label: label || 'Lock ' + (i + 1) });
+      const room = lockRoomEls[i] ? lockRoomEls[i].value : '';
+      if (id) CONFIG.locks.push({ id, label: label || 'Lock ' + (i + 1), room });
     });
   }
   // Cameras
@@ -13647,7 +13675,7 @@ function connectWebSocket() {
       }
 
       patchView();
-      if (CONFIG.artemisEnabled) patchSidebarSecurity();
+      patchSidebarSecurity(); // also covers lock badges, independent of Artemis
     } catch(e) {}
   };
 
@@ -14005,7 +14033,7 @@ function scheduleNextPoll() {
         if (_hsmSyncCounter >= 10) { _hsmSyncCounter = 0; artemisHsmSync(); }
       }
       patchView(); // surgical patch — only changed elements touched, animations uninterrupted
-      if (CONFIG.artemisEnabled) patchSidebarSecurity();
+      patchSidebarSecurity(); // also covers lock badges, independent of Artemis
     } catch (e) {
       if (lastConnOk !== false) console.warn('[POLL] Hub unreachable:', e.message);
       lastConnOk = false;
