@@ -1740,7 +1740,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.6.1';
-const HESTIA_BUILD_DATE = '2026-08-20';
+const HESTIA_BUILD_DATE = '2026-08-23';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 let _cloudSyncDebounce  = null;
@@ -3474,7 +3474,7 @@ function cameraHomeRowHTML(standalone) {
       const bust = state.cacheBust || 0;
       const sep = cam.snapshotUrl.includes('?') ? '&' : '?';
       const src = h(cam.snapshotUrl) + sep + '_hb=' + bust;
-      media = `<img src="${src}" alt="" onerror="this.closest('.cam-strip-tile').classList.add('cam-mini-offline')" onload="this.closest('.cam-strip-tile').classList.remove('cam-mini-offline')">
+      media = `<img src="${src}" alt="" referrerpolicy="no-referrer" onerror="this.closest('.cam-strip-tile').classList.add('cam-mini-offline')" onload="this.closest('.cam-strip-tile').classList.remove('cam-mini-offline')">
         <span class="cam-mini-dot${state.online === false ? ' off' : ''}"></span>`;
     } else {
       media = camPlaceholderHTML(cam);
@@ -7915,7 +7915,7 @@ function artemisCamerasListHTML() {
     const offline = state.online === false;
     const hasThumb = !!cam.snapshotUrl;
     const media = hasThumb
-      ? `<img src="${camSrc(cam, i)}" alt="" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">
+      ? `<img src="${camSrc(cam, i)}" alt="" referrerpolicy="no-referrer" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">
          <span class="cam-live-badge ${offline ? 'off' : ''}"><span class="cam-live-dot"></span>${offline ? 'Offline' : 'Online'}</span>`
       : camPlaceholderHTML(cam);
     return `<div class="cam-list-tile ${hasThumb && offline ? 'cam-tile-offline' : ''}" onclick="camExpand(${i})" style="cursor:pointer">
@@ -10664,11 +10664,11 @@ function camPlaceholderHTML(cam) {
 // Cameras view and mobile's Security-nested detail view.
 function camDetailMediaHTML(cam, i) {
   if (cam.streamUrl) {
-    return `<img src="${camStreamSrc(cam)}" alt="" onerror="this.closest('.cam-detail-img').classList.add('cam-stream-broken')">
+    return `<img src="${camStreamSrc(cam)}" alt="" referrerpolicy="no-referrer" onerror="this.closest('.cam-detail-img').classList.add('cam-stream-broken')">
       <span class="cam-live-badge streaming"><span class="cam-live-dot"></span>LIVE</span>
       <div class="cam-stream-error">Stream unavailable</div>`;
   }
-  return `<img src="${camSrc(cam, i)}" alt="" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">`;
+  return `<img src="${camSrc(cam, i)}" alt="" referrerpolicy="no-referrer" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">`;
 }
 
 // Re-renders whichever surface is currently showing camera tiles, if any.
@@ -10785,7 +10785,7 @@ function renderCameras() {
     const offline = state.online === false;
     const hasThumb = !!cam.snapshotUrl;
     const media = hasThumb
-      ? `<img src="${camSrc(cam, i)}" alt="" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">
+      ? `<img src="${camSrc(cam, i)}" alt="" referrerpolicy="no-referrer" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">
          <span class="cam-live-badge ${offline ? 'off' : ''}"><span class="cam-live-dot"></span>${offline ? 'Offline' : 'Online'}</span>`
       : camPlaceholderHTML(cam);
     return `
