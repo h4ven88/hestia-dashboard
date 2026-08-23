@@ -10664,11 +10664,33 @@ function camPlaceholderHTML(cam) {
 // Cameras view and mobile's Security-nested detail view.
 function camDetailMediaHTML(cam, i) {
   if (cam.streamUrl) {
-    return `<img src="${camStreamSrc(cam)}" alt="" referrerpolicy="no-referrer" onerror="this.closest('.cam-detail-img').classList.add('cam-stream-broken')">
+    return `<img src="${camStreamSrc(cam)}" alt="" referrerpolicy="no-referrer" onerror="camStreamRetry(this)">
       <span class="cam-live-badge streaming"><span class="cam-live-dot"></span>LIVE</span>
       <div class="cam-stream-error">Stream unavailable</div>`;
   }
   return `<img src="${camSrc(cam, i)}" alt="" referrerpolicy="no-referrer" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">`;
+}
+
+// On-demand RTSP-to-MJPEG bridges (Scrypted rebroadcast, Hubitat's own
+// hub2/videoStream) commonly sit idle with zero subscribers and only start
+// pulling from the upstream camera once a viewer connects. The very first
+// request can land in the brief window before that backend is actually
+// listening -- a hard connection failure, not a slow load a browser would
+// patiently wait out -- so a single failed attempt doesn't necessarily mean
+// the stream is really unavailable. Retry a few times with backoff before
+// giving up.
+const CAM_STREAM_MAX_RETRIES = 3;
+function camStreamRetry(img) {
+  const attempt = (parseInt(img.dataset.retryCount, 10) || 0) + 1;
+  img.dataset.retryCount = attempt;
+  if (attempt > CAM_STREAM_MAX_RETRIES) {
+    const wrap = img.closest('.cam-detail-img');
+    if (wrap) wrap.classList.add('cam-stream-broken');
+    return;
+  }
+  const base = img.dataset.baseSrc || img.src.split('?')[0];
+  img.dataset.baseSrc = base;
+  setTimeout(() => { img.src = base + '?_retry=' + Date.now(); }, 1500 * attempt);
 }
 
 // Re-renders whichever surface is currently showing camera tiles, if any.
