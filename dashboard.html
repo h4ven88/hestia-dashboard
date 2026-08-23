@@ -7904,6 +7904,7 @@ function artemisOpenCameras() {
   renderSecurity();
 }
 function artemisCloseCameras() {
+  camStreamPollStop();
   artemisCamerasView = false;
   camDetailIdx = null;
   renderSecurity();
@@ -10664,33 +10665,41 @@ function camPlaceholderHTML(cam) {
 // Cameras view and mobile's Security-nested detail view.
 function camDetailMediaHTML(cam, i) {
   if (cam.streamUrl) {
-    return `<img src="${camStreamSrc(cam)}" alt="" referrerpolicy="no-referrer" onerror="camStreamRetry(this)">
+    return `<img src="${camStreamSrc(cam)}" alt="" referrerpolicy="no-referrer" onerror="this.closest('.cam-detail-img').classList.add('cam-stream-broken')" onload="this.closest('.cam-detail-img').classList.remove('cam-stream-broken')">
       <span class="cam-live-badge streaming"><span class="cam-live-dot"></span>LIVE</span>
       <div class="cam-stream-error">Stream unavailable</div>`;
   }
   return `<img src="${camSrc(cam, i)}" alt="" referrerpolicy="no-referrer" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">`;
 }
 
-// On-demand RTSP-to-MJPEG bridges (Scrypted rebroadcast, Hubitat's own
-// hub2/videoStream) commonly sit idle with zero subscribers and only start
-// pulling from the upstream camera once a viewer connects. The very first
-// request can land in the brief window before that backend is actually
-// listening -- a hard connection failure, not a slow load a browser would
-// patiently wait out -- so a single failed attempt doesn't necessarily mean
-// the stream is really unavailable. Retry a few times with backoff before
-// giving up.
-const CAM_STREAM_MAX_RETRIES = 3;
-function camStreamRetry(img) {
-  const attempt = (parseInt(img.dataset.retryCount, 10) || 0) + 1;
-  img.dataset.retryCount = attempt;
-  if (attempt > CAM_STREAM_MAX_RETRIES) {
-    const wrap = img.closest('.cam-detail-img');
-    if (wrap) wrap.classList.add('cam-stream-broken');
-    return;
-  }
-  const base = img.dataset.baseSrc || img.src.split('?')[0];
-  img.dataset.baseSrc = base;
-  setTimeout(() => { img.src = base + '?_retry=' + Date.now(); }, 1500 * attempt);
+// Hubitat's own dashboards consume hub2/videoStream via a polled Image
+// tile (a "Refresh Interval" field, commonly set to ~1s) rather than a
+// single persistent multipart connection -- confirmed directly from a
+// Hubitat dashboard's own tile config. So a one-shot <img src> load,
+// however patient, is the wrong model for this endpoint regardless of
+// on-demand cold-start timing. Poll it the same way Hubitat's own
+// software does: keep re-requesting on an interval while the detail view
+// is open, so a single failed frame is just superseded a second later
+// rather than needing an explicit recovery.
+const CAM_STREAM_POLL_MS = 1000;
+let _camStreamPollTimer = null;
+function camStreamPollStart(i) {
+  camStreamPollStop();
+  _camStreamPollTimer = setInterval(() => {
+    const stillVisible = camDetailIdx === i && (
+      (!isMobile() && activeRoom === 'cameras') ||
+      (isMobile() && activeTab === 'security' && artemisCamerasView)
+    );
+    const cam = (CONFIG.cameras || [])[i];
+    const img = document.querySelector('.cam-detail-img img');
+    if (!stillVisible || !img || !cam || !cam.streamUrl) { camStreamPollStop(); return; }
+    const base = camStreamSrc(cam);
+    img.src = base + (base.includes('?') ? '&' : '?') + '_poll=' + Date.now();
+  }, CAM_STREAM_POLL_MS);
+}
+function camStreamPollStop() {
+  clearInterval(_camStreamPollTimer);
+  _camStreamPollTimer = null;
 }
 
 // Re-renders whichever surface is currently showing camera tiles, if any.
@@ -10763,8 +10772,11 @@ function camSwipeEnd(e) {
 function camExpand(i) {
   camDetailIdx = i;
   camRerenderCurrentView();
+  const cam = (CONFIG.cameras || [])[i];
+  if (cam && cam.streamUrl) camStreamPollStart(i); else camStreamPollStop();
 }
 function camCloseDetail() {
+  camStreamPollStop();
   camDetailIdx = null;
   camRerenderCurrentView();
 }
