@@ -1704,6 +1704,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
       <div class="sp-nav-item"        id="spn-artemis"  onclick="spShowSection('artemis')">  <span class="sp-nav-icon">🛡</span>Artemis Security</div>
       <div class="sp-nav-item"        id="spn-athena"   onclick="spShowSection('athena')">   <span class="sp-nav-icon">◈</span>Athena Voice<span class="sp-nav-badge" style="display:none" id="spn-athena-badge">New</span></div>
       <div class="sp-nav-item"        id="spn-announce"  onclick="spShowSection('announce')"> <span class="sp-nav-icon">🔊</span>Announcements</div>
+      <div class="sp-nav-item"        id="spn-push"      onclick="spShowSection('push')">     <span class="sp-nav-icon">📲</span>Push Notifications</div>
       <div class="sp-nav-item"        id="spn-reminders" onclick="spShowSection('reminders')"><span class="sp-nav-icon">🔔</span>Reminders<span class="sp-nav-badge sp-rem-count" style="display:none" id="spn-rem-badge">0</span></div>
       <div class="sp-nav-item"        id="spn-routines"  onclick="spShowSection('routines')"> <span class="sp-nav-icon">⚡</span>Routines</div>
       <div class="sp-nav-group">System</div>
@@ -1740,7 +1741,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.6.1';
-const HESTIA_BUILD_DATE = '2026-08-23';
+const HESTIA_BUILD_DATE = '2026-08-29';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 let _cloudSyncDebounce  = null;
@@ -2141,6 +2142,24 @@ const CONFIG = {
   announceWater:    true,
   announceOpen:     true,
   announceClose:    true,
+  // Push Notifications — Settings UI only for now, no delivery backend yet.
+  // pushDevices entries: {id, name, mode:'always'|'armed'}. Absence from the
+  // list means "don't push" for that device. Alarming/Smoke/Water bypass the
+  // per-device armed-only gate entirely -- they always reach any registered
+  // device regardless of mode, matching how a real security system treats
+  // fire/water alerts as independent of the burglar-alarm arm state.
+  pushEnabled:      false,
+  pushDevices:      [],
+  pushDoors:        true,
+  pushWindows:      true,
+  pushLocks:        true,
+  pushMotion:       false,
+  pushMotionDevices: [],
+  pushAlarming:     true,
+  pushSmoke:        true,
+  pushWater:        true,
+  pushOpen:         true,
+  pushClose:        true,
   tempUnit:       'F',            // 'F' | 'C' (label only) | 'C_CONVERT' (convert F→C)
   // Companion app credentials (cached for cross-origin access from hestari.com)
   hestiaAppId:    '',
@@ -2206,7 +2225,19 @@ const DEFAULTS = {
     announceSmoke: true,
     announceWater: true,
     announceOpen: true,
-    announceClose: true
+    announceClose: true,
+    pushEnabled: false,
+    pushDevices: [],
+    pushDoors: true,
+    pushWindows: true,
+    pushLocks: true,
+    pushMotion: false,
+    pushMotionDevices: [],
+    pushAlarming: true,
+    pushSmoke: true,
+    pushWater: true,
+    pushOpen: true,
+    pushClose: true
   },
   thermostats: [],
   rooms: []
@@ -2494,6 +2525,11 @@ function buildConfigPayload() {
                    announceMotion: CONFIG.announceMotion, announceMotionDevices: CONFIG.announceMotionDevices || [],
                    announceHsm: CONFIG.announceHsm, announceSmoke: CONFIG.announceSmoke, announceWater: CONFIG.announceWater,
                    announceOpen: CONFIG.announceOpen, announceClose: CONFIG.announceClose,
+                   pushEnabled: CONFIG.pushEnabled, pushDevices: CONFIG.pushDevices || [],
+                   pushDoors: CONFIG.pushDoors, pushWindows: CONFIG.pushWindows, pushLocks: CONFIG.pushLocks,
+                   pushMotion: CONFIG.pushMotion, pushMotionDevices: CONFIG.pushMotionDevices || [],
+                   pushAlarming: CONFIG.pushAlarming, pushSmoke: CONFIG.pushSmoke, pushWater: CONFIG.pushWater,
+                   pushOpen: CONFIG.pushOpen, pushClose: CONFIG.pushClose,
                    hestiaAppId: CONFIG.hestiaAppId, hestiaAppToken: CONFIG.hestiaAppToken,
                    reminders: CONFIG.reminders || [], routines: CONFIG.routines || [] },
     thermostats: deepClone(thermostats),
@@ -9143,6 +9179,245 @@ function announceToggleMotionDev(id, on) {
   saveConfig();
 }
 
+// ── Settings Push Notifications body ──────────────────────────────────
+// Mirrors spAnnouncementsBody()'s layout exactly (same row classes, same
+// group structure) so the two sections feel like the same system. The one
+// deliberate deviation: "This Device" uses a 3-way select (Always / Armed
+// only / Don't push) instead of a plain toggle, since per-device delivery
+// urgency isn't a yes/no question the way "announce on this device" is.
+// Alarming/Smoke/Water bypass that per-device gate entirely by design --
+// see the CONFIG.pushEnabled block comment for why.
+function spPushBody() {
+  const en = CONFIG.pushEnabled;
+  const devices = CONFIG.pushDevices || [];
+  const thisDev = devices.find(d => d.id === DEVICE_ID);
+  const thisDevMode = thisDev ? thisDev.mode : 'off';
+  const dim = en ? '' : 'opacity:.45;pointer-events:none';
+  const motionSensors = CONFIG.artemisSensors && CONFIG.artemisSensors.motions || [];
+  const motionDevices = CONFIG.pushMotionDevices || [];
+  const motionDim = CONFIG.pushMotion ? '' : 'opacity:.35;pointer-events:none';
+
+  let motionPickerHtml = '';
+  if (motionSensors.length) {
+    motionPickerHtml = `<div style="margin-top:8px;padding:10px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;max-height:180px;overflow-y:auto;${motionDim}">
+      ${motionSensors.map(d => {
+        const checked = motionDevices.includes(String(d.id)) ? 'checked' : '';
+        const rm = d.room ? (rooms.find(r => r.id === d.room) || {}).name || '' : '';
+        return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border-s)">
+          <span style="font-size:11px;color:var(--t2);flex:1">${h(d.name || d.id)}</span>
+          ${rm ? '<span style="font-size:10px;color:var(--t4);margin-right:10px">' + h(rm) + '</span>' : ''}
+          <label class="sp-toggle"><input type="checkbox" ${checked}
+            onchange="pushToggleMotionDev('${d.id}',this.checked)"><span class="sp-toggle-track"></span></label>
+        </div>`;
+      }).join('')}
+    </div>`;
+  } else if (CONFIG.pushMotion) {
+    motionPickerHtml = '<span class="sp-hint" style="display:block;margin-top:6px">No motion sensors configured. Add them in Artemis Security settings first.</span>';
+  }
+
+  const modeLabel = { always: 'Always', armed: 'Armed only' };
+  let devicesListHtml = '';
+  if (devices.length) {
+    devicesListHtml = `<div style="margin-top:8px;padding:10px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;max-height:200px;overflow-y:auto">
+      ${devices.map(d => {
+        const isSelf = d.id === DEVICE_ID;
+        const shortId = d.id.split('-')[0];
+        return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border-s)">
+          <div style="flex:1;min-width:0">
+            <span style="font-size:11px;color:var(--t2)">${h(d.name)}</span>
+            <span style="font-size:9px;color:var(--t3);margin-left:6px">(${modeLabel[d.mode] || 'Always'})</span>
+            ${isSelf ? '<span style="font-size:9px;color:var(--amber);margin-left:6px">(this device)</span>' : ''}
+            <div style="font-size:9px;color:var(--t4)">${shortId}</div>
+          </div>
+          ${!isSelf ? '<button onclick="pushRemoveDevice(\'' + d.id + '\')" style="background:none;border:none;cursor:pointer;color:var(--t4);font-size:14px;padding:2px 6px" title="Remove">✕</button>' : ''}
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  return `
+    <div class="sp-toggle-row">
+      <div class="sp-toggle-info">
+        <div class="sp-toggle-name">Enable Push Notifications</div>
+        <div class="sp-toggle-desc">Send alerts to registered devices for the events below</div>
+      </div>
+      <label class="sp-toggle">
+        <input type="checkbox" ${en?'checked':''}
+          onchange="CONFIG.pushEnabled=this.checked;saveConfig();spShowSection('push')">
+        <span class="sp-toggle-track"></span>
+      </label>
+    </div>
+
+    <div style="${dim}">
+      <div class="sp-sep"></div>
+      <div class="sp-group">
+        <div class="sp-group-lbl">This Device</div>
+        <div class="sp-toggle-row">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name">Push to this device</div>
+            <div class="sp-toggle-desc">Alarming, Smoke/CO, and Water/Freeze always send regardless of this setting</div>
+          </div>
+          <select class="sp-input" style="width:auto;flex-shrink:0" onchange="pushSetThisDeviceMode(this.value)">
+            <option value="off"    ${thisDevMode==='off'?'selected':''}>Don't push</option>
+            <option value="armed"  ${thisDevMode==='armed'?'selected':''}>Only while armed</option>
+            <option value="always" ${thisDevMode==='always'?'selected':''}>Always</option>
+          </select>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+          <span style="font-size:11px;color:var(--t4);flex-shrink:0">Device name</span>
+          <input type="text" value="${h(DEVICE_NAME)}" maxlength="30" style="flex:1;font-size:12px;padding:4px 8px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--t1);outline:none"
+            onchange="setDeviceName(this.value);pushUpdateDeviceName();spShowSection('push')">
+        </div>
+      </div>
+
+      <div class="sp-sep"></div>
+      <div class="sp-group">
+        <div class="sp-group-lbl">Registered Devices</div>
+        ${devices.length ? devicesListHtml : '<span class="sp-hint" style="display:block;margin-top:4px">No devices registered. Set "Push to this device" above to add this device.</span>'}
+      </div>
+
+      <div class="sp-sep"></div>
+      <div class="sp-group">
+        <div class="sp-group-lbl">Categories</div>
+        <div class="sp-toggle-row">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name">Doors</div>
+            <div class="sp-toggle-desc">Contact sensors on doors</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${CONFIG.pushDoors!==false?'checked':''}
+              onchange="CONFIG.pushDoors=this.checked;saveConfig()">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
+        <div class="sp-toggle-row">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name">Windows</div>
+            <div class="sp-toggle-desc">Contact sensors on windows</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${CONFIG.pushWindows!==false?'checked':''}
+              onchange="CONFIG.pushWindows=this.checked;saveConfig()">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
+        <div class="sp-toggle-row">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name">Locks</div>
+            <div class="sp-toggle-desc">Lock and unlock events</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${CONFIG.pushLocks!==false?'checked':''}
+              onchange="CONFIG.pushLocks=this.checked;saveConfig()">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
+        <div class="sp-toggle-row">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name">Motion</div>
+            <div class="sp-toggle-desc">Select specific sensors below</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${CONFIG.pushMotion?'checked':''}
+              onchange="CONFIG.pushMotion=this.checked;saveConfig();spShowSection('push')">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
+        ${motionPickerHtml}
+        <div class="sp-toggle-row" style="margin-top:2px">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name">Alarming</div>
+            <div class="sp-toggle-desc">Active alarm triggered — always sent, regardless of arm state or device setting</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${CONFIG.pushAlarming!==false?'checked':''}
+              onchange="CONFIG.pushAlarming=this.checked;saveConfig()">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
+        <div class="sp-toggle-row">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name">Smoke / CO</div>
+            <div class="sp-toggle-desc">Always sent, regardless of arm state or device setting</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${CONFIG.pushSmoke!==false?'checked':''}
+              onchange="CONFIG.pushSmoke=this.checked;saveConfig()">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
+        <div class="sp-toggle-row">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name">Water / Freeze</div>
+            <div class="sp-toggle-desc">Always sent, regardless of arm state or device setting</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${CONFIG.pushWater!==false?'checked':''}
+              onchange="CONFIG.pushWater=this.checked;saveConfig()">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="sp-sep"></div>
+      <div class="sp-group">
+        <div class="sp-group-lbl">Event Types</div>
+        <div class="sp-toggle-row">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name">Open / Unlock</div>
+            <div class="sp-toggle-desc">Push when doors, windows, or locks open</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${CONFIG.pushOpen!==false?'checked':''}
+              onchange="CONFIG.pushOpen=this.checked;saveConfig()">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
+        <div class="sp-toggle-row">
+          <div class="sp-toggle-info">
+            <div class="sp-toggle-name">Close / Lock</div>
+            <div class="sp-toggle-desc">Push when doors, windows, or locks close</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${CONFIG.pushClose!==false?'checked':''}
+              onchange="CONFIG.pushClose=this.checked;saveConfig()">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
+      </div>
+    </div>`;
+}
+
+function pushSetThisDeviceMode(mode) {
+  if (!CONFIG.pushDevices) CONFIG.pushDevices = [];
+  CONFIG.pushDevices = CONFIG.pushDevices.filter(d => d.id !== DEVICE_ID);
+  if (mode === 'always' || mode === 'armed') {
+    CONFIG.pushDevices.push({ id: DEVICE_ID, name: DEVICE_NAME, mode });
+  }
+  saveConfig();
+  spShowSection('push');
+}
+
+function pushUpdateDeviceName() {
+  if (!CONFIG.pushDevices) return;
+  const entry = CONFIG.pushDevices.find(d => d.id === DEVICE_ID);
+  if (entry) { entry.name = DEVICE_NAME; saveConfig(); }
+}
+
+function pushRemoveDevice(id) {
+  if (!CONFIG.pushDevices) return;
+  CONFIG.pushDevices = CONFIG.pushDevices.filter(d => d.id !== id);
+  saveConfig();
+  spShowSection('push');
+}
+
+function pushToggleMotionDev(id, on) {
+  if (!CONFIG.pushMotionDevices) CONFIG.pushMotionDevices = [];
+  if (on) { if (!CONFIG.pushMotionDevices.includes(id)) CONFIG.pushMotionDevices.push(id); }
+  else { CONFIG.pushMotionDevices = CONFIG.pushMotionDevices.filter(d => d !== id); }
+  saveConfig();
+}
+
 // ── Settings Artemis body ─────────────────────────────────────────────
 function spArtemisBody() {
   const enabled = CONFIG.artemisEnabled;
@@ -12096,6 +12371,11 @@ function spShowSection(id, force) {
     case 'announce':
       html = `<div class="sp-content-hdr"><span class="sp-content-icon">🔊</span>Announcements</div>
         ${spAnnouncementsBody()}`;
+      break;
+
+    case 'push':
+      html = `<div class="sp-content-hdr"><span class="sp-content-icon">📲</span>Push Notifications</div>
+        ${spPushBody()}`;
       break;
 
     case 'reminders':
