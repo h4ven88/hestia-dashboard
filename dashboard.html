@@ -1744,6 +1744,8 @@ const HESTIA_VERSION    = '1.6.1';
 const HESTIA_BUILD_DATE = '2026-08-29';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
+const PUSH_API          = '/api/push';
+const PUSH_VAPID_PUBLIC_KEY = 'BGCW-E3pct69syRd4q6HDJ5mBvgrcd_Q6tkZ740s-rkuVsMYGeZyCMXjkAknBsy3mVIxVoUALroDtsPXqQAEs7A';
 let _cloudSyncDebounce  = null;
 let _lastCloudPushAt    = 0;
 
@@ -9180,6 +9182,114 @@ function announceToggleMotionDev(id, on) {
 }
 
 // ── Settings Push Notifications body ──────────────────────────────────
+// ── Web Push subscription (browser <-> Cloudflare) ──────────────────────
+// CONFIG.pushDevices only carries {id,name,mode} metadata synced through the
+// normal config channel. The actual PushSubscription (endpoint + encryption
+// keys) never touches CONFIG -- it's registered directly against
+// /api/push/subscribe from here, since it's meaningless on any device but
+// the one that created it.
+function _pushUrlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+async function pushRegisterServiceWorker() {
+  if (!('serviceWorker' in navigator)) return null;
+  try {
+    return await navigator.serviceWorker.register('/sw.js');
+  } catch (e) {
+    console.warn('[Push] Service worker registration failed:', e.message);
+    return null;
+  }
+}
+
+// Silently re-establishes this device's push subscription at boot if it's
+// supposed to have one (per synced CONFIG) but the browser's local
+// subscription is missing -- e.g. site data was cleared. Never prompts;
+// only acts if permission was already granted previously.
+async function pushResyncOnBoot() {
+  if (!CONFIG.pushEnabled) return;
+  const entry = (CONFIG.pushDevices || []).find(d => d.id === DEVICE_ID);
+  if (!entry) return;
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const reg = await pushRegisterServiceWorker();
+  if (!reg) return;
+  try {
+    const existing = await reg.pushManager.getSubscription();
+    if (existing) return;
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: _pushUrlBase64ToUint8Array(PUSH_VAPID_PUBLIC_KEY)
+    });
+    await fetch(PUSH_API + '/subscribe', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deviceId: DEVICE_ID, deviceName: DEVICE_NAME, mode: entry.mode, subscription: sub.toJSON() })
+    });
+    console.log('[Push] Re-subscribed after missing local subscription');
+  } catch (e) {
+    console.warn('[Push] Boot resync failed:', e.message);
+  }
+}
+
+async function pushSubscribeThisDevice(mode) {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    alert('Push notifications are not supported on this browser.');
+    return false;
+  }
+  const reg = await pushRegisterServiceWorker();
+  if (!reg) {
+    alert('Could not register the notification service. Push notifications are unavailable.');
+    return false;
+  }
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') {
+      alert('Notification permission was not granted, so push cannot be enabled on this device.');
+      return false;
+    }
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: _pushUrlBase64ToUint8Array(PUSH_VAPID_PUBLIC_KEY)
+      });
+    }
+    const res = await fetch(PUSH_API + '/subscribe', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deviceId: DEVICE_ID, deviceName: DEVICE_NAME, mode, subscription: sub.toJSON() })
+    });
+    if (!res.ok) throw new Error('subscribe request failed');
+    return true;
+  } catch (e) {
+    console.warn('[Push] Subscribe failed:', e.message);
+    alert('Could not enable push notifications on this device. Please try again.');
+    return false;
+  }
+}
+
+async function pushUnsubscribeDevice(id) {
+  if (id === DEVICE_ID) {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration('/sw.js');
+      const sub = reg && await reg.pushManager.getSubscription();
+      if (sub) await sub.unsubscribe();
+    } catch (e) { console.warn('[Push] Local unsubscribe failed:', e.message); }
+  }
+  try {
+    await fetch(PUSH_API + '/subscribe', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deviceId: id })
+    });
+  } catch (e) { console.warn('[Push] Remote unsubscribe failed:', e.message); }
+}
+
 // Mirrors spAnnouncementsBody()'s layout exactly (same row classes, same
 // group structure) so the two sections feel like the same system. The one
 // deliberate deviation: "This Device" uses a 3-way select (Always / Armed
@@ -9388,11 +9498,18 @@ function spPushBody() {
     </div>`;
 }
 
-function pushSetThisDeviceMode(mode) {
+async function pushSetThisDeviceMode(mode) {
   if (!CONFIG.pushDevices) CONFIG.pushDevices = [];
-  CONFIG.pushDevices = CONFIG.pushDevices.filter(d => d.id !== DEVICE_ID);
+  const wasOn = CONFIG.pushDevices.some(d => d.id === DEVICE_ID);
+
   if (mode === 'always' || mode === 'armed') {
+    const ok = await pushSubscribeThisDevice(mode);
+    if (!ok) { spShowSection('push'); return; } // revert the select to its prior state
+    CONFIG.pushDevices = CONFIG.pushDevices.filter(d => d.id !== DEVICE_ID);
     CONFIG.pushDevices.push({ id: DEVICE_ID, name: DEVICE_NAME, mode });
+  } else {
+    if (wasOn) await pushUnsubscribeDevice(DEVICE_ID);
+    CONFIG.pushDevices = CONFIG.pushDevices.filter(d => d.id !== DEVICE_ID);
   }
   saveConfig();
   spShowSection('push');
@@ -9404,8 +9521,9 @@ function pushUpdateDeviceName() {
   if (entry) { entry.name = DEVICE_NAME; saveConfig(); }
 }
 
-function pushRemoveDevice(id) {
+async function pushRemoveDevice(id) {
   if (!CONFIG.pushDevices) return;
+  await pushUnsubscribeDevice(id);
   CONFIG.pushDevices = CONFIG.pushDevices.filter(d => d.id !== id);
   saveConfig();
   spShowSection('push');
@@ -15270,6 +15388,7 @@ function launchOnboarding() {
   migrateSensorMeta();
   if (CONFIG.artemisEnabled) { artemisHsmSync(); updateArmedStatus(); }
   if (CONFIG.athenaEnabled)  { athenaInit(); }
+  if (CONFIG.pushEnabled)    { pushResyncOnBoot(); }
   reminderInit();
   routineScheduleInit();
   // Security checks
