@@ -4,6 +4,7 @@
     "terser": "^5.46.2"
   },
   "dependencies": {
-    "docx": "^9.6.1"
+    "docx": "^9.6.1",
+    "web-push-browser": "^1.4.2"
   }
 }
