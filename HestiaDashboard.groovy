@@ -1,5 +1,5 @@
 /**
- * Hestia™ Home Dashboard v1.5.5
+ * Hestia™ Home Dashboard v1.6.2
  * ════════════════════════════════════════════════════════════════
  * Lightweight companion app — discovery helper and config store.
  *
@@ -12,6 +12,13 @@
  *      network auto-discovery by the dashboard on new devices
  *   3. Store and serve config   — cross-device settings sync
  *   4. Health check + version   — status endpoints
+ *   5. Push notifications       — polls Maker API for door/window/lock/
+ *      motion/smoke/water changes and subscribes to HSM directly, so it
+ *      keeps working even when nobody has the dashboard open. Deliberately
+ *      reuses the device categorization already synced in the config blob
+ *      (state.config) rather than asking for a second, separate set of
+ *      device selections here — the dashboard's own Settings UI is the
+ *      only place a user should ever need to pick devices.
  *
  * Copyright © 2026 Haven. All rights reserved.
  * License: CC BY-NC 4.0 — personal use only.
@@ -43,12 +50,16 @@ preferences {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
-@Field static final String APP_VERSION        = "1.5.5"
+@Field static final String APP_VERSION        = "1.6.2"
 @Field static final String TOKEN_FILENAME      = "hestia-token.json"
 @Field static final String CONFIG_FILENAME     = "hestia-config.json"
 @Field static final String DASHBOARD_FILENAME  = "index.html"
 @Field static final String DASHBOARD_URL       = "https://raw.githubusercontent.com/h4ven88/hestia-dashboard/main/index.html"
 @Field static final String BUILD_INFO_URL      = "https://raw.githubusercontent.com/h4ven88/hestia-dashboard/main/build-info.json"
+
+// ── Push notifications ───────────────────────────────────────────────────
+@Field static final String  PUSH_SEND_URL     = "https://hestari.com/api/push/send"
+@Field static final Integer PUSH_POLL_SECONDS = 25
 
 // ── CORS headers ──────────────────────────────────────────────────────────
 // Enabled by default — endpoints require OAuth tokens so there is no
@@ -105,10 +116,12 @@ def mainPage() {
 
         section("Status") {
             def hubIp = location.hubs[0].localIP
+            def push  = getPushSettings()
             paragraph "App version: ${APP_VERSION}\n" +
                 "Dashboard file: ${state.dashboardInstalled ? '✓ /local/' + DASHBOARD_FILENAME + ' (v' + (state.dashboardVersion ?: '?') + ')' : '⚠ not installed — click Done to download'}\n" +
                 "Discovery file: ${state.discoveryWritten ? '✓ /local/' + TOKEN_FILENAME : '⚠ not written — click Done to refresh'}\n" +
                 "Config stored: ${state.configSize ? state.configSize + ' bytes' : 'none'}\n" +
+                "Push notifications: ${push?.pushEnabled == true ? '✓ active (polling every ' + PUSH_POLL_SECONDS + 's)' : '— disabled'}\n" +
                 "App ID: ${app.id}\n" +
                 "Hub IP: ${hubIp}"
         }
@@ -147,8 +160,13 @@ def initialize() {
         }
     }
     unschedule()
+    unsubscribe()
     downloadDashboard(false)
     writeDiscovery()
+    subscribe(location, "hsmStatus", "pushHsmStatusHandler")
+    subscribe(location, "hsmAlert",  "pushHsmAlertHandler")
+    pushSeedArmedStatus()
+    runIn(PUSH_POLL_SECONDS, "pushPollDevices")
     log.info "Hestia: initialized v${APP_VERSION} — app ID: ${app.id}"
 }
 
@@ -213,6 +231,202 @@ def downloadDashboard(Boolean force) {
         }
     } catch(e) {
         log.warn "Hestia: could not download dashboard: ${e.message}"
+    }
+}
+
+// ── Push notifications ────────────────────────────────────────────────────
+// Deliberately polls Maker API (the same HTTP interface the dashboard itself
+// uses) instead of native subscribe() — subscribe() needs device object
+// references from this app's own capability inputs, which would mean asking
+// users to re-select every door/window/lock/motion sensor a second time
+// here, duplicating what they've already set up in Hestia's web Settings.
+// Polling against state.config (the same JSON blob the dashboard syncs)
+// needs zero extra setup and stays in sync automatically.
+
+// Parses state.config once and returns just the fields push notifications
+// need, or null if config/token isn't available yet.
+def getPushSettings() {
+    if (!state.config || state.config == "null") return null
+    try {
+        def cfg = new groovy.json.JsonSlurper().parseText(state.config)
+        def c = cfg?.config
+        if (!c?.appId || !c?.token) return null
+        return c
+    } catch (e) {
+        return null
+    }
+}
+
+// HSM status → armed/disarmed, mirrors the dashboard's own artemisHsmSync()
+// classification (armedAway/armedHome/armedNight count as armed; anything
+// mid-transition or disarmed does not, so "armed only" devices don't fire
+// during the entry/exit delay countdown).
+def pushHsmStatusHandler(evt) {
+    def v = (evt.value ?: "").toLowerCase()
+    state.pushArmed = (v.contains("armed") && !v.contains("disarmed") && !v.contains("arming"))
+}
+
+def pushSeedArmedStatus() {
+    def push = getPushSettings()
+    if (!push) { state.pushArmed = false; return }
+    try {
+        def hubIp = location.hubs[0].localIP
+        def uri = "http://${hubIp}/apps/api/${push.appId}/hsm?access_token=${push.token}"
+        httpGet([uri: uri, timeout: 10, ignoreSSLIssues: true]) { resp ->
+            def v = (resp?.data?.hsm ?: resp?.data?.hsmStatus ?: "").toString().toLowerCase()
+            state.pushArmed = (v.contains("armed") && !v.contains("disarmed") && !v.contains("arming"))
+        }
+    } catch (e) {
+        state.pushArmed = false
+    }
+}
+
+// hsmAlert fires on intrusion (the actual burglar-alarm trip). Smoke/CO and
+// water are handled by direct device polling below instead of HSM, since
+// not everyone has HSM Monitor watching those sensors at all.
+def pushHsmAlertHandler(evt) {
+    def push = getPushSettings()
+    if (!push || push.pushEnabled != true || push.pushAlarming == false) return
+    def v = (evt.value ?: "").toLowerCase()
+    if (!v.startsWith("intrusion")) return
+    def scope = v.contains("home") ? "Home" : "Away"
+    pushSendNotification("alarming", "Security Alarm", "${scope} intrusion alarm triggered!", push.token)
+}
+
+// Polls Maker API's bulk /devices/all endpoint every PUSH_POLL_SECONDS,
+// diffs against the last-seen attribute values, and sends a push for any
+// transition that matches an enabled category + event type. Keeps
+// rescheduling itself indefinitely — when push is disabled this is just a
+// cheap early-return every cycle, which is simpler and more robust than
+// trying to precisely start/stop the loop from every place config changes.
+def pushPollDevices() {
+    try {
+        def push = getPushSettings()
+        if (push?.pushEnabled != true) return
+
+        def hubIp = location.hubs[0].localIP
+        def uri = "http://${hubIp}/apps/api/${push.appId}/devices/all?access_token=${push.token}"
+        def devices = null
+        httpGet([uri: uri, timeout: 15, ignoreSSLIssues: true]) { resp ->
+            if (resp.status == 200) devices = resp.data
+        }
+        if (devices == null) return
+
+        def sensors = push.artemisSensors ?: [:]
+        def catFor = [:] // deviceId -> [cat, subtype, name]
+        (sensors.contacts ?: []).each { catFor[it.id?.toString()] = [cat: "contacts", subtype: it.subtype, name: it.name ?: "Sensor"] }
+        (sensors.motions  ?: []).each { catFor[it.id?.toString()] = [cat: "motions",  name: it.name ?: "Sensor"] }
+        (sensors.smokes   ?: []).each { catFor[it.id?.toString()] = [cat: "smokes",   name: it.name ?: "Sensor"] }
+        (sensors.waters   ?: []).each { catFor[it.id?.toString()] = [cat: "waters",   name: it.name ?: "Sensor"] }
+        def lockLabel = [:]
+        (push.locks ?: []).each { if (it.id) lockLabel[it.id.toString()] = it.label ?: "Lock" }
+        def motionAllowed = (push.pushMotionDevices ?: []).collect { it.toString() } as Set
+
+        def doorsOn    = push.pushDoors    != false
+        def windowsOn  = push.pushWindows  != false
+        def locksOn    = push.pushLocks    != false
+        def motionOn   = push.pushMotion   == true
+        def smokeOn    = push.pushSmoke    != false
+        def waterOn    = push.pushWater    != false
+        def openOn     = push.pushOpen     != false
+        def closeOn    = push.pushClose    != false
+
+        def lastStates = state.pushDeviceStates ?: [:]
+        def newStates  = [:]
+
+        devices.each { device ->
+            def id = device.id?.toString()
+            if (!id) return
+            def attrs = [:]
+            (device.attributes ?: []).each { a -> if (a?.name) attrs[a.name] = a.currentValue }
+
+            def info = catFor[id]
+            def lock = lockLabel[id]
+
+            if (info?.cat == "contacts" && attrs.contact in ["open", "closed"]) {
+                def key = "contact:${id}"
+                newStates[key] = attrs.contact
+                if (lastStates[key] != null && lastStates[key] != attrs.contact) {
+                    def isWindow = info.subtype == "window"
+                    if ((isWindow ? windowsOn : doorsOn) && (attrs.contact == "open" ? openOn : closeOn)) {
+                        def kind = isWindow ? "Window" : "Door"
+                        pushSendNotification(isWindow ? "windows" : "doors", "${kind} ${attrs.contact == 'open' ? 'Opened' : 'Closed'}",
+                            "${info.name} is now ${attrs.contact}.", push.token)
+                    }
+                }
+            }
+
+            if (lock && attrs.lock in ["locked", "unlocked"]) {
+                def key = "lock:${id}"
+                newStates[key] = attrs.lock
+                if (lastStates[key] != null && lastStates[key] != attrs.lock && locksOn && (attrs.lock == "unlocked" ? openOn : closeOn)) {
+                    pushSendNotification("locks", "Door ${attrs.lock == 'locked' ? 'Locked' : 'Unlocked'}",
+                        "${lock} was ${attrs.lock}.", push.token)
+                }
+            }
+
+            if (info?.cat == "motions" && attrs.motion in ["active", "inactive"]) {
+                def key = "motion:${id}"
+                newStates[key] = attrs.motion
+                if (lastStates[key] != null && lastStates[key] != attrs.motion && attrs.motion == "active"
+                        && motionOn && motionAllowed.contains(id)) {
+                    pushSendNotification("motion", "Motion Detected", "Motion detected: ${info.name}.", push.token)
+                }
+            }
+
+            if (info?.cat == "smokes") {
+                ["smoke", "carbonMonoxide"].each { attrName ->
+                    def val = attrs[attrName]
+                    if (val in ["detected", "clear"]) {
+                        def key = "${attrName}:${id}"
+                        newStates[key] = val
+                        if (lastStates[key] != null && lastStates[key] != val && val == "detected" && smokeOn) {
+                            pushSendNotification("smoke", "Smoke / CO Alert", "${info.name} detected ${attrName == 'smoke' ? 'smoke' : 'carbon monoxide'}!", push.token)
+                        }
+                    }
+                }
+            }
+
+            if (info?.cat == "waters" && attrs.water in ["wet", "dry"]) {
+                def key = "water:${id}"
+                newStates[key] = attrs.water
+                if (lastStates[key] != null && lastStates[key] != attrs.water && attrs.water == "wet" && waterOn) {
+                    pushSendNotification("water", "Water / Freeze Alert", "${info.name} detected water!", push.token)
+                }
+            }
+        }
+
+        state.pushDeviceStates = newStates
+    } catch (e) {
+        log.warn "Hestia Push: poll error: ${e.message}"
+    } finally {
+        runIn(PUSH_POLL_SECONDS, "pushPollDevices")
+    }
+}
+
+def pushSendNotification(String category, String title, String body, String token) {
+    try {
+        asynchttpPost("pushSendCallback", [
+            uri: PUSH_SEND_URL,
+            contentType: "application/json",
+            requestContentType: "application/json",
+            timeout: 10,
+            body: new groovy.json.JsonBuilder([
+                category: category,
+                title:    title,
+                body:     body,
+                armed:    state.pushArmed == true,
+                token:    token
+            ]).toString()
+        ])
+    } catch (e) {
+        log.warn "Hestia Push: send error: ${e.message}"
+    }
+}
+
+def pushSendCallback(response, data) {
+    if (response?.status != 200) {
+        log.warn "Hestia Push: send failed — HTTP ${response?.status}"
     }
 }
 
