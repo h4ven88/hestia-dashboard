@@ -1,4 +1,10 @@
-import { deserializeVapidKeys, sendPushNotification } from 'web-push-browser';
+// Vendored, not imported from node_modules -- Cloudflare Pages runs no build
+// command for this project (static-file deploy, Functions bundled directly
+// by wrangler on push), so node_modules never exists at deploy time and a
+// bare "web-push-browser" specifier fails to resolve. The package has zero
+// runtime dependencies, so copying its build/ output here is safe and
+// avoids adding an npm-install build step just for one small library.
+import { deserializeVapidKeys, sendPushNotification } from '../../_vendor/web-push-browser/index.js';
 
 async function sha256(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
