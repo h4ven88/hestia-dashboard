@@ -2364,22 +2364,28 @@ async function loadConfigFromHub() {
 // loaded locally. Pulling the freshest copy of just this one field right
 // before merging in this device's own change closes that race down to the
 // width of one HTTP round trip instead of "however long since page load".
-// Tries the hub first (fast, LAN), then cloud sync (the channel actually in
-// play when both devices are on hestari.com, since Service Workers require
-// a secure context and a local hub URL over plain http can't provide one).
+//
+// Hub and cloud are NOT guaranteed to agree -- saveConfigToHub() silently
+// no-ops whenever a device's HUB_STORE isn't connected at save time, so a
+// device that saved before discovering the hub may have a change that only
+// ever reached the cloud. Blindly preferring hub over cloud (or vice versa)
+// can therefore mean merging on top of the *older* copy and re-propagating
+// a stale one over the fresher one. Fetch both and trust whichever actually
+// has the newer savedAt instead of picking a channel by availability.
 async function mergeDeviceListField(fieldName, updater) {
-  let base = null;
+  let hubCfg = null, cloudCfg = null;
   if (HUB_STORE) {
-    const fresh = await loadConfigFromHub();
-    if (fresh && fresh.config && Array.isArray(fresh.config[fieldName])) base = fresh.config[fieldName];
+    try { hubCfg = await loadConfigFromHub(); } catch(e) {}
   }
-  if (!base) {
-    try {
-      const cloudCfg = await cloudSyncDiscover();
-      if (cloudCfg && cloudCfg.config && Array.isArray(cloudCfg.config[fieldName])) base = cloudCfg.config[fieldName];
-    } catch(e) {}
-  }
-  if (!base) base = CONFIG[fieldName] || [];
+  try { cloudCfg = await cloudSyncDiscover(); } catch(e) {}
+
+  const hubAt   = (hubCfg && hubCfg.savedAt) || 0;
+  const cloudAt = (cloudCfg && cloudCfg.savedAt) || 0;
+  const fresh = cloudAt > hubAt ? cloudCfg : hubCfg;
+
+  const base = (fresh && fresh.config && Array.isArray(fresh.config[fieldName]))
+    ? fresh.config[fieldName]
+    : (CONFIG[fieldName] || []);
   CONFIG[fieldName] = updater(base.slice());
 }
 
