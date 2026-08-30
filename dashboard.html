@@ -9295,9 +9295,35 @@ async function pushSubscribeThisDevice(mode) {
     return true;
   } catch (e) {
     console.warn('[Push] Subscribe failed:', e.message);
-    alert('Could not enable push notifications on this device. Please try again.');
+    alert(await pushExplainSubscribeFailure(e));
     return false;
   }
+}
+
+// After a failed subscribe, tries to give more specific guidance than a
+// generic "try again". Browsers don't expose privacy toggles to web pages,
+// so none of this can be checked in advance -- only reacted to once a
+// subscribe attempt has actually failed and produced an error to read.
+// Brave exposes navigator.brave as an official self-ID API, which is the
+// one browser here with a known, specific, commonly-toggled-off setting
+// worth naming directly. Everything else is best-effort: matching the
+// generic Chromium "push service" registration failure text, then giving
+// the most likely cause for that browser rather than a dead-end message.
+async function pushExplainSubscribeFailure(e) {
+  const msg = ((e && e.message) || '').toLowerCase();
+  const isPushServiceFailure = msg.includes('push service') || msg.includes('registration failed');
+  if (!isPushServiceFailure) {
+    return 'Could not enable push notifications on this device. Please try again.';
+  }
+  try {
+    if (navigator.brave && await navigator.brave.isBrave()) {
+      return 'Brave is blocking push notifications. Go to brave://settings/privacy and enable "Use Google services for push messaging," then try again.';
+    }
+  } catch(e) {}
+  if (/firefox/i.test(navigator.userAgent)) {
+    return 'Firefox could not register for push notifications. Check that notification permissions aren’t blocked for this site in Firefox’s privacy settings, then try again.';
+  }
+  return 'This browser could not reach the push notification service (fcm.googleapis.com). This is usually a network, firewall, or managed-device policy blocking it, not a Hestia problem. If you’re on a work network or managed device, that may need to be allowed.';
 }
 
 async function pushUnsubscribeDevice(id) {
