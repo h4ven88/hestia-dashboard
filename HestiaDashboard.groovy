@@ -131,6 +131,12 @@ def mainPage() {
             input "resetConfig", "button", title: "🗑 Clear Stored Config"
         }
 
+        section("Debugging") {
+            input "pushDebugLogging", "bool", title: "Push notification debug logging",
+                description: "Logs what each poll cycle sees -- device counts, sensor categorization, state changes. Turn off once things are working.",
+                defaultValue: false, submitOnChange: true
+        }
+
         section("About") {
             paragraph "Hestia™ v${APP_VERSION} · © 2026 Haven · CC BY-NC 4.0\n" +
                 "https://github.com/h4ven88/hestia-dashboard"
@@ -300,9 +306,13 @@ def pushHsmAlertHandler(evt) {
 // cheap early-return every cycle, which is simpler and more robust than
 // trying to precisely start/stop the loop from every place config changes.
 def pushPollDevices() {
+    def dbg = settings.pushDebugLogging == true
     try {
         def push = getPushSettings()
-        if (push?.pushEnabled != true) return
+        if (push?.pushEnabled != true) {
+            if (dbg) log.info "Hestia Push: poll skipped -- pushEnabled is ${push?.pushEnabled} (push settings ${push ? 'found' : 'NOT found -- state.config missing appId/token'})"
+            return
+        }
 
         def hubIp = location.hubs[0].localIP
         def uri = "http://${hubIp}/apps/api/${push.appId}/devices/all?access_token=${push.token}"
@@ -310,7 +320,11 @@ def pushPollDevices() {
         httpGet([uri: uri, timeout: 15, ignoreSSLIssues: true]) { resp ->
             if (resp.status == 200) devices = resp.data
         }
-        if (devices == null) return
+        if (devices == null) {
+            if (dbg) log.info "Hestia Push: poll got no devices back from Maker API (request may have failed)"
+            return
+        }
+        if (dbg) log.info "Hestia Push: poll fetched ${devices.size()} devices from Maker API"
 
         def sensors = push.artemisSensors ?: [:]
         def catFor = [:] // deviceId -> [cat, subtype, name]
@@ -321,6 +335,8 @@ def pushPollDevices() {
         def lockLabel = [:]
         (push.locks ?: []).each { if (it.id) lockLabel[it.id.toString()] = it.label ?: "Lock" }
         def motionAllowed = (push.pushMotionDevices ?: []).collect { it.toString() } as Set
+
+        if (dbg) log.info "Hestia Push: categorized sensors -- contacts:${(sensors.contacts ?: []).size()} motions:${(sensors.motions ?: []).size()} smokes:${(sensors.smokes ?: []).size()} waters:${(sensors.waters ?: []).size()} locks:${(push.locks ?: []).size()} -- doors:${push.pushDoors != false} windows:${push.pushWindows != false} open:${push.pushOpen != false} close:${push.pushClose != false}"
 
         def doorsOn    = push.pushDoors    != false
         def windowsOn  = push.pushWindows  != false
@@ -346,14 +362,19 @@ def pushPollDevices() {
             if (info?.cat == "contacts" && attrs.contact in ["open", "closed"]) {
                 def key = "contact:${id}"
                 newStates[key] = attrs.contact
+                if (dbg) log.info "Hestia Push: contact device ${id} (${info.name}) = ${attrs.contact}, last seen = ${lastStates[key]}"
                 if (lastStates[key] != null && lastStates[key] != attrs.contact) {
                     def isWindow = info.subtype == "window"
-                    if ((isWindow ? windowsOn : doorsOn) && (attrs.contact == "open" ? openOn : closeOn)) {
+                    def gateOpen = (isWindow ? windowsOn : doorsOn) && (attrs.contact == "open" ? openOn : closeOn)
+                    if (dbg) log.info "Hestia Push: ${id} transitioned ${lastStates[key]} -> ${attrs.contact}, isWindow=${isWindow}, gate open=${gateOpen}"
+                    if (gateOpen) {
                         def kind = isWindow ? "Window" : "Door"
                         pushSendNotification(isWindow ? "windows" : "doors", "${kind} ${attrs.contact == 'open' ? 'Opened' : 'Closed'}",
                             "${info.name} is now ${attrs.contact}.", push.token)
                     }
                 }
+            } else if (dbg && attrs.contact != null) {
+                log.info "Hestia Push: device ${id} has a contact attribute (${attrs.contact}) but isn't categorized as a contact sensor -- info=${info}"
             }
 
             if (lock && attrs.lock in ["locked", "unlocked"]) {
