@@ -2356,6 +2356,33 @@ async function loadConfigFromHub() {
   } catch(e) { return null; }
 }
 
+// "Which devices" arrays (announceDevices, pushDevices) get edited from
+// whichever device the user happens to be on. saveConfig() always pushes
+// this device's full in-memory CONFIG snapshot, so if two devices toggle
+// their own entry within the same session, whichever saves last silently
+// wipes out the other's entry -- neither device had the other's addition
+// loaded locally. Pulling the freshest copy of just this one field right
+// before merging in this device's own change closes that race down to the
+// width of one HTTP round trip instead of "however long since page load".
+// Tries the hub first (fast, LAN), then cloud sync (the channel actually in
+// play when both devices are on hestari.com, since Service Workers require
+// a secure context and a local hub URL over plain http can't provide one).
+async function mergeDeviceListField(fieldName, updater) {
+  let base = null;
+  if (HUB_STORE) {
+    const fresh = await loadConfigFromHub();
+    if (fresh && fresh.config && Array.isArray(fresh.config[fieldName])) base = fresh.config[fieldName];
+  }
+  if (!base) {
+    try {
+      const cloudCfg = await cloudSyncDiscover();
+      if (cloudCfg && cloudCfg.config && Array.isArray(cloudCfg.config[fieldName])) base = cloudCfg.config[fieldName];
+    } catch(e) {}
+  }
+  if (!base) base = CONFIG[fieldName] || [];
+  CONFIG[fieldName] = updater(base.slice());
+}
+
 /* Remove staging entries that are already in a room, already a thermostat,
    or already the lock — and deduplicate by ID. Called after every config load. */
 function deduplicateStaging() {
@@ -9148,28 +9175,28 @@ function spAnnouncementsBody() {
     </div>`;
 }
 
-function announceToggleThisDevice(on) {
-  if (!CONFIG.announceDevices) CONFIG.announceDevices = [];
-  if (on) {
-    if (!CONFIG.announceDevices.some(d => d.id === DEVICE_ID)) {
-      CONFIG.announceDevices.push({ id: DEVICE_ID, name: DEVICE_NAME });
-    }
-  } else {
-    CONFIG.announceDevices = CONFIG.announceDevices.filter(d => d.id !== DEVICE_ID);
-  }
+async function announceToggleThisDevice(on) {
+  await mergeDeviceListField('announceDevices', list => {
+    const filtered = list.filter(d => d.id !== DEVICE_ID);
+    if (on) filtered.push({ id: DEVICE_ID, name: DEVICE_NAME });
+    return filtered;
+  });
   saveConfig();
   spShowSection('announce');
 }
 
-function announceUpdateDeviceName() {
-  if (!CONFIG.announceDevices) return;
-  const entry = CONFIG.announceDevices.find(d => d.id === DEVICE_ID);
-  if (entry) { entry.name = DEVICE_NAME; saveConfig(); }
+async function announceUpdateDeviceName() {
+  let changed = false;
+  await mergeDeviceListField('announceDevices', list => {
+    const entry = list.find(d => d.id === DEVICE_ID);
+    if (entry) { entry.name = DEVICE_NAME; changed = true; }
+    return list;
+  });
+  if (changed) saveConfig();
 }
 
-function announceRemoveDevice(id) {
-  if (!CONFIG.announceDevices) return;
-  CONFIG.announceDevices = CONFIG.announceDevices.filter(d => d.id !== id);
+async function announceRemoveDevice(id) {
+  await mergeDeviceListField('announceDevices', list => list.filter(d => d.id !== id));
   saveConfig();
   spShowSection('announce');
 }
@@ -9499,32 +9526,37 @@ function spPushBody() {
 }
 
 async function pushSetThisDeviceMode(mode) {
-  if (!CONFIG.pushDevices) CONFIG.pushDevices = [];
-  const wasOn = CONFIG.pushDevices.some(d => d.id === DEVICE_ID);
+  const wasOn = (CONFIG.pushDevices || []).some(d => d.id === DEVICE_ID);
 
   if (mode === 'always' || mode === 'armed') {
     const ok = await pushSubscribeThisDevice(mode);
     if (!ok) { spShowSection('push'); return; } // revert the select to its prior state
-    CONFIG.pushDevices = CONFIG.pushDevices.filter(d => d.id !== DEVICE_ID);
-    CONFIG.pushDevices.push({ id: DEVICE_ID, name: DEVICE_NAME, mode });
+    await mergeDeviceListField('pushDevices', list => {
+      const filtered = list.filter(d => d.id !== DEVICE_ID);
+      filtered.push({ id: DEVICE_ID, name: DEVICE_NAME, mode });
+      return filtered;
+    });
   } else {
     if (wasOn) await pushUnsubscribeDevice(DEVICE_ID);
-    CONFIG.pushDevices = CONFIG.pushDevices.filter(d => d.id !== DEVICE_ID);
+    await mergeDeviceListField('pushDevices', list => list.filter(d => d.id !== DEVICE_ID));
   }
   saveConfig();
   spShowSection('push');
 }
 
-function pushUpdateDeviceName() {
-  if (!CONFIG.pushDevices) return;
-  const entry = CONFIG.pushDevices.find(d => d.id === DEVICE_ID);
-  if (entry) { entry.name = DEVICE_NAME; saveConfig(); }
+async function pushUpdateDeviceName() {
+  let changed = false;
+  await mergeDeviceListField('pushDevices', list => {
+    const entry = list.find(d => d.id === DEVICE_ID);
+    if (entry) { entry.name = DEVICE_NAME; changed = true; }
+    return list;
+  });
+  if (changed) saveConfig();
 }
 
 async function pushRemoveDevice(id) {
-  if (!CONFIG.pushDevices) return;
   await pushUnsubscribeDevice(id);
-  CONFIG.pushDevices = CONFIG.pushDevices.filter(d => d.id !== id);
+  await mergeDeviceListField('pushDevices', list => list.filter(d => d.id !== id));
   saveConfig();
   spShowSection('push');
 }
