@@ -12,13 +12,14 @@
  *      network auto-discovery by the dashboard on new devices
  *   3. Store and serve config   — cross-device settings sync
  *   4. Health check + version   — status endpoints
- *   5. Push notifications       — polls Maker API for door/window/lock/
- *      motion/smoke/water changes and subscribes to HSM directly, so it
- *      keeps working even when nobody has the dashboard open. Deliberately
- *      reuses the device categorization already synced in the config blob
- *      (state.config) rather than asking for a second, separate set of
- *      device selections here — the dashboard's own Settings UI is the
- *      only place a user should ever need to pick devices.
+ *   5. Push notifications (arm-state) — subscribes to HSM directly and
+ *      relays arm-state to Cloudflare, so it keeps working even when
+ *      nobody has the dashboard open. Device-level events (doors, windows,
+ *      locks, motion, smoke, water) are NOT handled here -- Maker API's own
+ *      "POST URL" webhook feature sends those straight to Cloudflare,
+ *      registered automatically by dashboard.html the first time push is
+ *      enabled. Groovy apps can't reliably make outbound HTTP calls back to
+ *      their own hub's Maker API, so this app never polls anything.
  *
  * Copyright © 2026 Haven. All rights reserved.
  * License: CC BY-NC 4.0 — personal use only.
@@ -58,8 +59,8 @@ preferences {
 @Field static final String BUILD_INFO_URL      = "https://raw.githubusercontent.com/h4ven88/hestia-dashboard/main/build-info.json"
 
 // ── Push notifications ───────────────────────────────────────────────────
-@Field static final String  PUSH_SEND_URL     = "https://hestari.com/api/push/send"
-@Field static final Integer PUSH_POLL_SECONDS = 25
+@Field static final String PUSH_SEND_URL  = "https://hestari.com/api/push/send"
+@Field static final String PUSH_ARMED_URL = "https://hestari.com/api/push/armed"
 
 // ── CORS headers ──────────────────────────────────────────────────────────
 // Enabled by default — endpoints require OAuth tokens so there is no
@@ -121,7 +122,7 @@ def mainPage() {
                 "Dashboard file: ${state.dashboardInstalled ? '✓ /local/' + DASHBOARD_FILENAME + ' (v' + (state.dashboardVersion ?: '?') + ')' : '⚠ not installed — click Done to download'}\n" +
                 "Discovery file: ${state.discoveryWritten ? '✓ /local/' + TOKEN_FILENAME : '⚠ not written — click Done to refresh'}\n" +
                 "Config stored: ${state.configSize ? state.configSize + ' bytes' : 'none'}\n" +
-                "Push notifications: ${push?.pushEnabled == true ? '✓ active (polling every ' + PUSH_POLL_SECONDS + 's)' : '— disabled'}\n" +
+                "Push notifications: ${push?.pushEnabled == true ? '✓ active (via Maker API webhook)' : '— disabled'}\n" +
                 "App ID: ${app.id}\n" +
                 "Hub IP: ${hubIp}"
         }
@@ -129,12 +130,6 @@ def mainPage() {
         section("Actions") {
             input "updateDashboard", "button", title: "⬇ Update Dashboard File"
             input "resetConfig", "button", title: "🗑 Clear Stored Config"
-        }
-
-        section("Debugging") {
-            input "pushDebugLogging", "bool", title: "Push notification debug logging",
-                description: "Logs what each poll cycle sees -- device counts, sensor categorization, state changes. Turn off once things are working.",
-                defaultValue: false, submitOnChange: true
         }
 
         section("About") {
@@ -172,7 +167,6 @@ def initialize() {
     subscribe(location, "hsmStatus", "pushHsmStatusHandler")
     subscribe(location, "hsmAlert",  "pushHsmAlertHandler")
     pushSeedArmedStatus()
-    runIn(PUSH_POLL_SECONDS, "pushPollDevices")
     log.info "Hestia: initialized v${APP_VERSION} — app ID: ${app.id}"
 }
 
@@ -241,13 +235,23 @@ def downloadDashboard(Boolean force) {
 }
 
 // ── Push notifications ────────────────────────────────────────────────────
-// Deliberately polls Maker API (the same HTTP interface the dashboard itself
-// uses) instead of native subscribe() — subscribe() needs device object
-// references from this app's own capability inputs, which would mean asking
-// users to re-select every door/window/lock/motion sensor a second time
-// here, duplicating what they've already set up in Hestia's web Settings.
-// Polling against state.config (the same JSON blob the dashboard syncs)
-// needs zero extra setup and stays in sync automatically.
+// The actual device-event trigger lives in Cloudflare now: dashboard.html
+// registers a webhook URL with Maker API's own built-in "POST URL"
+// device-event feature (pushRegisterMakerApiWebhook() in dashboard.html),
+// and Maker API POSTs every device event straight there, where the
+// categorization/gating logic runs against the same synced config. This
+// app doesn't poll Maker API for device state at all anymore -- a Groovy
+// app running on the hub can't reliably make outbound HTTP calls back to
+// its own hub's Maker API (confirmed the hard way: connection-refused on
+// both the hub's LAN IP and 127.0.0.1), so polling was a dead end
+// regardless of hub URL scheme.
+//
+// What's left here is native subscribe(location, ...) for HSM, which was
+// never affected by any of that since it's an internal event bus
+// subscription, not a network call. Arm-state gets relayed outward to
+// Cloudflare -- an ordinary outbound call, exactly like the alarm send
+// below -- so the webhook handler knows current arm state when a device
+// event needs "armed only" gating.
 
 // Parses state.config once and returns just the fields push notifications
 // need, or null if config/token isn't available yet.
@@ -263,52 +267,46 @@ def getPushSettings() {
     }
 }
 
-// Maker API base URL. Reuses push.hub's scheme and port -- the exact hub
-// URL already synced from Hestia's own Settings -- but always targets
-// 127.0.0.1 rather than the hub's own LAN IP. This app runs ON the hub, and
-// a hub connecting to its own LAN-facing IP is a different, sometimes-
-// blocked network path than a browser elsewhere on the LAN reaching that
-// same address -- confirmed by logs: pushPollDevices() got a flat
-// connection-refused on the hub's own IP even though the dashboard itself
-// reaches that exact address successfully from every other device. 127.0.0.1
-// avoids the self-connection entirely since the target IS this hub.
-def pushHubBase(push) {
-    def raw = (push?.hub ?: "http://${location.hubs[0].localIP}").replaceAll(/\/+$/, '')
-    try {
-        def u = new URI(raw)
-        def port = u.port > 0 ? ":${u.port}" : ''
-        return "${u.scheme}://127.0.0.1${port}"
-    } catch (e) {
-        return raw
-    }
-}
-
 // HSM status → armed/disarmed, mirrors the dashboard's own artemisHsmSync()
 // classification (armedAway/armedHome/armedNight count as armed; anything
 // mid-transition or disarmed does not, so "armed only" devices don't fire
 // during the entry/exit delay countdown).
 def pushHsmStatusHandler(evt) {
     def v = (evt.value ?: "").toLowerCase()
-    state.pushArmed = (v.contains("armed") && !v.contains("disarmed") && !v.contains("arming"))
+    def armed = (v.contains("armed") && !v.contains("disarmed") && !v.contains("arming"))
+    state.pushArmed = armed
+    pushRelayArmedState(armed)
 }
 
+// Seeds state.pushArmed from location.hsmStatus directly -- a native
+// property on the app's own location object, no network call needed at
+// all, unlike the old HTTP-based seed this replaced.
 def pushSeedArmedStatus() {
+    def v = (location.hsmStatus ?: "").toString().toLowerCase()
+    def armed = (v.contains("armed") && !v.contains("disarmed") && !v.contains("arming"))
+    state.pushArmed = armed
+    pushRelayArmedState(armed)
+}
+
+def pushRelayArmedState(Boolean armed) {
     def push = getPushSettings()
-    if (!push) { state.pushArmed = false; return }
+    if (push?.pushEnabled != true) return
     try {
-        def uri = "${pushHubBase(push)}/apps/api/${push.appId}/hsm?access_token=${push.token}"
-        httpGet([uri: uri, timeout: 10, ignoreSSLIssues: true]) { resp ->
-            def v = (resp?.data?.hsm ?: resp?.data?.hsmStatus ?: "").toString().toLowerCase()
-            state.pushArmed = (v.contains("armed") && !v.contains("disarmed") && !v.contains("arming"))
-        }
+        asynchttpPost("pushSendCallback", [
+            uri: PUSH_ARMED_URL,
+            contentType: "application/json",
+            requestContentType: "application/json",
+            timeout: 10,
+            body: new groovy.json.JsonBuilder([armed: armed, token: push.token]).toString()
+        ])
     } catch (e) {
-        state.pushArmed = false
+        log.warn "Hestia Push: armed-state relay error: ${e.message}"
     }
 }
 
 // hsmAlert fires on intrusion (the actual burglar-alarm trip). Smoke/CO and
-// water are handled by direct device polling below instead of HSM, since
-// not everyone has HSM Monitor watching those sensors at all.
+// water go through the Maker API device-event webhook instead of HSM,
+// since not everyone has HSM Monitor watching those sensors at all.
 def pushHsmAlertHandler(evt) {
     def push = getPushSettings()
     if (!push || push.pushEnabled != true || push.pushAlarming == false) return
@@ -316,132 +314,6 @@ def pushHsmAlertHandler(evt) {
     if (!v.startsWith("intrusion")) return
     def scope = v.contains("home") ? "Home" : "Away"
     pushSendNotification("alarming", "Security Alarm", "${scope} intrusion alarm triggered!", push.token)
-}
-
-// Polls Maker API's bulk /devices/all endpoint every PUSH_POLL_SECONDS,
-// diffs against the last-seen attribute values, and sends a push for any
-// transition that matches an enabled category + event type. Keeps
-// rescheduling itself indefinitely — when push is disabled this is just a
-// cheap early-return every cycle, which is simpler and more robust than
-// trying to precisely start/stop the loop from every place config changes.
-def pushPollDevices() {
-    def dbg = settings.pushDebugLogging == true
-    try {
-        def push = getPushSettings()
-        if (push?.pushEnabled != true) {
-            if (dbg) log.info "Hestia Push: poll skipped -- pushEnabled is ${push?.pushEnabled} (push settings ${push ? 'found' : 'NOT found -- state.config missing appId/token'})"
-            return
-        }
-
-        def uri = "${pushHubBase(push)}/apps/api/${push.appId}/devices/all?access_token=${push.token}"
-        if (dbg) log.info "Hestia Push: polling ${pushHubBase(push)}/apps/api/${push.appId}/devices/all"
-        def devices = null
-        httpGet([uri: uri, timeout: 15, ignoreSSLIssues: true]) { resp ->
-            if (resp.status == 200) devices = resp.data
-        }
-        if (devices == null) {
-            if (dbg) log.info "Hestia Push: poll got no devices back from Maker API (request may have failed)"
-            return
-        }
-        if (dbg) log.info "Hestia Push: poll fetched ${devices.size()} devices from Maker API"
-
-        def sensors = push.artemisSensors ?: [:]
-        def catFor = [:] // deviceId -> [cat, subtype, name]
-        (sensors.contacts ?: []).each { catFor[it.id?.toString()] = [cat: "contacts", subtype: it.subtype, name: it.name ?: "Sensor"] }
-        (sensors.motions  ?: []).each { catFor[it.id?.toString()] = [cat: "motions",  name: it.name ?: "Sensor"] }
-        (sensors.smokes   ?: []).each { catFor[it.id?.toString()] = [cat: "smokes",   name: it.name ?: "Sensor"] }
-        (sensors.waters   ?: []).each { catFor[it.id?.toString()] = [cat: "waters",   name: it.name ?: "Sensor"] }
-        def lockLabel = [:]
-        (push.locks ?: []).each { if (it.id) lockLabel[it.id.toString()] = it.label ?: "Lock" }
-        def motionAllowed = (push.pushMotionDevices ?: []).collect { it.toString() } as Set
-
-        if (dbg) log.info "Hestia Push: categorized sensors -- contacts:${(sensors.contacts ?: []).size()} motions:${(sensors.motions ?: []).size()} smokes:${(sensors.smokes ?: []).size()} waters:${(sensors.waters ?: []).size()} locks:${(push.locks ?: []).size()} -- doors:${push.pushDoors != false} windows:${push.pushWindows != false} open:${push.pushOpen != false} close:${push.pushClose != false}"
-
-        def doorsOn    = push.pushDoors    != false
-        def windowsOn  = push.pushWindows  != false
-        def locksOn    = push.pushLocks    != false
-        def motionOn   = push.pushMotion   == true
-        def smokeOn    = push.pushSmoke    != false
-        def waterOn    = push.pushWater    != false
-        def openOn     = push.pushOpen     != false
-        def closeOn    = push.pushClose    != false
-
-        def lastStates = state.pushDeviceStates ?: [:]
-        def newStates  = [:]
-
-        devices.each { device ->
-            def id = device.id?.toString()
-            if (!id) return
-            def attrs = [:]
-            (device.attributes ?: []).each { a -> if (a?.name) attrs[a.name] = a.currentValue }
-
-            def info = catFor[id]
-            def lock = lockLabel[id]
-
-            if (info?.cat == "contacts" && attrs.contact in ["open", "closed"]) {
-                def key = "contact:${id}"
-                newStates[key] = attrs.contact
-                if (dbg) log.info "Hestia Push: contact device ${id} (${info.name}) = ${attrs.contact}, last seen = ${lastStates[key]}"
-                if (lastStates[key] != null && lastStates[key] != attrs.contact) {
-                    def isWindow = info.subtype == "window"
-                    def gateOpen = (isWindow ? windowsOn : doorsOn) && (attrs.contact == "open" ? openOn : closeOn)
-                    if (dbg) log.info "Hestia Push: ${id} transitioned ${lastStates[key]} -> ${attrs.contact}, isWindow=${isWindow}, gate open=${gateOpen}"
-                    if (gateOpen) {
-                        def kind = isWindow ? "Window" : "Door"
-                        pushSendNotification(isWindow ? "windows" : "doors", "${kind} ${attrs.contact == 'open' ? 'Opened' : 'Closed'}",
-                            "${info.name} is now ${attrs.contact}.", push.token)
-                    }
-                }
-            } else if (dbg && attrs.contact != null) {
-                log.info "Hestia Push: device ${id} has a contact attribute (${attrs.contact}) but isn't categorized as a contact sensor -- info=${info}"
-            }
-
-            if (lock && attrs.lock in ["locked", "unlocked"]) {
-                def key = "lock:${id}"
-                newStates[key] = attrs.lock
-                if (lastStates[key] != null && lastStates[key] != attrs.lock && locksOn && (attrs.lock == "unlocked" ? openOn : closeOn)) {
-                    pushSendNotification("locks", "Door ${attrs.lock == 'locked' ? 'Locked' : 'Unlocked'}",
-                        "${lock} was ${attrs.lock}.", push.token)
-                }
-            }
-
-            if (info?.cat == "motions" && attrs.motion in ["active", "inactive"]) {
-                def key = "motion:${id}"
-                newStates[key] = attrs.motion
-                if (lastStates[key] != null && lastStates[key] != attrs.motion && attrs.motion == "active"
-                        && motionOn && motionAllowed.contains(id)) {
-                    pushSendNotification("motion", "Motion Detected", "Motion detected: ${info.name}.", push.token)
-                }
-            }
-
-            if (info?.cat == "smokes") {
-                ["smoke", "carbonMonoxide"].each { attrName ->
-                    def val = attrs[attrName]
-                    if (val in ["detected", "clear"]) {
-                        def key = "${attrName}:${id}"
-                        newStates[key] = val
-                        if (lastStates[key] != null && lastStates[key] != val && val == "detected" && smokeOn) {
-                            pushSendNotification("smoke", "Smoke / CO Alert", "${info.name} detected ${attrName == 'smoke' ? 'smoke' : 'carbon monoxide'}!", push.token)
-                        }
-                    }
-                }
-            }
-
-            if (info?.cat == "waters" && attrs.water in ["wet", "dry"]) {
-                def key = "water:${id}"
-                newStates[key] = attrs.water
-                if (lastStates[key] != null && lastStates[key] != attrs.water && attrs.water == "wet" && waterOn) {
-                    pushSendNotification("water", "Water / Freeze Alert", "${info.name} detected water!", push.token)
-                }
-            }
-        }
-
-        state.pushDeviceStates = newStates
-    } catch (e) {
-        log.warn "Hestia Push: poll error: ${e.message}"
-    } finally {
-        runIn(PUSH_POLL_SECONDS, "pushPollDevices")
-    }
 }
 
 def pushSendNotification(String category, String title, String body, String token) {

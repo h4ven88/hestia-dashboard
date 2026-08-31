@@ -1741,10 +1741,11 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.6.2';
-const HESTIA_BUILD_DATE = '2026-08-30';
+const HESTIA_BUILD_DATE = '2026-08-31';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 const PUSH_API          = '/api/push';
+const PUSH_WEBHOOK_URL  = 'https://hestari.com/api/push/webhook';
 const PUSH_VAPID_PUBLIC_KEY = 'BGCW-E3pct69syRd4q6HDJ5mBvgrcd_Q6tkZ740s-rkuVsMYGeZyCMXjkAknBsy3mVIxVoUALroDtsPXqQAEs7A';
 let _cloudSyncDebounce  = null;
 let _lastCloudPushAt    = 0;
@@ -9240,6 +9241,30 @@ async function pushRegisterServiceWorker() {
   }
 }
 
+// Registers our Cloudflare webhook with Maker API's built-in "POST URL"
+// device-event feature -- the actual push trigger. This is an ordinary
+// browser-to-hub call, the same pattern every other Maker API call in this
+// file already makes successfully, unlike the Groovy app trying to call
+// Maker API from the hub itself, which doesn't work reliably (a hub
+// calling its own LAN-facing IP is a different, sometimes-blocked network
+// path). Safe to call repeatedly -- setting the same URL again is a no-op
+// on Hubitat's side, which is why this also gets called idempotently at
+// boot whenever push is already enabled, so it self-heals if the URL is
+// ever cleared (e.g. someone reconfigures Maker API and it resets).
+async function pushRegisterMakerApiWebhook() {
+  if (!CONFIG.hub || !CONFIG.appId || !CONFIG.token) return false;
+  try {
+    const url = `${CONFIG.hub}/apps/api/${CONFIG.appId}/postURL/${encodeURIComponent(PUSH_WEBHOOK_URL)}?access_token=${CONFIG.token}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    console.log('[Push] Registered Maker API webhook');
+    return true;
+  } catch (e) {
+    console.warn('[Push] Could not register Maker API webhook:', e.message);
+    return false;
+  }
+}
+
 // Silently re-establishes this device's push subscription at boot if it's
 // supposed to have one (per synced CONFIG) but the browser's local
 // subscription is missing -- e.g. site data was cleared. Never prompts;
@@ -9412,7 +9437,7 @@ function spPushBody() {
       </div>
       <label class="sp-toggle">
         <input type="checkbox" ${en?'checked':''}
-          onchange="CONFIG.pushEnabled=this.checked;saveConfig();spShowSection('push')">
+          onchange="pushToggleEnabled(this.checked)">
         <span class="sp-toggle-track"></span>
       </label>
     </div>
@@ -9555,6 +9580,13 @@ function spPushBody() {
         </div>
       </div>
     </div>`;
+}
+
+function pushToggleEnabled(on) {
+  CONFIG.pushEnabled = on;
+  saveConfig();
+  if (on) pushRegisterMakerApiWebhook();
+  spShowSection('push');
 }
 
 async function pushSetThisDeviceMode(mode) {
@@ -15452,7 +15484,7 @@ function launchOnboarding() {
   migrateSensorMeta();
   if (CONFIG.artemisEnabled) { artemisHsmSync(); updateArmedStatus(); }
   if (CONFIG.athenaEnabled)  { athenaInit(); }
-  if (CONFIG.pushEnabled)    { pushResyncOnBoot(); }
+  if (CONFIG.pushEnabled)    { pushResyncOnBoot(); pushRegisterMakerApiWebhook(); }
   reminderInit();
   routineScheduleInit();
   // Security checks
