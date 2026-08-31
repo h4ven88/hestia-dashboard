@@ -15407,9 +15407,6 @@ function launchOnboarding() {
       }
     }
   } else {
-    // Has localStorage config — push to cloud so other devices can discover
-    cloudSyncPush(buildConfigPayload());
-
     // Sync with hub (source of truth when reachable)
     if (!HUB_STORE && CONFIG.hub && isLocalHubUrl(CONFIG.hub)) {
       await discoverHubStore(CONFIG.hub);
@@ -15435,6 +15432,18 @@ function launchOnboarding() {
         console.log('[Boot] Applied cloud config');
       }
     }
+
+    // Push to cloud so other devices can discover -- deliberately AFTER the
+    // hub sync above, not before. This used to fire first, using whatever
+    // was cached in localStorage; being fire-and-forget (never awaited), its
+    // network round-trip could still be in flight when the hub's config
+    // corrected CONFIG a moment later, so a stale pre-sync snapshot could
+    // land in the cloud right after that correction -- invisibly
+    // overwriting it with outdated data even though the page itself ended
+    // up rendering correctly. Pushing only after CONFIG reflects the hub's
+    // truth means the cloud never receives anything staler than what's on
+    // screen.
+    cloudSyncPush(buildConfigPayload());
   }
 
   try {
