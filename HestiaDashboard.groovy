@@ -263,6 +263,19 @@ def getPushSettings() {
     }
 }
 
+// Maker API base URL. Reuses push.hub -- the exact hub URL already synced
+// from Hestia's own Settings, scheme and port included -- instead of
+// guessing plain http://<local-ip>. Some hubs (particularly newer C-8/C-8
+// Pro units) don't serve plain HTTP at all, only HTTPS on 8443 with a
+// self-signed cert; hardcoding http:// here meant every poll failed with a
+// flat connection-refused on any hub set up that way, even though the
+// dashboard itself already knew and used the working URL.
+def pushHubBase(push) {
+    def base = push?.hub
+    if (!base) base = "http://${location.hubs[0].localIP}"
+    return base.replaceAll(/\/+$/, '')
+}
+
 // HSM status → armed/disarmed, mirrors the dashboard's own artemisHsmSync()
 // classification (armedAway/armedHome/armedNight count as armed; anything
 // mid-transition or disarmed does not, so "armed only" devices don't fire
@@ -276,8 +289,7 @@ def pushSeedArmedStatus() {
     def push = getPushSettings()
     if (!push) { state.pushArmed = false; return }
     try {
-        def hubIp = location.hubs[0].localIP
-        def uri = "http://${hubIp}/apps/api/${push.appId}/hsm?access_token=${push.token}"
+        def uri = "${pushHubBase(push)}/apps/api/${push.appId}/hsm?access_token=${push.token}"
         httpGet([uri: uri, timeout: 10, ignoreSSLIssues: true]) { resp ->
             def v = (resp?.data?.hsm ?: resp?.data?.hsmStatus ?: "").toString().toLowerCase()
             state.pushArmed = (v.contains("armed") && !v.contains("disarmed") && !v.contains("arming"))
@@ -314,8 +326,8 @@ def pushPollDevices() {
             return
         }
 
-        def hubIp = location.hubs[0].localIP
-        def uri = "http://${hubIp}/apps/api/${push.appId}/devices/all?access_token=${push.token}"
+        def uri = "${pushHubBase(push)}/apps/api/${push.appId}/devices/all?access_token=${push.token}"
+        if (dbg) log.info "Hestia Push: polling ${pushHubBase(push)}/apps/api/${push.appId}/devices/all"
         def devices = null
         httpGet([uri: uri, timeout: 15, ignoreSSLIssues: true]) { resp ->
             if (resp.status == 200) devices = resp.data
