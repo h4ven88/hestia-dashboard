@@ -44,7 +44,10 @@ export async function onRequestPost({ request, env }) {
     return Response.json({ status: 'error', message: 'invalid JSON' }, { status: 400 });
   }
 
-  const evt = body && body.content;
+  // Hubitat's own docs describe this payload wrapped in a "content" object,
+  // but real hub logs show it arrives flat (no wrapper at all) -- accept
+  // either shape rather than trust the docs over an actual captured payload.
+  const evt = (body && body.content) || body;
   if (!evt || !evt.deviceId) return Response.json({ status: 'ok', skipped: 'no device event' });
 
   const hash = await sha256(ip);
