@@ -1,4 +1,5 @@
 import { dispatchPush } from '../../_lib/pushDispatch.js';
+import { getHouseholdConfig } from '../../_lib/householdConfig.js';
 
 async function sha256(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
@@ -53,10 +54,9 @@ export async function onRequestPost({ request, env }) {
   const hash = await sha256(ip);
   const shortHash = hash.substring(0, 16);
 
-  const configRaw = await env.HESTIA_KV.get(`ip:${shortHash}`);
-  if (!configRaw) return Response.json({ status: 'ok', skipped: 'unknown household' });
-
-  const config = (JSON.parse(configRaw).config) || {};
+  const household = await getHouseholdConfig(env, ip, shortHash);
+  if (!household) return Response.json({ status: 'ok', skipped: 'unknown household' });
+  const config = household.config || {};
   if (config.pushEnabled !== true) return Response.json({ status: 'ok', skipped: 'push disabled' });
 
   const info = categorize(config, evt.deviceId);

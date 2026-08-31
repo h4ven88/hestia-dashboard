@@ -1,3 +1,5 @@
+import { getHouseholdConfig } from '../../_lib/householdConfig.js';
+
 async function sha256(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
   return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
@@ -34,11 +36,10 @@ export async function onRequestPost({ request, env }) {
   const hash = await sha256(ip);
   const shortHash = hash.substring(0, 16);
 
-  const configRaw = await env.HESTIA_KV.get(`ip:${shortHash}`);
-  if (!configRaw) return Response.json({ status: 'error', message: 'unknown household' }, { status: 404 });
+  const household = await getHouseholdConfig(env, ip, shortHash);
+  if (!household) return Response.json({ status: 'error', message: 'unknown household' }, { status: 404 });
 
-  const parsedConfig = JSON.parse(configRaw).config;
-  const storedToken = parsedConfig && parsedConfig.token;
+  const storedToken = household.config && household.config.token;
   if (!storedToken || token !== storedToken) {
     return Response.json({ status: 'error', message: 'unauthorized' }, { status: 401 });
   }
