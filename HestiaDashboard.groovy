@@ -263,17 +263,24 @@ def getPushSettings() {
     }
 }
 
-// Maker API base URL. Reuses push.hub -- the exact hub URL already synced
-// from Hestia's own Settings, scheme and port included -- instead of
-// guessing plain http://<local-ip>. Some hubs (particularly newer C-8/C-8
-// Pro units) don't serve plain HTTP at all, only HTTPS on 8443 with a
-// self-signed cert; hardcoding http:// here meant every poll failed with a
-// flat connection-refused on any hub set up that way, even though the
-// dashboard itself already knew and used the working URL.
+// Maker API base URL. Reuses push.hub's scheme and port -- the exact hub
+// URL already synced from Hestia's own Settings -- but always targets
+// 127.0.0.1 rather than the hub's own LAN IP. This app runs ON the hub, and
+// a hub connecting to its own LAN-facing IP is a different, sometimes-
+// blocked network path than a browser elsewhere on the LAN reaching that
+// same address -- confirmed by logs: pushPollDevices() got a flat
+// connection-refused on the hub's own IP even though the dashboard itself
+// reaches that exact address successfully from every other device. 127.0.0.1
+// avoids the self-connection entirely since the target IS this hub.
 def pushHubBase(push) {
-    def base = push?.hub
-    if (!base) base = "http://${location.hubs[0].localIP}"
-    return base.replaceAll(/\/+$/, '')
+    def raw = (push?.hub ?: "http://${location.hubs[0].localIP}").replaceAll(/\/+$/, '')
+    try {
+        def u = new URI(raw)
+        def port = u.port > 0 ? ":${u.port}" : ''
+        return "${u.scheme}://127.0.0.1${port}"
+    } catch (e) {
+        return raw
+    }
 }
 
 // HSM status → armed/disarmed, mirrors the dashboard's own artemisHsmSync()
