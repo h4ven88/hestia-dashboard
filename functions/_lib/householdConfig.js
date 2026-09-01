@@ -18,9 +18,11 @@ function fromBase64(b64) {
   return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 }
 
-// Returns the decrypted { config, savedAt, version } object, or null if the
-// stored value is missing, isn't encrypted-shaped, or fails to decrypt
-// (e.g. it was written before this format, or by a different IP).
+// Returns { config, thermostats, rooms, staging, savedAt, version } with
+// `config` being the actual settings object (pushEnabled, token,
+// artemisSensors, etc.), or null if the stored value is missing, isn't
+// encrypted-shaped, or fails to decrypt (e.g. written before this format,
+// or by a different IP).
 export async function getHouseholdConfig(env, ip, shortHash) {
   const raw = await env.HESTIA_KV.get(`ip:${shortHash}`);
   if (!raw) return null;
@@ -39,7 +41,25 @@ export async function getHouseholdConfig(env, ip, shortHash) {
     const iv = fromBase64(parsed.payload.iv);
     const ct = fromBase64(parsed.payload.data);
     const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
-    return JSON.parse(new TextDecoder().decode(pt));
+    const inner = JSON.parse(new TextDecoder().decode(pt));
+
+    // cloudSyncPush(payload) in dashboard.html wraps the ALREADY-shaped
+    // buildConfigPayload() result -- itself { config: <real settings>,
+    // thermostats, rooms, staging, savedAt } -- under a second "config" key:
+    // { config: payload, savedAt, version }. So the real settings are two
+    // levels deep (inner.config.config), not one (inner.config). Missing
+    // this cost hours: JSON.parse always succeeds either way, so reading
+    // only one level deep silently returns undefined for every real field
+    // instead of erroring.
+    const payload = inner.config || {};
+    return {
+      config: payload.config || {},
+      thermostats: payload.thermostats || [],
+      rooms: payload.rooms || [],
+      staging: payload.staging || [],
+      savedAt: payload.savedAt || inner.savedAt || null,
+      version: inner.version || null,
+    };
   } catch {
     return null;
   }
