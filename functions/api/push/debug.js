@@ -16,6 +16,23 @@ export async function onRequestGet({ request, env }) {
   if (!household) return Response.json({ status: 'ok', found: false });
 
   const c = household.config || {};
+
+  // Also list the actual registered push devices -- id (truncated),
+  // name, mode, and which push service their subscription endpoint
+  // belongs to, without exposing the full subscription/keys.
+  const pushRaw = await env.HESTIA_KV.get(`push:${shortHash}`);
+  let devices = [];
+  if (pushRaw) {
+    try {
+      const parsed = JSON.parse(pushRaw);
+      devices = Object.entries(parsed).map(([id, d]) => {
+        let endpointHost = null;
+        try { endpointHost = new URL(d.subscription?.endpoint || '').host; } catch {}
+        return { idPrefix: id.slice(0, 8), name: d.name, mode: d.mode, endpointHost };
+      });
+    } catch {}
+  }
+
   return Response.json({
     status: 'ok',
     found: true,
@@ -28,14 +45,7 @@ export async function onRequestGet({ request, env }) {
     pushDoors: c.pushDoors,
     hasToken: !!c.token,
     motionSensorCount: (c.artemisSensors && c.artemisSensors.motions || []).length,
-    // Wider look, to identify exactly what this payload actually is.
-    configKeyCount: Object.keys(c).length,
-    configKeys: Object.keys(c),
-    hasHub: !!c.hub,
-    hasAppId: !!c.appId,
-    roomCount: (household.rooms || []).length,
-    thermostatCount: (household.thermostats || []).length,
-    stagingCount: (household.staging || []).length,
-    topLevelKeys: Object.keys(household),
+    registeredDeviceCount: devices.length,
+    registeredDevices: devices,
   });
 }
