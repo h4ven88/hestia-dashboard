@@ -1741,7 +1741,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.6.2';
-const HESTIA_BUILD_DATE = '2026-08-31';
+const HESTIA_BUILD_DATE = '2026-09-01';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 const PUSH_API          = '/api/push';
@@ -2689,7 +2689,7 @@ async function cloudSyncDiscover() {
 
 /* Re-seed S{} and DEVICE_TYPE{} from current rooms/thermostats */
 function initState() {
-  const _migrated = _cleanOrphanedVirtualIds();
+  _cleanOrphanedVirtualIds();
   Object.keys(S).forEach(k => delete S[k]);
   Object.keys(DEVICE_TYPE).forEach(k => delete DEVICE_TYPE[k]);
   rooms.forEach(r => {
@@ -2722,7 +2722,17 @@ function initState() {
   (CONFIG.locks || []).forEach(lk => {
     if (lk.id) { S[lk.id] = { locked: true }; DEVICE_TYPE[lk.id] = 'lock'; }
   });
-  if (_migrated) setTimeout(() => saveConfig(), 100);
+  // Deliberately no save here, even if _cleanOrphanedVirtualIds() changed
+  // something. initState() runs synchronously at module load, before the
+  // async boot flow has pulled the hub's config -- a save fired this early
+  // always wins the "first cloudSyncPush() of the session" race (the first
+  // call in any session bypasses the 30s debounce and lands immediately),
+  // which pushed stale pre-sync data to the cloud and forced the boot
+  // flow's own correct, hub-corrected push into the debounce queue for a
+  // full 30 seconds. applyParsedConfig() already re-runs this exact same
+  // cleanup on the fresh hub/cloud data moments later, and the boot flow's
+  // own cloudSyncPush() call captures that corrected result -- so this
+  // cleanup doesn't need (and must not have) its own separate early save.
 }
 
 /* Apply saved config — rebuild state, re-render, restart polling */
