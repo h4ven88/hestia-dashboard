@@ -28,5 +28,14 @@ export async function onRequestGet({ request, env }) {
     pushDoors: c.pushDoors,
     hasToken: !!c.token,
     motionSensorCount: (c.artemisSensors && c.artemisSensors.motions || []).length,
+    // Wider look, to identify exactly what this payload actually is.
+    configKeyCount: Object.keys(c).length,
+    configKeys: Object.keys(c),
+    hasHub: !!c.hub,
+    hasAppId: !!c.appId,
+    roomCount: (household.rooms || []).length,
+    thermostatCount: (household.thermostats || []).length,
+    stagingCount: (household.staging || []).length,
+    topLevelKeys: Object.keys(household),
   });
 }
