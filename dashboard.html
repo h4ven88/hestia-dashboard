@@ -1742,7 +1742,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.6.3';
-const HESTIA_BUILD_DATE = '2026-09-01';
+const HESTIA_BUILD_DATE = '2026-09-02';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 const PUSH_API          = '/api/push';
@@ -9649,7 +9649,7 @@ function spDiagnosticsBody() {
     <div class="sp-sep"></div>
     <div class="sp-group">
       <div class="sp-group-lbl">Send Test Notification</div>
-      <button class="sp-btn sp-btn-secondary" id="diag-test-push-btn" onclick="diagSendTestPush()">Send test push</button>
+      <button class="sp-btn sp-btn-secondary" id="diag-test-push-btn" onclick="diagSendTestPush()" style="padding:0 16px">Send test push</button>
       <span class="sp-hint" id="diag-test-push-result" style="display:block;margin-top:6px"></span>
     </div>
     <div class="sp-sep"></div>
@@ -12845,7 +12845,7 @@ function spShowSection(id, force) {
       html = `<div class="sp-content-hdr"><span class="sp-content-icon">🚪</span>Door Locks</div>
         <div class="sp-group">
           <div id="sp-locks-list">${lockRows || '<span class="sp-hint" style="margin:8px 0;display:block">No locks configured.</span>'}</div>
-          <button class="sp-btn" onclick="spAddLock()" style="margin-top:8px">+ Add Lock</button>
+          <button class="sp-btn sp-btn-secondary" onclick="spAddLock()" style="padding:0 16px;margin-top:8px;align-self:flex-start">+ Add Lock</button>
           <span class="sp-hint">Locks appear in the ribbon and Artemis security panel. Rooms with locks show an unlocked badge.</span>
         </div>`;
       break;
