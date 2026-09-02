@@ -1709,6 +1709,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
       <div class="sp-nav-item"        id="spn-routines"  onclick="spShowSection('routines')"> <span class="sp-nav-icon">⚡</span>Routines</div>
       <div class="sp-nav-group">System</div>
       <div class="sp-nav-item"        id="spn-system"   onclick="spShowSection('system')">   <span class="sp-nav-icon">🔧</span>System Tools</div>
+      <div class="sp-nav-item"        id="spn-diag"     onclick="spShowSection('diag')">     <span class="sp-nav-icon">🩺</span>Diagnostics</div>
     </div>
     <!-- Right content — filled by spShowSection() -->
     <div class="sp-content" id="sp-content"></div>
@@ -1747,6 +1748,7 @@ const CLOUD_SYNC_API    = '/api/config';
 const PUSH_API          = '/api/push';
 const PUSH_WEBHOOK_URL  = 'https://hestari.com/api/push/webhook';
 const PUSH_VAPID_PUBLIC_KEY = 'BGCW-E3pct69syRd4q6HDJ5mBvgrcd_Q6tkZ740s-rkuVsMYGeZyCMXjkAknBsy3mVIxVoUALroDtsPXqQAEs7A';
+const ACTIVITY_API      = '/api/activity';
 let _cloudSyncDebounce  = null;
 let _lastCloudPushAt    = 0;
 
@@ -2270,10 +2272,25 @@ const h = escapeHtml; // short alias for use in template literals
 ═══════════════════════════════════════════════════════ */
 let HUB_STORE = null; // { appId, token } once discovered
 
+// Real-world failure mode confirmed from a user's DevTools screenshot: a
+// plain fetch() to an http:// local hub from an https:// page (hestari.com)
+// can sit at "(pending)" indefinitely in some browsers instead of failing
+// fast -- Chrome's mixed-content/Private Network Access handling doesn't
+// always reject quickly. Since boot awaits this directly, an unguarded
+// fetch here stalls the entire dashboard forever (blank device counts,
+// weather stuck on "Fetching...", nothing ever renders). Every fetch below
+// is timeout-guarded so a hung request degrades to "not discovered" instead
+// of hanging boot.
+function _fetchWithTimeout(url, ms, opts) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return fetch(url, { ...(opts || {}), signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
 async function discoverHubStore(explicitHubUrl) {
   // 1. Try relative path (works when served from hub's local IP)
   try {
-    const res = await fetch('/local/hestia-token.json');
+    const res = await _fetchWithTimeout('/local/hestia-token.json', 4000);
     if (res.ok) {
       const data = await res.json();
       if (data && data.appId && data.token) {
@@ -2290,7 +2307,7 @@ async function discoverHubStore(explicitHubUrl) {
     try {
       const base = explicitHubUrl.replace(/\/+$/, '');
       const url = base + '/local/hestia-token.json';
-      const res = await fetch(url);
+      const res = await _fetchWithTimeout(url, 4000);
       if (res.ok) {
         const data = await res.json();
         if (data && data.appId && data.token) {
@@ -2349,7 +2366,7 @@ async function loadConfigFromHub() {
     // and cloud-served (hestari.com → local hub via explicit URL) scenarios
     const hub = HUB_STORE._hubUrl || window.location.origin;
     const url = `${hub}/apps/api/${HUB_STORE.appId}/config?access_token=${HUB_STORE.token}`;
-    const res = await fetch(url);
+    const res = await _fetchWithTimeout(url, 4000);
     if (!res.ok) return null;
     const text = await res.text();
     if (!text || text.trim() === 'null') return null;
@@ -2584,7 +2601,7 @@ async function saveConfigToHub(payload) {
       || (CONFIG.hub && isLocalHubUrl(CONFIG.hub) ? CONFIG.hub : null)
       || window.location.origin;
     const url = `${hub}/apps/api/${HUB_STORE.appId}/config?access_token=${HUB_STORE.token}`;
-    await fetch(url, {
+    await _fetchWithTimeout(url, 4000, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -9047,7 +9064,7 @@ function spAnnouncementsBody() {
       </div>
       <label class="sp-toggle">
         <input type="checkbox" ${en?'checked':''}
-          onchange="CONFIG.announceEnabled=this.checked;saveConfig();spShowSection('announce')">
+          onchange="announceToggleEnabled(this.checked)">
         <span class="sp-toggle-track"></span>
       </label>
     </div>
@@ -9592,11 +9609,312 @@ function spPushBody() {
     </div>`;
 }
 
+// ── Diagnostics — connection checks + unified activity log ─────────────
+// Checks are independent and self-contained (each fetches/derives its own
+// state and writes only its own row), so a slow or failing check never
+// blocks the others from reporting. Where checks 1-4 depend on the exact
+// same Maker API request (hub reachability, mixed-content inference, token
+// validity, and a Hub Login Security redirect all show up in that one
+// response), they share a single fetch instead of hitting the hub 4 times.
+function diagRow(key, name, desc) {
+  return `<div class="sp-toggle-row" style="align-items:flex-start">
+    <div class="sp-toggle-info">
+      <div class="sp-toggle-name">${name}</div>
+      <div class="sp-toggle-desc">${desc}</div>
+      <div class="sp-hint" id="diag-hint-${key}" style="display:none;margin-top:4px"></div>
+    </div>
+    <div class="sp-status" style="flex-shrink:0">
+      <div class="sp-status-dot amber" id="diag-dot-${key}"></div>
+      <span class="sp-status-lbl" id="diag-lbl-${key}">Checking…</span>
+    </div>
+  </div>`;
+}
+
+function spDiagnosticsBody() {
+  return `
+    <div class="sp-group">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
+        <div class="sp-group-lbl" style="margin:0">Connection Diagnostics</div>
+        <button class="sp-btn sp-btn-secondary" style="font-size:10px;padding:4px 10px" onclick="diagRunAll()">⟳ Re-check</button>
+      </div>
+      ${diagRow('hub', 'Hub Reachability', 'Can this device reach the Hubitat hub directly')}
+      ${diagRow('mixed', 'HTTPS / Mixed Content', 'Whether this HTTPS page conflicts with an HTTP hub URL')}
+      ${diagRow('token', 'Maker API Credentials', 'Whether the App ID and access token are accepted')}
+      ${diagRow('loginsec', 'Hub Login Security', 'Detects a hub login page intercepting API requests')}
+      ${diagRow('groovy', 'Companion App', 'Reachability and version of the Hestia app on the hub')}
+      ${diagRow('push', 'Push Pipeline', 'Notification permission, service worker, and device registration')}
+      ${diagRow('cloud', 'Cloud Sync', 'Reachability of the hestari.com backend')}
+      ${diagRow('env', 'Browser / Environment', 'Browser, online state, and API support on this device')}
+    </div>
+    <div class="sp-sep"></div>
+    <div class="sp-group">
+      <div class="sp-group-lbl">Send Test Notification</div>
+      <button class="sp-btn sp-btn-secondary" id="diag-test-push-btn" onclick="diagSendTestPush()">Send test push</button>
+      <span class="sp-hint" id="diag-test-push-result" style="display:block;margin-top:6px"></span>
+    </div>
+    <div class="sp-sep"></div>
+    <div class="sp-group">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div class="sp-group-lbl" style="margin:0">Activity Log</div>
+        <button class="sp-btn sp-btn-secondary" style="font-size:10px;padding:4px 10px" onclick="diagLoadActivity()">⟳ Refresh</button>
+      </div>
+      <div id="diag-activity-list"><span class="sp-hint">Loading…</span></div>
+    </div>`;
+}
+
+function diagSetStatus(key, level, label, hint) {
+  const dot  = document.getElementById('diag-dot-' + key);
+  const lbl  = document.getElementById('diag-lbl-' + key);
+  const hintEl = document.getElementById('diag-hint-' + key);
+  if (dot) dot.className = 'sp-status-dot ' + level;
+  if (lbl) lbl.textContent = label;
+  if (hintEl) {
+    hintEl.textContent = hint || '';
+    hintEl.style.display = hint ? 'block' : 'none';
+  }
+}
+
+function diagRunAll() {
+  ['hub','mixed','token','loginsec','groovy','push','cloud','env'].forEach(k => diagSetStatus(k, 'amber', 'Checking…'));
+  diagCheckHubGroup();
+  diagCheckGroovy();
+  diagCheckCloud();
+  diagCheckPush();
+  diagCheckEnv();
+  diagLoadActivity();
+}
+
+// Checks 1-4: hub reachability, HTTP/HTTPS mixed-content inference, Maker
+// API token validity, and Hub Login Security -- all read from one request
+// to an endpoint this dashboard already polls elsewhere (apiUrl('/devices/all')),
+// so this adds no new load on the hub beyond what normal operation already does.
+async function diagCheckHubGroup() {
+  const isHttpsPage = location.protocol === 'https:';
+  const hubIsHttp = (CONFIG.hub || '').startsWith('http://');
+  const mismatch = isHttpsPage && hubIsHttp;
+
+  let res = null, text = '', err = null;
+  try {
+    res = await fetch(apiUrl('/devices/all'));
+    text = await res.text();
+  } catch (e) {
+    err = e;
+  }
+
+  if (err || !res) {
+    diagSetStatus('hub', 'red', 'Unreachable', mismatch
+      ? `Could not reach the hub. This page is loaded over HTTPS while the hub URL is HTTP — the browser may be silently blocking the request as mixed content.`
+      : `Could not reach the hub at ${CONFIG.hub || '(not set)'}. Check that it's powered on, on the same network, and the URL in Hub Connection is correct.`);
+  } else if (res.ok) {
+    diagSetStatus('hub', 'green', 'Reachable');
+  } else {
+    diagSetStatus('hub', 'amber', 'Responded with HTTP ' + res.status);
+  }
+
+  if (!mismatch) {
+    diagSetStatus('mixed', 'green', isHttpsPage ? 'HTTPS, hub URL matches' : 'Both on HTTP, no mismatch');
+  } else if (!err && res) {
+    diagSetStatus('mixed', 'green', 'Mixed content, but allowed by this browser');
+  } else {
+    diagSetStatus('mixed', 'amber', 'Possible cause of the failure above', `This page is HTTPS but the hub URL is HTTP. Browsers can silently block that as "mixed content." This is the expected setup for hestari.com + a local hub and is usually fine, but if Hub Reachability above is failing, this is the first thing to suspect.`);
+  }
+
+  if (err || !res) {
+    diagSetStatus('token', 'amber', 'Unknown', `Hub unreachable — can't verify the token until the hub responds.`);
+  } else if (res.status === 401 || res.status === 403) {
+    diagSetStatus('token', 'red', 'Unauthorized', 'The hub rejected the Maker API App ID/token. Re-check them in Hub Connection, or re-authorize this app instance in the Maker API device list on the hub.');
+  } else if (res.ok) {
+    try { JSON.parse(text); diagSetStatus('token', 'green', 'Valid'); }
+    catch { diagSetStatus('token', 'amber', 'Unexpected response', 'Hub responded but not with the expected JSON — see Hub Login Security below.'); }
+  } else {
+    diagSetStatus('token', 'amber', 'HTTP ' + res.status);
+  }
+
+  if (err || !res) {
+    diagSetStatus('loginsec', 'amber', 'Unknown', `Hub unreachable — can't check for a login redirect.`);
+  } else {
+    const trimmed = text.trim();
+    const looksLikeLogin = /<html|<!doctype|login/i.test(text) && !trimmed.startsWith('{') && !trimmed.startsWith('[');
+    if (looksLikeLogin) {
+      diagSetStatus('loginsec', 'red', 'Likely blocking this request', `The hub returned an HTML/login page instead of JSON. If Hub Login Security is enabled on the hub, it may be intercepting this request — try adding this device's network to the trusted range, or temporarily disabling it to confirm.`);
+    } else {
+      diagSetStatus('loginsec', 'green', 'No interference detected');
+    }
+  }
+}
+
+// Separate from Maker API entirely -- the companion app has its own OAuth
+// app instance/token (HUB_STORE), so this can be reachable/unreachable
+// independent of the Maker API checks above.
+async function diagCheckGroovy() {
+  if (!HUB_STORE) reconstructHubStore();
+  if (!HUB_STORE) {
+    diagSetStatus('groovy', 'amber', 'Not discovered', `The companion app hasn't been discovered on this device yet. Open the dashboard on your local network at least once so it can be found.`);
+    return;
+  }
+  try {
+    const hub = HUB_STORE._hubUrl || CONFIG.hub;
+    const url = `${hub}/apps/api/${HUB_STORE.appId}/version?access_token=${HUB_STORE.token}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.appVersion === HESTIA_VERSION) {
+      diagSetStatus('groovy', 'green', `v${data.appVersion} (up to date)`);
+    } else {
+      diagSetStatus('groovy', 'amber', `v${data.appVersion || '?'} (dashboard is v${HESTIA_VERSION})`, 'The companion app on your hub is a different version than this dashboard. Update it via Apps Code or Hubitat Package Manager.');
+    }
+  } catch (e) {
+    diagSetStatus('groovy', 'red', 'Unreachable', `Could not reach the companion app's own endpoint (separate from Maker API). Make sure the Hestia Dashboard app instance is still installed and enabled on the hub.`);
+  }
+}
+
+async function diagCheckCloud() {
+  try {
+    const res = await fetch(CLOUD_SYNC_API + '/whoami');
+    const data = await res.json();
+    if (data && data.ip) {
+      diagSetStatus('cloud', 'green', 'Reachable', `hestari.com sees this device as ${data.ip}.`);
+    } else {
+      diagSetStatus('cloud', 'amber', 'Unexpected response');
+    }
+  } catch (e) {
+    diagSetStatus('cloud', 'red', 'Unreachable', 'Could not reach the hestari.com backend. Cloud config sync, cross-device sync, and push notifications all depend on this.');
+  }
+}
+
+async function diagCheckPush() {
+  const registered = (CONFIG.pushDevices || []).some(d => d.id === DEVICE_ID);
+  const perm = (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported';
+  let swActive = false;
+  try {
+    const reg = await navigator.serviceWorker.getRegistration('/sw.js');
+    swActive = !!(reg && reg.active);
+  } catch (e) {}
+
+  const detail = `Push: ${CONFIG.pushEnabled ? 'on' : 'off'} · This device: ${registered ? 'registered' : 'not registered'} · Permission: ${perm} · Service worker: ${swActive ? 'active' : 'not active'}`;
+
+  if (!CONFIG.pushEnabled) {
+    diagSetStatus('push', 'green', 'Disabled', detail);
+  } else if (registered && perm === 'granted' && swActive) {
+    diagSetStatus('push', 'green', 'Healthy', detail);
+  } else {
+    diagSetStatus('push', 'amber', 'Enabled, but incomplete', detail);
+  }
+}
+
+async function diagCheckEnv() {
+  let browser = 'Unknown browser';
+  try {
+    if (navigator.brave && await navigator.brave.isBrave()) browser = 'Brave';
+  } catch (e) {}
+  if (browser === 'Unknown browser') {
+    const ua = navigator.userAgent;
+    if (/firefox/i.test(ua)) browser = 'Firefox';
+    else if (/edg\//i.test(ua)) browser = 'Edge';
+    else if (/chrome/i.test(ua)) browser = 'Chrome';
+    else if (/safari/i.test(ua)) browser = 'Safari';
+  }
+  const bits = [
+    navigator.onLine ? 'Online' : 'Offline',
+    browser,
+    'serviceWorker ' + ('serviceWorker' in navigator ? 'supported' : 'unsupported'),
+    location.protocol === 'https:' ? 'Page: HTTPS' : 'Page: HTTP'
+  ];
+  diagSetStatus('env', 'green', bits.join(' · '), navigator.userAgent);
+}
+
+// Bypasses the armed-only gate (armed:true) on purpose -- a test send is
+// meant to confirm delivery works right now, not to wait for the house to
+// actually be armed. Broadcasts to every registered device, same as any
+// other push category -- there's no per-device targeting in dispatchPush().
+async function diagSendTestPush() {
+  const btn = document.getElementById('diag-test-push-btn');
+  const result = document.getElementById('diag-test-push-result');
+  if (btn) btn.disabled = true;
+  if (result) result.textContent = 'Sending…';
+  try {
+    const res = await fetch(PUSH_API + '/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        category: 'test',
+        title: 'Hestia Test Notification',
+        body: 'If you can see this, push notifications are working.',
+        armed: true,
+        token: CONFIG.token
+      })
+    });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      result.textContent = data.sent
+        ? `Sent to ${data.sent} device(s)${data.failed ? `, ${data.failed} failed` : ''}.`
+        : 'No devices are currently eligible — check Push Notifications settings.';
+    } else {
+      result.textContent = 'Failed: ' + (data.message || 'unknown error');
+    }
+  } catch (e) {
+    result.textContent = 'Failed to reach the push backend: ' + e.message;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+  diagLoadActivity();
+}
+
+const _diagCategoryIcon = {
+  doors: '🚪', windows: '🪟', locks: '🔒', motion: '🏃',
+  smoke: '🔥', water: '💧', alarm: '🚨', test: '🧪', announcement: '🔊'
+};
+
+function diagRelTime(ts) {
+  const min = Math.floor((Date.now() - ts) / 60000);
+  if (min < 1) return 'just now';
+  if (min < 60) return min + 'm ago';
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return hr + 'h ago';
+  return Math.floor(hr / 24) + 'd ago';
+}
+
+async function diagLoadActivity() {
+  const el = document.getElementById('diag-activity-list');
+  if (!el) return;
+  try {
+    const res = await fetch(ACTIVITY_API + '?limit=50');
+    const data = await res.json();
+    const entries = (data && data.entries) || [];
+    if (!entries.length) {
+      el.innerHTML = '<span class="sp-hint" style="display:block">No activity recorded yet. Events appear here once Push Notifications or Announcements are enabled and a tracked device changes state.</span>';
+      return;
+    }
+    el.innerHTML = `<div style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+      ${entries.map(e => `
+        <div style="display:flex;gap:10px;align-items:flex-start;padding:8px 12px;border-bottom:1px solid var(--border-s)">
+          <span style="font-size:14px;flex-shrink:0;margin-top:1px">${_diagCategoryIcon[e.category] || '•'}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;color:var(--t1)">${h(e.title || '')}</div>
+            <div style="font-size:11px;color:var(--t3)">${h(e.body || '')}</div>
+          </div>
+          <span style="font-size:10px;color:var(--t4);flex-shrink:0;white-space:nowrap">${diagRelTime(e.ts)}</span>
+        </div>`).join('')}
+    </div>`;
+  } catch (e) {
+    el.innerHTML = '<span class="sp-hint" style="color:#F87171">Could not load activity: ' + h(e.message) + '</span>';
+  }
+}
+
 function pushToggleEnabled(on) {
   CONFIG.pushEnabled = on;
   saveConfig();
   if (on) pushRegisterMakerApiWebhook();
   spShowSection('push');
+}
+
+function announceToggleEnabled(on) {
+  CONFIG.announceEnabled = on;
+  saveConfig();
+  // Announcements has no push/armed-mode device list of its own, but it
+  // shares the same Maker API postURL registration -- the Activity Log's
+  // server-side capture only sees device events once this is registered.
+  if (on) pushRegisterMakerApiWebhook();
+  spShowSection('announce');
 }
 
 async function pushSetThisDeviceMode(mode) {
@@ -11954,7 +12272,7 @@ function spDevicesSection() {
       <div class="sp-dev-row" style="opacity:.7">
         <div class="sp-dev-row-top">
           <span class="sp-dev-name" style="color:#F87171">${h(d.name)}</span>
-          <button class="sp-dev-remove" title="Dismiss and remove" onclick="spDismissRemoved('${d.id}')">✕</button>
+          <button class="sp-dev-remove" title="Dismiss and remove" onclick="spDismissRemoved('${d.id}',this)">✕</button>
         </div>
         <div class="sp-dev-row-bottom">
           <span style="font-size:10px;color:#F87171">No longer in Maker API</span>
@@ -12662,6 +12980,12 @@ function spShowSection(id, force) {
           <button class="sp-btn sp-btn-danger" style="width:100%;justify-content:center" onclick="resetSettings()">⚠ Factory Reset</button>
           <span class="sp-hint" style="margin-top:4px;color:var(--conn-err)">Erases all settings and returns to the onboarding wizard. This cannot be undone.</span>
         </div>`;
+      break;
+
+    case 'diag':
+      html = `<div class="sp-content-hdr"><span class="sp-content-icon">🩺</span>Diagnostics</div>
+        ${spDiagnosticsBody()}`;
+      requestAnimationFrame(() => diagRunAll());
       break;
 
     default:
@@ -14477,7 +14801,16 @@ function updateGearBadge() {
   if (batCount) batCount.textContent = lowBatCount;
 }
 
-function spDismissRemoved(devId) {
+// Unlike the batched room-editor rows (which only mutate in-memory `rooms`
+// until the user clicks "Save & Apply"), this persists immediately -- so it
+// must actually wait for the hub write to land before returning. Without
+// the await, a user who dismisses then immediately hits refresh can lose
+// the race: boot's "hub is truth" policy would reload the hub's still-stale
+// copy (device still in `rooms`), re-seed DEVICE_REGISTRY with it, and the
+// very next poll re-flags it as "removed from Maker API" all over again --
+// reproducing the device coming back after every dismiss+refresh.
+async function spDismissRemoved(devId, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
   state_removedDevices = state_removedDevices.filter(d => String(d.id) !== String(devId));
   state_missCounts[String(devId)] = 0;
   // Also remove from rooms and staging since it's gone from the hub
@@ -14491,7 +14824,7 @@ function spDismissRemoved(devId) {
   const si = staging.findIndex(d => String(d.id) === String(devId));
   if (si > -1) staging.splice(si, 1);
   DEVICE_REGISTRY.delete(String(devId));
-  saveConfig();
+  await saveConfig();
   updateGearBadge();
   spRefreshDevices();
 }
@@ -15503,7 +15836,12 @@ function launchOnboarding() {
   migrateSensorMeta();
   if (CONFIG.artemisEnabled) { artemisHsmSync(); updateArmedStatus(); }
   if (CONFIG.athenaEnabled)  { athenaInit(); }
-  if (CONFIG.pushEnabled)    { pushResyncOnBoot(); pushRegisterMakerApiWebhook(); }
+  if (CONFIG.pushEnabled)    { pushResyncOnBoot(); }
+  // Registered whenever either Push or Announcements needs device events --
+  // the Activity Log's server-side capture (webhook.js) only sees anything
+  // at all once this postURL is registered, so Announcements-only households
+  // (Push never turned on) need it just as much as Push ones do.
+  if (CONFIG.pushEnabled || CONFIG.announceEnabled) { pushRegisterMakerApiWebhook(); }
   reminderInit();
   routineScheduleInit();
   // Security checks

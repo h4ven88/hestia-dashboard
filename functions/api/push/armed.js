@@ -1,4 +1,5 @@
 import { getHouseholdConfig } from '../../_lib/householdConfig.js';
+import { logActivity } from '../../_lib/activityLog.js';
 
 async function sha256(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
@@ -44,6 +45,18 @@ export async function onRequestPost({ request, env }) {
     return Response.json({ status: 'error', message: 'unauthorized' }, { status: 401 });
   }
 
+  const prevRaw = await env.HESTIA_KV.get(`armed:${shortHash}`);
+  const prev = prevRaw === '1';
   await env.HESTIA_KV.put(`armed:${shortHash}`, armed ? '1' : '0', { expirationTtl: 2592000 });
+
+  if (prevRaw === null || prev !== armed) {
+    await logActivity(env, shortHash, {
+      category: 'alarm',
+      title: armed ? 'System Armed' : 'System Disarmed',
+      body: armed ? 'Security system armed.' : 'Security system disarmed.',
+      source: 'hsm',
+    });
+  }
+
   return Response.json({ status: 'ok' });
 }

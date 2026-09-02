@@ -1,5 +1,6 @@
 import { dispatchPush } from '../../_lib/pushDispatch.js';
 import { getHouseholdConfig } from '../../_lib/householdConfig.js';
+import { logActivity } from '../../_lib/activityLog.js';
 
 async function sha256(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
@@ -23,6 +24,59 @@ function categorize(config, deviceId) {
   const lock = (config.locks || []).find(l => String(l.id) === String(deviceId));
   if (lock) return { cat: 'locks', name: lock.label || 'Lock' };
   return null;
+}
+
+// Same event shapes the push dispatch switch below recognizes, but with none
+// of its on/off category toggles, open/close gates, or per-device motion
+// picker applied -- the Activity Log records what happened, not what the
+// user chose to be notified about.
+function describeEvent(info, evt) {
+  if (info.cat === 'contacts' && evt.name === 'contact' && (evt.value === 'open' || evt.value === 'closed')) {
+    const isWindow = info.subtype === 'window';
+    return {
+      category: isWindow ? 'windows' : 'doors',
+      title: `${isWindow ? 'Window' : 'Door'} ${evt.value === 'open' ? 'Opened' : 'Closed'}`,
+      body: `${evt.displayName || info.name} is now ${evt.value}.`,
+    };
+  }
+  if (info.cat === 'locks' && evt.name === 'lock' && (evt.value === 'locked' || evt.value === 'unlocked')) {
+    return {
+      category: 'locks',
+      title: `Door ${evt.value === 'locked' ? 'Locked' : 'Unlocked'}`,
+      body: `${evt.displayName || info.name} was ${evt.value}.`,
+    };
+  }
+  if (info.cat === 'motions' && evt.name === 'motion' && evt.value === 'active') {
+    return { category: 'motion', title: 'Motion Detected', body: `Motion detected: ${evt.displayName || info.name}.` };
+  }
+  if (info.cat === 'smokes' && (evt.name === 'smoke' || evt.name === 'carbonMonoxide') && evt.value === 'detected') {
+    return {
+      category: 'smoke',
+      title: 'Smoke / CO Alert',
+      body: `${evt.displayName || info.name} detected ${evt.name === 'smoke' ? 'smoke' : 'carbon monoxide'}!`,
+    };
+  }
+  if (info.cat === 'waters' && evt.name === 'water' && evt.value === 'wet') {
+    return { category: 'water', title: 'Water / Freeze Alert', body: `${evt.displayName || info.name} detected water!` };
+  }
+  return null;
+}
+
+// The on/off category toggles, open/close gates, and per-device motion
+// picker from Settings > Push Notifications -- applied only to push
+// dispatch, never to the Activity Log above.
+function pushAllowed(config, described, evt) {
+  const openOn  = config.pushOpen  !== false;
+  const closeOn = config.pushClose !== false;
+  switch (described.category) {
+    case 'doors':   return config.pushDoors   !== false && (evt.value === 'open' ? openOn : closeOn);
+    case 'windows': return config.pushWindows !== false && (evt.value === 'open' ? openOn : closeOn);
+    case 'locks':   return config.pushLocks   !== false && (evt.value === 'unlocked' ? openOn : closeOn);
+    case 'motion':  return config.pushMotion  === true && new Set((config.pushMotionDevices || []).map(String)).has(String(evt.deviceId));
+    case 'smoke':   return config.pushSmoke   !== false;
+    case 'water':   return config.pushWater   !== false;
+    default:        return false;
+  }
 }
 
 // Registered automatically by dashboard.html as Maker API's device-event
@@ -57,61 +111,26 @@ export async function onRequestPost({ request, env }) {
   const household = await getHouseholdConfig(env, ip, shortHash);
   if (!household) return Response.json({ status: 'ok', skipped: 'unknown household' });
   const config = household.config || {};
-  if (config.pushEnabled !== true) return Response.json({ status: 'ok', skipped: 'push disabled' });
 
   const info = categorize(config, evt.deviceId);
-  if (!info) return Response.json({ status: 'ok', skipped: 'device not categorized for push' });
+  if (!info) return Response.json({ status: 'ok', skipped: 'device not categorized' });
 
-  const doorsOn   = config.pushDoors   !== false;
-  const windowsOn = config.pushWindows !== false;
-  const locksOn   = config.pushLocks   !== false;
-  const motionOn  = config.pushMotion  === true;
-  const smokeOn   = config.pushSmoke   !== false;
-  const waterOn   = config.pushWater   !== false;
-  const openOn    = config.pushOpen    !== false;
-  const closeOn   = config.pushClose   !== false;
-  const motionAllowed = new Set((config.pushMotionDevices || []).map(String));
+  const described = describeEvent(info, evt);
+  if (!described) return Response.json({ status: 'ok', skipped: 'not a tracked transition' });
 
-  let category = null, title = null, message = null;
+  // Logged independent of the push toggle and its category gates below --
+  // Maker API keeps streaming events to this URL even after Push
+  // Notifications is turned off in Settings (there's no matching
+  // "unregister" call), and the Activity Log is meant to show what actually
+  // happened in the home regardless of notification preferences.
+  await logActivity(env, shortHash, { ...described, source: 'device' });
 
-  if (info.cat === 'contacts' && evt.name === 'contact' && (evt.value === 'open' || evt.value === 'closed')) {
-    const isWindow = info.subtype === 'window';
-    if ((isWindow ? windowsOn : doorsOn) && (evt.value === 'open' ? openOn : closeOn)) {
-      category = isWindow ? 'windows' : 'doors';
-      title = `${isWindow ? 'Window' : 'Door'} ${evt.value === 'open' ? 'Opened' : 'Closed'}`;
-      message = `${evt.displayName || info.name} is now ${evt.value}.`;
-    }
-  } else if (info.cat === 'locks' && evt.name === 'lock' && (evt.value === 'locked' || evt.value === 'unlocked')) {
-    if (locksOn && (evt.value === 'unlocked' ? openOn : closeOn)) {
-      category = 'locks';
-      title = `Door ${evt.value === 'locked' ? 'Locked' : 'Unlocked'}`;
-      message = `${evt.displayName || info.name} was ${evt.value}.`;
-    }
-  } else if (info.cat === 'motions' && evt.name === 'motion' && evt.value === 'active') {
-    if (motionOn && motionAllowed.has(String(evt.deviceId))) {
-      category = 'motion';
-      title = 'Motion Detected';
-      message = `Motion detected: ${evt.displayName || info.name}.`;
-    }
-  } else if (info.cat === 'smokes' && (evt.name === 'smoke' || evt.name === 'carbonMonoxide') && evt.value === 'detected') {
-    if (smokeOn) {
-      category = 'smoke';
-      title = 'Smoke / CO Alert';
-      message = `${evt.displayName || info.name} detected ${evt.name === 'smoke' ? 'smoke' : 'carbon monoxide'}!`;
-    }
-  } else if (info.cat === 'waters' && evt.name === 'water' && evt.value === 'wet') {
-    if (waterOn) {
-      category = 'water';
-      title = 'Water / Freeze Alert';
-      message = `${evt.displayName || info.name} detected water!`;
-    }
-  }
-
-  if (!category) return Response.json({ status: 'ok', skipped: 'no matching category/gate' });
+  if (config.pushEnabled !== true) return Response.json({ status: 'ok', skipped: 'push disabled', logged: true });
+  if (!pushAllowed(config, described, evt)) return Response.json({ status: 'ok', skipped: 'no matching category/gate', logged: true });
 
   const armedRaw = await env.HESTIA_KV.get(`armed:${shortHash}`);
   const armed = armedRaw === '1';
 
-  const result = await dispatchPush(env, shortHash, { category, title, body: message, armed });
-  return Response.json({ status: 'ok', ...result });
+  const result = await dispatchPush(env, shortHash, { category: described.category, title: described.title, body: described.body, armed });
+  return Response.json({ status: 'ok', logged: true, ...result });
 }

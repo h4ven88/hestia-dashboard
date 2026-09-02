@@ -1,5 +1,6 @@
 import { dispatchPush } from '../../_lib/pushDispatch.js';
 import { getHouseholdConfig } from '../../_lib/householdConfig.js';
+import { logActivity } from '../../_lib/activityLog.js';
 
 async function sha256(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
@@ -45,6 +46,13 @@ export async function onRequestPost({ request, env }) {
     return Response.json({ status: 'error', message: 'unauthorized' }, { status: 401 });
   }
 
+  // This endpoint is the only path for hsmAlert intrusion trips (Groovy's
+  // pushHsmAlertHandler calls it directly, bypassing webhook.js entirely),
+  // so it's also the only place those can be captured for the Activity Log.
+  if (category) {
+    await logActivity(env, shortHash, { category, title, body: message, source: category === 'alarming' ? 'hsm' : 'manual' });
+  }
+
   const result = await dispatchPush(env, shortHash, { category, title, body: message, armed });
-  return Response.json({ status: 'ok', ...result });
+  return Response.json({ status: 'ok', logged: !!category, ...result });
 }
