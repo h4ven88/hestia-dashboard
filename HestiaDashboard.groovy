@@ -51,7 +51,7 @@ preferences {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
-@Field static final String APP_VERSION        = "1.6.3"
+@Field static final String APP_VERSION        = "1.6.4"
 @Field static final String TOKEN_FILENAME      = "hestia-token.json"
 @Field static final String CONFIG_FILENAME     = "hestia-config.json"
 @Field static final String DASHBOARD_FILENAME  = "index.html"
