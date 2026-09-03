@@ -1742,7 +1742,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.6.4';
-const HESTIA_BUILD_DATE = '2026-09-02';
+const HESTIA_BUILD_DATE = '2026-09-03';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 const PUSH_API          = '/api/push';
@@ -14809,6 +14809,15 @@ function updateGearBadge() {
 // copy (device still in `rooms`), re-seed DEVICE_REGISTRY with it, and the
 // very next poll re-flags it as "removed from Maker API" all over again --
 // reproducing the device coming back after every dismiss+refresh.
+//
+// Second, more direct reproduction (doesn't even need a race): if the
+// removed device is also registered as an Artemis sensor, it lived on in
+// CONFIG.artemisSensors.* even after being spliced out of rooms/staging.
+// applyConfig() -- run by the ordinary "Save & Apply" button -- always does
+// DEVICE_REGISTRY.clear() then artemisRegisterSensors(), which re-adds every
+// ID still sitting in CONFIG.artemisSensors. So dismiss, then Save & Apply
+// (a completely normal sequence, no fast-refresh needed) put the device
+// straight back into DEVICE_REGISTRY, and the next poll re-flagged it.
 async function spDismissRemoved(devId, btn) {
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   state_removedDevices = state_removedDevices.filter(d => String(d.id) !== String(devId));
@@ -14823,6 +14832,12 @@ async function spDismissRemoved(devId, btn) {
   });
   const si = staging.findIndex(d => String(d.id) === String(devId));
   if (si > -1) staging.splice(si, 1);
+  if (CONFIG.artemisSensors) {
+    Object.keys(CONFIG.artemisSensors).forEach(cat => {
+      if (!Array.isArray(CONFIG.artemisSensors[cat])) return;
+      CONFIG.artemisSensors[cat] = CONFIG.artemisSensors[cat].filter(d => String(d.id || d) !== String(devId));
+    });
+  }
   DEVICE_REGISTRY.delete(String(devId));
   await saveConfig();
   updateGearBadge();
