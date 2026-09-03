@@ -62,6 +62,16 @@ function describeEvent(info, evt) {
   return null;
 }
 
+// While disarmed, a lingering person can retrigger the same motion sensor
+// dozens of times in a few minutes -- each one a separate KV write with no
+// real added information. Cooldown is scoped per-sensor (not house-wide),
+// so movement between rooms during a real event still logs each sensor's
+// first trigger; it only suppresses the *same* sensor re-firing on top of
+// itself. While armed, skip the cooldown entirely -- that's exactly when
+// full-resolution tracking (e.g. where an intruder has been) matters most,
+// and it's also when motion should be rare in the first place.
+const MOTION_LOG_COOLDOWN_SECONDS = 600; // 10 minutes, disarmed only
+
 // The on/off category toggles, open/close gates, and per-device motion
 // picker from Settings > Push Notifications -- applied only to push
 // dispatch, never to the Activity Log above.
@@ -118,19 +128,36 @@ export async function onRequestPost({ request, env }) {
   const described = describeEvent(info, evt);
   if (!described) return Response.json({ status: 'ok', skipped: 'not a tracked transition' });
 
+  // Needed for both the motion cooldown decision below and push dispatch's
+  // armed-only gate -- fetched once and reused rather than twice.
+  let armed = false;
+  if (described.category === 'motion' || config.pushEnabled === true) {
+    const armedRaw = await env.HESTIA_KV.get(`armed:${shortHash}`);
+    armed = armedRaw === '1';
+  }
+
   // Logged independent of the push toggle and its category gates below --
   // Maker API keeps streaming events to this URL even after Push
   // Notifications is turned off in Settings (there's no matching
   // "unregister" call), and the Activity Log is meant to show what actually
-  // happened in the home regardless of notification preferences.
-  await logActivity(env, shortHash, { ...described, source: 'device' });
+  // happened in the home regardless of notification preferences. Motion
+  // while disarmed is the one exception, gated by a per-sensor cooldown --
+  // see MOTION_LOG_COOLDOWN_SECONDS above.
+  let logged = true;
+  if (described.category === 'motion' && !armed) {
+    const cooldownKey = `mcool:${shortHash}:${evt.deviceId}`;
+    const cooling = await env.HESTIA_KV.get(cooldownKey);
+    if (cooling) {
+      logged = false;
+    } else {
+      await env.HESTIA_KV.put(cooldownKey, '1', { expirationTtl: MOTION_LOG_COOLDOWN_SECONDS });
+    }
+  }
+  if (logged) await logActivity(env, shortHash, { ...described, source: 'device' });
 
-  if (config.pushEnabled !== true) return Response.json({ status: 'ok', skipped: 'push disabled', logged: true });
-  if (!pushAllowed(config, described, evt)) return Response.json({ status: 'ok', skipped: 'no matching category/gate', logged: true });
-
-  const armedRaw = await env.HESTIA_KV.get(`armed:${shortHash}`);
-  const armed = armedRaw === '1';
+  if (config.pushEnabled !== true) return Response.json({ status: 'ok', skipped: 'push disabled', logged });
+  if (!pushAllowed(config, described, evt)) return Response.json({ status: 'ok', skipped: 'no matching category/gate', logged });
 
   const result = await dispatchPush(env, shortHash, { category: described.category, title: described.title, body: described.body, armed });
-  return Response.json({ status: 'ok', logged: true, ...result });
+  return Response.json({ status: 'ok', logged, ...result });
 }
