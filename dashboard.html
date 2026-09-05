@@ -1742,7 +1742,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.6.4';
-const HESTIA_BUILD_DATE = '2026-09-04';
+const HESTIA_BUILD_DATE = '2026-09-05';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 const PUSH_API          = '/api/push';
@@ -6167,7 +6167,7 @@ function reminderFired(id) {
 function reminderShowToast(text) {
   const el = document.getElementById('ath-reminder-toast');
   if (!el) return;
-  el.innerHTML = `<div class="ath-reminder-toast-dot"></div><div class="ath-reminder-toast-text">${text}</div><div class="ath-reminder-toast-dismiss" onclick="reminderDismissToast()">✕</div>`;
+  el.innerHTML = `<div class="ath-reminder-toast-dot"></div><div class="ath-reminder-toast-text">${h(text)}</div><div class="ath-reminder-toast-dismiss" onclick="reminderDismissToast()">✕</div>`;
   el.classList.add('show');
   clearTimeout(el._dismissTimeout);
   el._dismissTimeout = setTimeout(() => reminderDismissToast(), 30000);
@@ -6624,7 +6624,7 @@ function _calEventHTML(ev, mobile) {
   const clickAttr = ev.id ? ` onclick="_calOpenSettings('${section}')" style="cursor:pointer"` : '';
   return `<div class="${cls}${ev.past ? ' past' : ''}"${clickAttr}>
     <div class="${iconCls} ${ev.type}">${icon}</div>
-    <div class="${pfx}-body"><div class="${pfx}-name">${ev.name}</div><div class="${pfx}-meta">${ev.meta}</div></div>
+    <div class="${pfx}-body"><div class="${pfx}-name">${h(ev.name)}</div><div class="${pfx}-meta">${h(ev.meta)}</div></div>
     <div class="${pfx}-time">${_calFormatTime(ev.time)}</div>
   </div>`;
 }
@@ -7079,7 +7079,7 @@ function athenaShowChip(type, text) {
   const icon = type === 'green'
     ? `<svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6L5 9L10 3" stroke="#4ADE80" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`
     : `<svg width="9" height="9" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="#F87171" stroke-width="1.2"/><line x1="6" y1="3.5" x2="6" y2="6.5" stroke="#F87171" stroke-width="1.2" stroke-linecap="round"/><circle cx="6" cy="8.5" r=".6" fill="#F87171"/></svg>`;
-  chip.innerHTML = icon + text;
+  chip.innerHTML = icon + h(text);
   area.appendChild(chip);
 }
 
@@ -9877,7 +9877,7 @@ async function diagLoadActivity() {
   const el = document.getElementById('diag-activity-list');
   if (!el) return;
   try {
-    const res = await fetch(ACTIVITY_API + '?limit=50');
+    const res = await fetch(ACTIVITY_API + '?limit=25');
     const data = await res.json();
     const entries = (data && data.entries) || [];
     if (!entries.length) {
@@ -10072,7 +10072,7 @@ function spArtemisBody() {
       const secId = 'art-rsec-' + idx;
       listHTML += `
         <div class="sp-dev-section-hdr" onclick="spToggleDevSec('${secId}')" style="cursor:pointer">
-          <span class="sp-dev-section-name">${g.name}</span>
+          <span class="sp-dev-section-name">${h(g.name)}</span>
           <span style="display:flex;align-items:center;gap:8px">
             <span class="sp-dev-section-count">${g.devs.length}</span>
             <span class="sp-section-arrow open" id="arr-${secId}" style="font-size:9px">▼</span>
@@ -10519,7 +10519,7 @@ function shadeRowHTML(sh) {
   return `
     <div class="shade-row">
       <div class="shade-row-top">
-        <span class="shade-name">${sh.name}</span>
+        <span class="shade-name">${h(sh.name)}</span>
         <span class="shade-pct ${!isOpen ? 'closed' : ''}" id="spct-${sh.id}">${pct}%</span>
         <button class="shade-tgl" id="stgl-${sh.id}"
           onclick="tglShade('${sh.id}',this,${pct})">
@@ -10959,7 +10959,7 @@ function renderLights() {
     .map(r => {
       const switchRows = r.switches.map(s => `
         <div class="drow">
-          <span class="drow-name">${s.name}</span>
+          <span class="drow-name">${h(s.name)}</span>
           <label class="tog">
             <input type="checkbox" id="tog-inp-${s.id}" ${S[s.id].on ? 'checked' : ''}
               onchange="toggleSwitch('${s.id}',this.checked)">
@@ -11070,7 +11070,7 @@ function renderFans() {
         <div class="drow" data-fan-id="${f.id}" style="flex-direction:column;align-items:flex-start;gap:7px;padding:9px 0">
           <div style="display:flex;align-items:center;gap:9px">
             ${fanSVG(S[f.id].spd, 26)}
-            <span class="drow-name">${f.name}</span>
+            <span class="drow-name">${h(f.name)}</span>
           </div>
           <div class="spds">
             ${['off','low','medium','high'].map(sp => `
@@ -11101,7 +11101,7 @@ function renderFans() {
   const stagingFans = stagingOfType('fan');
   const unassignedHTML = unassignedSectionHTML(stagingFans, devs => devs.map(f => `
     <div class="drow" data-fan-id="${f.id}" style="flex-direction:column;align-items:flex-start;gap:7px;padding:9px 0">
-      <div style="display:flex;align-items:center;gap:9px">${fanSVG(S[f.id].spd,26)}<span class="drow-name">${f.name}</span></div>
+      <div style="display:flex;align-items:center;gap:9px">${fanSVG(S[f.id].spd,26)}<span class="drow-name">${h(f.name)}</span></div>
       <div class="spds">
         ${['off','low','medium','high'].map(sp=>`
           <button class="spd ${S[f.id].spd===sp?'on':''}" data-spd="${sp}"
@@ -11288,7 +11288,7 @@ function renderRoom(r) {
   if (r.switches.length) {
     const rows = r.switches.map(s => `
       <div class="drow">
-        <span class="drow-name">${s.name}</span>
+        <span class="drow-name">${h(s.name)}</span>
         <label class="tog">
           <input type="checkbox" id="tog-inp-${s.id}" ${S[s.id].on ? 'checked' : ''} onchange="toggleSwitch('${s.id}',this.checked)">
           <span class="tog-t"><span class="tog-k"></span></span>
@@ -11344,7 +11344,7 @@ function renderRoom(r) {
       <div class="drow" data-fan-id="${f.id}" style="flex-direction:column;align-items:flex-start;gap:7px;padding:9px 0">
         <div style="display:flex;align-items:center;gap:9px">
           ${fanSVG(S[f.id].spd, 26)}
-          <span class="drow-name">${f.name}</span>
+          <span class="drow-name">${h(f.name)}</span>
         </div>
         <div class="spds">
           ${['off','low','medium','high'].map(sp => `
@@ -11612,7 +11612,7 @@ function renderCameras() {
     const i = camDetailIdx;
     const cam = cams[i];
     const live = !!cam.streamUrl;
-    ma.innerHTML = roomHeader('Cameras', cam.name || ('Camera ' + (i + 1))) +
+    ma.innerHTML = roomHeader('Cameras', h(cam.name || ('Camera ' + (i + 1)))) +
       `<div class="cam-detail-img" style="position:relative">${camDetailMediaHTML(cam, i)}</div>
       <div style="padding:14px 20px;display:flex;gap:10px">
         <button class="cam-refresh-all-btn" onclick="camCloseDetail()">&larr; Back</button>
@@ -12239,7 +12239,7 @@ function spDevicesSection() {
       if (!g.devs.length) return;
       const roomSecId = 'sp-devsec-room-' + Object.keys(roomGroups).indexOf(gKey);
       listHTML += `<div class="sp-dev-section-hdr" onclick="spToggleDevSec('${roomSecId}')" style="cursor:pointer">
-        <span class="sp-dev-section-name">${g.name}</span>
+        <span class="sp-dev-section-name">${h(g.name)}</span>
         <span style="display:flex;align-items:center;gap:8px">
           <span class="sp-dev-section-count">${g.devs.length}</span>
           <span class="sp-section-arrow open" id="arr-${roomSecId}" style="font-size:9px">▼</span>
@@ -13319,7 +13319,7 @@ function spReminderListHtml() {
     return `<div class="sp-rem-card">
       <div class="sp-rem-card-hdr">
         <div class="sp-rem-dot ${dot}"></div>
-        <div class="sp-rem-label">${r.label}</div>
+        <div class="sp-rem-label">${h(r.label)}</div>
         <div class="sp-rem-toggle ${r.enabled ? 'on' : ''}" onclick="spReminderToggle('${r.id}')"><div class="sp-rem-toggle-knob"></div></div>
       </div>
       <div class="sp-rem-schedule">${sched}</div>
@@ -13441,7 +13441,7 @@ function spRoutineListHtml() {
     const schedToggle = r.schedule ? `<button class="sp-rtn-btn" onclick="event.stopPropagation();spRoutineSchedToggle('${r.id}')">${r.scheduleEnabled ? '⏸ Pause' : '▶ Enable'}</button>` : '';
     return `<div class="sp-rtn-card" id="sp-rtn-${r.id}">
       <div class="sp-rtn-card-hdr" onclick="this.parentElement.classList.toggle('expanded')">
-        <div class="sp-rtn-name">${r.name}</div>
+        <div class="sp-rtn-name">${h(r.name)}</div>
         <div class="sp-rtn-summary">${stepCount} step${stepCount !== 1 ? 's' : ''} · ${schedSummary}</div>
         <span class="sp-rtn-chevron">›</span>
       </div>
@@ -13550,7 +13550,7 @@ function spRoutineDeviceOpts(roomName) {
   }
   thermostats.forEach(t => devices.push({ name: t.name, type: 'thermostat' }));
   (CONFIG.locks || []).forEach(lk => { if (lk.id && lk.label) devices.push({ name: lk.label, type: 'lock' }); });
-  return '<option value="">-- select device --</option>' + devices.map(d => `<option value="${d.name}" data-type="${d.type}">${d.name}</option>`).join('');
+  return '<option value="">-- select device --</option>' + devices.map(d => `<option value="${h(d.name)}" data-type="${d.type}">${h(d.name)}</option>`).join('');
 }
 
 function spRoutineCmdOpts(devType, preCmd) {
@@ -13580,7 +13580,7 @@ function spRoutineAddStep(preRoom, preDev, preCmd, preVal) {
   const container = document.getElementById('sp-rtn-steps');
   if (!container) return;
   const idx = _spRtnStepCount++;
-  const roomOpts = rooms.map(r => `<option value="${r.name}"${r.name === preRoom ? ' selected' : ''}>${r.name}</option>`).join('');
+  const roomOpts = rooms.map(r => `<option value="${h(r.name)}"${r.name === preRoom ? ' selected' : ''}>${h(r.name)}</option>`).join('');
   const initRoom = preRoom || (rooms[0]?.name || '');
   const devOpts = spRoutineDeviceOpts(initRoom);
   const div = document.createElement('div');
@@ -13663,7 +13663,7 @@ function spRoutineEdit(id) {
   if (!area) return;
   area.innerHTML = `<div class="sp-rem-form">
     <div class="sp-field"><label class="sp-label">Routine Name</label>
-      <input class="sp-input" id="sp-rtn-name" value="${rtn.name}"></div>
+      <input class="sp-input" id="sp-rtn-name" value="${h(rtn.name)}"></div>
     <div class="sp-sep" style="margin:10px 0"></div>
     <div class="sp-field"><label class="sp-label">Schedule (optional)</label>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
@@ -13752,7 +13752,7 @@ function renderRoomsMobile() {
 
   const switchRows = room.switches.map(s => `
     <div class="drow">
-      <span class="drow-name">${s.name}</span>
+      <span class="drow-name">${h(s.name)}</span>
       <label class="tog">
         <input type="checkbox" id="tog-inp-${s.id}" ${S[s.id].on ? 'checked' : ''} onchange="toggleSwitch('${s.id}',this.checked)">
         <span class="tog-t"><span class="tog-k"></span></span>
@@ -13777,7 +13777,7 @@ function renderRoomsMobile() {
 
   const fanRows = room.fans.map(f => `
     <div class="drow" data-fan-id="${f.id}" data-spd="${S[f.id].spd}" style="flex-direction:column;align-items:flex-start;gap:8px;padding:10px 0;border-bottom:1px solid var(--border-s)">
-      <div style="display:flex;align-items:center;gap:10px">${fanSVG(S[f.id].spd, 26)}<span class="drow-name">${f.name}</span></div>
+      <div style="display:flex;align-items:center;gap:10px">${fanSVG(S[f.id].spd, 26)}<span class="drow-name">${h(f.name)}</span></div>
       <div class="spds">
         ${['off','low','medium','high'].map(sp => `
           <button class="spd ${S[f.id].spd === sp ? 'on' : ''}" data-spd="${sp}"
@@ -13790,7 +13790,7 @@ function renderRoomsMobile() {
   const shadeRows = room.shades.map(sh => `
     <div class="shade-row">
       <div class="shade-row-top">
-        <span class="shade-name">${sh.name}</span>
+        <span class="shade-name">${h(sh.name)}</span>
         <span id="spct-${sh.id}" class="shade-pct ${S[sh.id].pct === 0 ? 'closed' : ''}">${S[sh.id].pct}%</span>
         <button id="stgl-${sh.id}" class="shade-tgl" onclick="tglShade('${sh.id}',this,${S[sh.id].pct})">
           ${S[sh.id].pct > 0 ? 'Close' : 'Open'}
@@ -13832,7 +13832,7 @@ function renderBlindsMobile() {
     const rows = r.shades.map(sh => `
       <div class="shade-row">
         <div class="shade-row-top">
-          <span class="shade-name">${sh.name}</span>
+          <span class="shade-name">${h(sh.name)}</span>
           <span id="spct-${sh.id}" class="shade-pct ${S[sh.id].pct === 0 ? 'closed' : ''}">${S[sh.id].pct}%</span>
           <button id="stgl-${sh.id}" class="shade-tgl" onclick="tglShade('${sh.id}',this,${S[sh.id].pct})">
             ${S[sh.id].pct > 0 ? 'Close' : 'Open'}
@@ -13855,7 +13855,7 @@ function renderBlindsMobile() {
       ${stagingShades.map(sh=>`
         <div class="shade-row">
           <div class="shade-row-top">
-            <span class="shade-name">${sh.name}</span>
+            <span class="shade-name">${h(sh.name)}</span>
             <span id="spct-${sh.id}" class="shade-pct ${S[sh.id].pct===0?'closed':''}">${S[sh.id].pct}%</span>
             <button id="stgl-${sh.id}" class="shade-tgl" onclick="tglShade('${sh.id}',this,${S[sh.id].pct})">
               ${S[sh.id].pct>0?'Close':'Open'}
@@ -15473,9 +15473,9 @@ function obStep4() {
       ${lockDevs.map((ld, i) => {
         const lk = (OB.locks || [])[i] || { id: ld.id, label: ld.name };
         return `<div class="ob-device-row" style="padding:6px 0">
-          <span class="ob-device-name" style="flex:1">${ld.name}</span>
+          <span class="ob-device-name" style="flex:1">${h(ld.name)}</span>
           <input class="ob-input" style="width:160px;font-size:12px;padding:5px 10px" placeholder="Display label"
-            value="${lk.label||ld.name}"
+            value="${h(lk.label||ld.name)}"
             onchange="if(OB.locks[${i}])OB.locks[${i}].label=this.value">
         </div>`;
       }).join('')}
