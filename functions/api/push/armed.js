@@ -45,9 +45,20 @@ export async function onRequestPost({ request, env }) {
     return Response.json({ status: 'error', message: 'unauthorized' }, { status: 401 });
   }
 
+  // This key is current STATE, not an event record -- unlike config/push
+  // KV entries (which SHOULD expire if a household truly goes stale), a
+  // household that stays armed continuously for 30+ days with no hsmStatus
+  // change or hub reboot (both of which already refresh this write) would
+  // otherwise have the key silently expire mid-armed-period: armedRaw
+  // becomes null, webhook.js reads that as disarmed, "armed only" push
+  // devices go quiet, and the motion cooldown wrongly relaxes during an
+  // actually-armed window. A 1-year TTL keeps this effectively persistent
+  // for any realistic continuous-armed duration while still eventually
+  // cleaning up a genuinely abandoned household.
+  const ARMED_TTL_SECONDS = 365 * 24 * 60 * 60;
   const prevRaw = await env.HESTIA_KV.get(`armed:${shortHash}`);
   const prev = prevRaw === '1';
-  await env.HESTIA_KV.put(`armed:${shortHash}`, armed ? '1' : '0', { expirationTtl: 2592000 });
+  await env.HESTIA_KV.put(`armed:${shortHash}`, armed ? '1' : '0', { expirationTtl: ARMED_TTL_SECONDS });
 
   if (prevRaw === null || prev !== armed) {
     await logActivity(env, shortHash, {

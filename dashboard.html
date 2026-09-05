@@ -110,8 +110,8 @@
 .ob-test-btn{height:40px;padding:0 18px;border:1px solid var(--border);border-radius:9px;background:transparent;color:var(--t2);font-size:13px;font-family:inherit;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap;flex-shrink:0}
 .ob-test-btn:hover{background:var(--bg-hover);color:var(--t1)}
 .ob-test-result{font-size:12px;line-height:1.5;flex:1}
-.ob-test-result.ok{color:#4ADE80}
-.ob-test-result.err{color:#F87171}
+.ob-test-result.ok{color:var(--conn-ok)}
+.ob-test-result.err{color:var(--conn-err)}
 .ob-test-result.loading{color:var(--t3)}
 .ob-footer{display:flex;align-items:center;justify-content:space-between;padding:20px 32px;border-top:1px solid var(--border-s)}
 .ob-back{background:none;border:none;color:var(--t3);font-size:13px;font-family:inherit;cursor:pointer;padding:0;transition:color .15s}
@@ -138,7 +138,7 @@
 .ob-device-name{font-size:13px;color:var(--t2);flex:1}
 .ob-device-id{font-size:11px;color:var(--t4);flex-shrink:0}
 .ob-device-remove{background:none;border:none;color:var(--t4);cursor:pointer;font-size:14px;padding:0 2px;transition:color .15s;flex-shrink:0}
-.ob-device-remove:hover{color:#F87171}
+.ob-device-remove:hover{color:var(--conn-err)}
 .ob-no-devices{font-size:12px;color:var(--t4);padding:10px 0;font-style:italic}
 .ob-skip-room{font-size:11px;color:var(--t4);cursor:pointer;text-decoration:underline;margin-top:8px;display:inline-block}
 .ob-skip-room:hover{color:var(--t2)}
@@ -417,12 +417,12 @@ html[data-display-desktop] .tb-date{display:block !important}
 .rb-name.active{color:var(--amber);text-shadow:var(--ts-amber)}
 .rb-status{font-size:11px;color:var(--t3);margin-top:3px}
 .rb-status.live{color:var(--t2)}
-.rb-sec-alert{color:#F87171}
+.rb-sec-alert{color:var(--conn-err)}
 .rb-sec-motion{color:#60A5FA}
 
 /* ── MAIN ── */
 .main{flex:1;overflow:hidden;display:flex;flex-direction:column}
-.offline-banner{display:none;align-items:center;justify-content:center;gap:8px;padding:7px 22px;background:rgba(248,113,113,.08);border-bottom:1px solid rgba(248,113,113,.2);font-size:12px;color:#F87171;flex-shrink:0}
+.offline-banner{display:none;align-items:center;justify-content:center;gap:8px;padding:7px 22px;background:rgba(248,113,113,.08);border-bottom:1px solid rgba(248,113,113,.2);font-size:12px;color:var(--conn-err);flex-shrink:0}
 .offline-banner.visible{display:flex}
 .https-banner{display:none;align-items:center;gap:10px;padding:8px 22px;background:rgba(245,158,11,.07);border-bottom:1px solid rgba(245,158,11,.22);font-size:12px;color:var(--amber);flex-shrink:0}
 .https-banner.visible{display:flex}
@@ -481,8 +481,8 @@ html[data-display-desktop] .tb-date{display:block !important}
 .a-ei.a-red{background:rgba(248,113,113,.07);border:1px solid rgba(248,113,113,.2)}
 .a-ei.a-amber{background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.22)}
 .a-en{font-size:12px;font-weight:600;color:var(--t2)}.a-es{font-size:11px;margin-top:2px}
-.a-es-ok{color:var(--a-ok)}.a-es-red{color:#F87171}.a-es-amber{color:var(--amber)}
-.bat-low{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:600;color:#F87171;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.2);border-radius:4px;padding:1px 5px;white-space:nowrap}
+.a-es-ok{color:var(--a-ok)}.a-es-red{color:var(--conn-err)}.a-es-amber{color:var(--amber)}
+.bat-low{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:600;color:var(--conn-err);background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.2);border-radius:4px;padding:1px 5px;white-space:nowrap}
 .bat-ok{display:inline-flex;align-items:center;gap:3px;font-size:10px;color:var(--t4);white-space:nowrap}
 /* Artemis mode status card */
 .a-status{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:11px 14px;display:flex;align-items:center;gap:12px;flex-shrink:0}
@@ -503,14 +503,14 @@ html[data-display-desktop] .tb-date{display:block !important}
 .a-pdots{display:flex;justify-content:center;gap:8px;height:10px;align-items:center}
 .a-pd{width:9px;height:9px;border-radius:50%;background:var(--bg-panel);border:1px solid var(--border);transition:background .1s}
 .a-pd.a-on{background:var(--amber)}
-.a-pd.a-err{background:#F87171}
+.a-pd.a-err{background:var(--conn-err)}
 .a-kg{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
 .a-k{border-radius:8px;border:1px solid var(--border);background:var(--bg-panel);cursor:pointer;font-family:inherit;font-size:17px;font-weight:300;color:var(--t1);display:flex;align-items:center;justify-content:center;transition:background .1s;user-select:none;width:100%;height:38px}
 .a-k:hover{background:var(--bg-hover,var(--bg-card))}
 .a-k:active{transform:scale(.96)}
-.a-k.a-kdel{font-size:12px;color:#F87171;border-color:rgba(248,113,113,.2);background:rgba(248,113,113,.05)}
+.a-k.a-kdel{font-size:12px;color:var(--conn-err);border-color:rgba(248,113,113,.2);background:rgba(248,113,113,.05)}
 .a-k.a-kok{font-size:16px;color:var(--a-ok);border-color:var(--a-ok-bdr);background:var(--a-ok-bg)}
-.a-lockout{text-align:center;font-size:10px;color:#F87171;padding:1px 0;display:none}
+.a-lockout{text-align:center;font-size:10px;color:var(--conn-err);padding:1px 0;display:none}
 .a-lockout.visible{display:block}
 /* Alarm banner */
 .a-alarm{display:none;align-items:center;justify-content:space-between;padding:9px 18px;gap:12px;border-bottom:1px solid var(--border);flex-shrink:0}
@@ -518,18 +518,18 @@ html[data-display-desktop] .tb-date{display:block !important}
 .a-alarm.a-red{background:rgba(248,113,113,.06);border-bottom-color:rgba(248,113,113,.25)}
 .a-alarm.a-amber{background:rgba(245,158,11,.05);border-bottom-color:rgba(245,158,11,.2)}
 .a-alarm-pulse{width:7px;height:7px;border-radius:50%;flex-shrink:0;animation:a-pulse 1s infinite}
-.a-alarm-pulse.a-red{background:#F87171}
+.a-alarm-pulse.a-red{background:var(--conn-err)}
 .a-alarm-pulse.a-amber{background:var(--amber)}
 @keyframes a-pulse{0%,100%{opacity:1}50%{opacity:.3}}
 .a-alarm-title{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase}
-.a-alarm-title.a-red{color:#F87171}
+.a-alarm-title.a-red{color:var(--conn-err)}
 .a-alarm-title.a-amber{color:var(--amber)}
 .a-alarm-detail{font-size:10px;margin-top:1px}
 .a-alarm-detail.a-red{color:rgba(248,113,113,.6)}
 .a-alarm-detail.a-amber{color:rgba(245,158,11,.6)}
 .a-alarm-actions{display:flex;gap:6px;align-items:center;flex-shrink:0}
 .a-alarm-btn{font-size:10px;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:inherit;background:transparent}
-.a-alarm-btn.a-red{color:#F87171;border:1px solid rgba(248,113,113,.3)}
+.a-alarm-btn.a-red{color:var(--conn-err);border:1px solid rgba(248,113,113,.3)}
 .a-alarm-btn.a-amber{color:var(--amber);border:1px solid rgba(245,158,11,.3)}
 /* Transition ring around gem (arming / entry delay) */
 .a-trans-ring{position:relative;width:44px;height:44px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
@@ -537,7 +537,7 @@ html[data-display-desktop] .tb-date{display:block !important}
 .a-trans-ring-bg{fill:none;stroke:var(--border);stroke-width:3}
 .a-trans-ring-fg{fill:none;stroke-width:3;stroke-linecap:round;stroke-dasharray:289;stroke-dashoffset:0;animation:a-trans-deplete linear forwards}
 .a-trans-ring-fg.a-arming{stroke:var(--amber)}
-.a-trans-ring-fg.a-entry{stroke:#F87171}
+.a-trans-ring-fg.a-entry{stroke:var(--conn-err)}
 @keyframes a-trans-deplete{from{stroke-dashoffset:0}to{stroke-dashoffset:289}}
 .a-trans-icon{position:relative;z-index:1;display:flex;align-items:center;justify-content:center}
 /* Brand footer */
@@ -602,8 +602,8 @@ html[data-display-mobile] .ath-panel-handle{display:block}
 @keyframes athDot{0%,80%,100%{transform:translateY(0);opacity:.3}40%{transform:translateY(-4px);opacity:.8}}
 /* Confirmation chip */
 .ath-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:20px;font-size:10px;font-weight:500;margin:0 12px 8px;width:fit-content}
-.ath-chip-green{background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.2);color:#4ADE80}
-.ath-chip-red{background:rgba(248,113,113,.07);border:1px solid rgba(248,113,113,.2);color:#F87171}
+.ath-chip-green{background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.2);color:var(--conn-ok)}
+.ath-chip-red{background:rgba(248,113,113,.07);border:1px solid rgba(248,113,113,.2);color:var(--conn-err)}
 /* Input row */
 .ath-input-row{display:flex;align-items:center;gap:7px;padding:8px 11px;border-top:1px solid var(--border);background:#0D0D0D;flex-shrink:0}
 .ath-input{flex:1;background:var(--bg-hover);border:1px solid var(--border);border-radius:18px;padding:5px 11px;font-size:11px;color:var(--t1);font-family:inherit;outline:none}
@@ -634,14 +634,14 @@ html[data-display-mobile] .ath-timer-float{display:none}
 .ath-timer-name .ath-timer-pill-dot{width:5px;height:5px}
 .ath-timer-cd{font-size:12px;font-weight:600;color:var(--amber);font-variant-numeric:tabular-nums;font-family:var(--mono,monospace)}
 .ath-timer-x{font-size:9px;color:var(--t3);cursor:pointer;margin-left:7px;opacity:.5;transition:opacity .15s}
-.ath-timer-x:hover{opacity:1;color:#F87171}
+.ath-timer-x:hover{opacity:1;color:var(--conn-err)}
 /* Reminder notification toast */
 .ath-reminder-toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%) translateY(20px);background:rgba(13,13,13,.96);border:1px solid rgba(245,158,11,.25);border-radius:14px;padding:10px 16px 10px 12px;display:none;align-items:center;gap:10px;z-index:200;backdrop-filter:blur(8px);box-shadow:0 4px 20px rgba(0,0,0,.4);max-width:320px;opacity:0;transition:opacity .3s,transform .3s}
 .ath-reminder-toast.show{display:flex;opacity:1;transform:translateX(-50%) translateY(0)}
 .ath-reminder-toast-dot{width:8px;height:8px;border-radius:50%;background:var(--amber);flex-shrink:0;animation:athTimerPulse 1.5s ease-in-out infinite}
 .ath-reminder-toast-text{font-size:12px;color:var(--t1);line-height:1.4}
 .ath-reminder-toast-dismiss{font-size:10px;color:var(--t3);cursor:pointer;opacity:.5;flex-shrink:0;padding:2px 4px}
-.ath-reminder-toast-dismiss:hover{opacity:1;color:#F87171}
+.ath-reminder-toast-dismiss:hover{opacity:1;color:var(--conn-err)}
 /* Reminder settings cards */
 .sp-rem-card{background:var(--bg-panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px;transition:border-color .2s}
 .sp-rem-card:hover{border-color:var(--amber-bdr)}
@@ -659,7 +659,7 @@ html[data-display-mobile] .ath-timer-float{display:none}
 .sp-rem-next{font-size:10px;color:var(--t2)}
 .sp-rem-actions{display:flex;justify-content:flex-end;margin-top:6px;gap:6px}
 .sp-rem-del{font-size:10px;color:var(--t3);cursor:pointer;opacity:.5;transition:opacity .15s}
-.sp-rem-del:hover{opacity:1;color:#F87171}
+.sp-rem-del:hover{opacity:1;color:var(--conn-err)}
 /* Routine settings cards */
 .sp-rtn-card{background:var(--bg-panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px;transition:border-color .2s}
 .sp-rtn-card:hover{border-color:var(--amber-bdr)}
@@ -670,7 +670,7 @@ html[data-display-mobile] .ath-timer-float{display:none}
 .sp-rtn-actions{display:flex;gap:8px;justify-content:flex-end}
 .sp-rtn-btn{font-size:10px;padding:4px 10px;border-radius:5px;border:1px solid var(--border);background:none;color:var(--t2);cursor:pointer;transition:border-color .15s,color .15s}
 .sp-rtn-btn:hover{border-color:var(--amber-bdr);color:var(--amber)}
-.sp-rtn-btn.danger:hover{border-color:#F87171;color:#F87171}
+.sp-rtn-btn.danger:hover{border-color:var(--conn-err);color:var(--conn-err)}
 .sp-rtn-card-hdr{display:flex;align-items:center;gap:8px;cursor:pointer;padding:2px 0}
 .sp-rtn-chevron{font-size:14px;color:var(--t3);transition:transform .2s;flex-shrink:0;margin-left:auto}
 .sp-rtn-card.expanded .sp-rtn-chevron{transform:rotate(90deg)}
@@ -699,7 +699,7 @@ html[data-display-mobile] .ath-timer-float{display:none}
 .a-assign-row{display:flex;align-items:center;justify-content:space-between;padding:5px 8px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px}
 .a-assign-name{font-size:11px;font-weight:500;color:var(--t1)}
 .a-assign-remove{background:none;border:none;cursor:pointer;font-size:12px;color:var(--t3);padding:0 2px;line-height:1}
-.a-assign-remove:hover{color:#F87171}
+.a-assign-remove:hover{color:var(--conn-err)}
 /* Mobile Artemis panel — single column */
 @media(max-width:768px){
   .artemis-panel{grid-template-columns:1fr;overflow-y:auto}
@@ -1069,15 +1069,15 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 .sp-dev-type-badge{font-size:9px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:2px 6px;border-radius:4px;flex-shrink:0}
 .sp-dev-badge-switch{background:var(--cool-dim);color:var(--cool);border:1px solid var(--cool-bdr)}
 .sp-dev-badge-dimmer{background:var(--amber-dim);color:var(--amber);border:1px solid var(--amber-bdr)}
-.sp-dev-badge-fan{background:var(--bg-hover);color:#4ADE80;border:1px solid var(--border)}
+.sp-dev-badge-fan{background:var(--bg-hover);color:var(--conn-ok);border:1px solid var(--border)}
 .sp-dev-badge-shade{background:var(--bg-hover);color:var(--t3);border:1px solid var(--border)}
-.sp-dev-badge-therm{background:var(--bg-hover);color:#F87171;border:1px solid var(--border)}
+.sp-dev-badge-therm{background:var(--bg-hover);color:var(--conn-err);border:1px solid var(--border)}
 .sp-dev-id{font-size:10px;color:var(--t4);flex-shrink:0;width:28px;text-align:right}
 .sp-dev-room-sel{font-size:11px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;color:var(--t2);background:var(--bg-card);font-family:inherit;cursor:pointer;flex-shrink:0;max-width:130px}
 .sp-dev-room-sel:focus{border-color:var(--amber);outline:none}
 .sp-dev-room-sel.unassigned{color:var(--amber);border-color:var(--amber-bdr)}
 .sp-dev-remove{background:none;border:none;cursor:pointer;color:var(--t4);font-size:14px;padding:0 2px;transition:color .15s;flex-shrink:0;line-height:1}
-.sp-dev-remove:hover{color:#F87171}
+.sp-dev-remove:hover{color:var(--conn-err)}
 .sp-dev-retype{font-size:10px;border:1px solid var(--border);border-radius:5px;padding:2px 4px;color:var(--t3);background:var(--bg-card);font-family:inherit;cursor:pointer;flex-shrink:0;max-width:82px}
 .sp-dev-retype:focus{border-color:var(--amber);outline:none}
 .sp-dev-toolbar{display:flex;align-items:center;justify-content:space-between;padding:10px 20px;border-bottom:1px solid var(--border-s)}
@@ -1156,9 +1156,9 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 /* Status indicator */
 .sp-status{display:flex;align-items:center;gap:6px;padding:6px 0}
 .sp-status-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
-.sp-status-dot.green{background:var(--green);box-shadow:0 0 5px rgba(34,197,94,.4)}
+.sp-status-dot.green{background:var(--conn-ok);box-shadow:0 0 5px rgba(34,197,94,.4)}
 .sp-status-dot.amber{background:var(--amber);box-shadow:0 0 5px var(--amber-glow)}
-.sp-status-dot.red{background:var(--red);box-shadow:0 0 5px rgba(248,113,113,.4)}
+.sp-status-dot.red{background:var(--conn-err);box-shadow:0 0 5px rgba(248,113,113,.4)}
 .sp-status-lbl{font-size:11px;color:var(--t2)}
 /* Mic permission button */
 .sp-mic-btn{height:30px;padding:0 12px;border-radius:6px;font-size:11px;font-weight:500;font-family:inherit;cursor:pointer;border:1px solid var(--amber-bdr);background:var(--amber-dim);color:var(--amber);transition:all .15s}
@@ -1170,10 +1170,10 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 .sp-btn-primary:hover{background:var(--amber);color:#000}
 .sp-btn-secondary{background:transparent;color:var(--t2)}
 .sp-btn-secondary:hover{background:var(--bg-hover);color:var(--t1)}
-.sp-btn-danger{background:transparent;border-color:#7F1D1D;color:#F87171}
+.sp-btn-danger{background:transparent;border-color:#7F1D1D;color:var(--conn-err)}
 .sp-btn-danger:hover{background:#7F1D1D;color:var(--t1)}
 .sp-btn-row{display:flex;gap:8px}.sp-btn-row .sp-btn{flex:1}
-.sp-saved{font-size:11px;color:#4ADE80;text-align:center;height:16px;transition:opacity .3s}
+.sp-saved{font-size:11px;color:var(--conn-ok);text-align:center;height:16px;transition:opacity .3s}
 /* Google TTS card within Athena section */
 .sp-gcloud-card{background:var(--bg-card);border:1px solid var(--border);border-radius:9px;padding:12px 14px;margin-top:10px}
 /* Mobile — section list view */
@@ -1195,7 +1195,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 .sp-device-row .sp-input{flex:1;min-width:0}
 .sp-device-id{width:72px;flex-shrink:0}
 .sp-remove{background:none;border:1px solid var(--border);border-radius:6px;color:var(--t3);font-size:14px;width:30px;height:30px;cursor:pointer;flex-shrink:0;transition:all .15s;display:flex;align-items:center;justify-content:center}
-.sp-remove:hover{border-color:#F87171;color:#F87171}
+.sp-remove:hover{border-color:var(--conn-err);color:var(--conn-err)}
 .sp-add{background:none;border:1px dashed var(--border);border-radius:6px;color:var(--t3);font-size:11px;font-weight:500;padding:6px 12px;cursor:pointer;width:100%;text-align:center;transition:all .15s;margin-top:4px}
 .sp-add:hover{border-color:var(--t2);color:var(--t2)}
 .sp-device-section-lbl{font-size:10px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--t4);margin:10px 0 6px}
@@ -1438,8 +1438,8 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
         <span class="tb-stat-lbl" id="last-updated" style="margin-left:4px">--</span>
       </div>
       <div id="tb-bat-warn" style="display:none;align-items:center;gap:5px;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.2);border-radius:8px;padding:4px 10px;cursor:pointer" onclick="openSettings()" title="Low battery — click to view">
-        <svg width="12" height="7" viewBox="0 0 14 8" fill="none"><rect x=".5" y=".5" width="11" height="7" rx="1.5" stroke="#F87171" stroke-width="1"/><rect x="11.5" y="2" width="2" height="4" rx="1" fill="#F87171" opacity=".6"/><rect x="1.5" y="1.5" width="2" height="5" rx=".8" fill="#F87171"/></svg>
-        <span id="tb-bat-count" style="font-size:11px;font-weight:600;color:#F87171">0</span>
+        <svg width="12" height="7" viewBox="0 0 14 8" fill="none"><rect x=".5" y=".5" width="11" height="7" rx="1.5" stroke="var(--conn-err)" stroke-width="1"/><rect x="11.5" y="2" width="2" height="4" rx="1" fill="var(--conn-err)" opacity=".6"/><rect x="1.5" y="1.5" width="2" height="5" rx=".8" fill="var(--conn-err)"/></svg>
+        <span id="tb-bat-count" style="font-size:11px;font-weight:600;color:var(--conn-err)">0</span>
       </div>
       <div id="tb-arm-status" style="display:none;align-items:center;gap:6px;border-radius:8px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:600;letter-spacing:.04em" onclick="selectRoom('security')" title="Click to open Security panel"></div>
       <button class="tb-gear" title="Settings" onclick="openSettings()">⚙</button>
@@ -1921,6 +1921,31 @@ async function verifyPin(entered, stored) {
   return (await hashPin(clean)) === stored;
 }
 
+// ── PIN lockout — persisted across reloads ───────────────────────────
+// Shared by the Artemis keypad/disarm-sheet and the Settings PIN overlay.
+// Both used to track failed attempts in a plain in-memory variable, which a
+// page reload silently reset to zero -- trivially defeating the lockout by
+// just refreshing mid-lockout. Fails and the lockout end-time are persisted
+// per surface (keyed by id) so a reload resumes exactly where it left off.
+const PIN_LOCKOUT_MAX_FAILS = 5;
+const PIN_LOCKOUT_MS = 60000;
+function pinLockoutKey(id) { return 'hestia-pin-lockout-' + id; }
+function pinLockoutLoad(id) {
+  try {
+    const raw = localStorage.getItem(pinLockoutKey(id));
+    if (!raw) return { fails: 0, until: 0 };
+    const saved = JSON.parse(raw);
+    if (saved.until && saved.until <= Date.now()) return { fails: 0, until: 0 }; // lockout already elapsed
+    return { fails: saved.fails || 0, until: saved.until || 0 };
+  } catch(e) { return { fails: 0, until: 0 }; }
+}
+function pinLockoutSave(id, fails, until) {
+  try { localStorage.setItem(pinLockoutKey(id), JSON.stringify({ fails, until: until || 0 })); } catch(e) {}
+}
+function pinLockoutClear(id) {
+  try { localStorage.removeItem(pinLockoutKey(id)); } catch(e) {}
+}
+
 // Migrate plain-text PIN → hash in CONFIG and return the hash.
 // Call on load for both settingsPin and artemisPin.
 // ── Sprint 3: Sensor subtype inference ───────────────────────────────
@@ -2046,7 +2071,7 @@ const BAT_LOW = 20; // % threshold for low battery warning
 function batIcon(pct, size) {
   // Returns a tiny inline battery SVG
   const w = size || 12, h = Math.round(w * .55);
-  const fill = pct <= BAT_LOW ? '#F87171' : pct <= 40 ? 'var(--amber)' : 'var(--a-ok)';
+  const fill = pct <= BAT_LOW ? 'var(--conn-err)' : pct <= 40 ? 'var(--amber)' : 'var(--a-ok)';
   const inner = Math.max(0, Math.round((pct / 100) * (w - 4)));
   return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" fill="none" style="flex-shrink:0">
     <rect x=".7" y=".7" width="${w-2}" height="${h-1.4}" rx="1.5" stroke="${fill}" stroke-width="1"/>
@@ -2192,7 +2217,10 @@ const DEFAULTS = {
     poll:          1000,
     defaultRoom:   'home',
     returnTimeout: 60000,
-    lock:          { id: '', label: '' },
+    roomSort:      '',
+    locks:         [],
+    cameras:       [],
+    settingsPin:   '',
     artemisEnabled: false,
     artemisPin:     '',
     artemisExitDelay:  60,
@@ -2242,7 +2270,12 @@ const DEFAULTS = {
     pushSmoke: true,
     pushWater: true,
     pushOpen: true,
-    pushClose: true
+    pushClose: true,
+    tempUnit: 'F',
+    hestiaAppId: '',
+    hestiaAppToken: '',
+    reminders: [],
+    routines: []
   },
   thermostats: [],
   rooms: []
@@ -2860,7 +2893,7 @@ function apiUrl(path) {
 
 /* Padlock SVG — shackle open = unlocked (red), shackle closed = locked (green) */
 function lockSVG(locked) {
-  const col = locked ? '#4ADE80' : '#F87171';
+  const col = locked ? 'var(--conn-ok)' : 'var(--conn-err)';
   const glow = locked ? 'none' : '0 0 8px rgba(248,113,113,.4)';
   // Body of the lock
   const body = `<rect x="3" y="10" width="14" height="11" rx="2" fill="${col}" opacity="0.9"/>`;
@@ -4294,6 +4327,7 @@ let artemisLockTimer  = null;      // lockout interval
 let artemisAlarmType  = null;      // 'intrusion'|'smoke'|'water'|'glass'|null
 let artemisHsmMode    = 'disarmed';// reflects actual HSM state from hub
 let artemisHsmReady   = null;      // null=unknown, true=HSM present, false=not detected
+let _artemisLastUnrecognizedHsm = null; // dedupes the unrecognized-status console.warn across poll ticks
 let artemisTransition = null;      // null|'arming'|'entry-delay' — HSM transitional state
 let artemisArmingTarget = null;    // 'home'|'away' — which mode is being armed
 let artemisCountdownEnd = null;    // timestamp when countdown expires
@@ -4948,7 +4982,7 @@ function athenaSetState(s) {
 function athenaSetMicIcon(col) {
   const mic = document.getElementById('ath-mic-btn');
   if (!mic) return;
-  const c = col === 'amber' ? '#F59E0B' : col === 'red' ? '#F87171' : '#333';
+  const c = col === 'amber' ? '#F59E0B' : col === 'red' ? 'var(--conn-err)' : '#333';
   mic.innerHTML = `<svg width="11" height="14" viewBox="0 0 12 16" fill="none">
     <rect x="3.5" y=".5" width="5" height="9" rx="2.5" stroke="${c}" stroke-width="1.2"/>
     <path d="M1 8c0 2.76 2.24 5 5 5s5-2.24 5-5" stroke="${c}" stroke-width="1.2" stroke-linecap="round"/>
@@ -5163,7 +5197,7 @@ function athenaUpdateMicStatusDot() {
   if (!wrap) return;
   if (athenaMicPermission === true) {
     wrap.innerHTML = `
-      <div class="sp-status-dot green" style="width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 5px rgba(34,197,94,.4);flex-shrink:0"></div>
+      <div class="sp-status-dot green" style="width:7px;height:7px;border-radius:50%;background:var(--conn-ok);box-shadow:0 0 5px rgba(34,197,94,.4);flex-shrink:0"></div>
       <span class="sp-status-lbl" style="margin-left:6px;font-size:11px;color:var(--t2)">Access granted</span>`;
   } else {
     // Show a button for both 'denied' and 'unknown' states — always give the user a way to try
@@ -5172,7 +5206,7 @@ function athenaUpdateMicStatusDot() {
       ? 'Permission was denied'
       : 'Not yet requested';
     const dotColor = athenaMicPermission === false
-      ? 'var(--red);box-shadow:0 0 5px rgba(248,113,113,.4)'
+      ? 'var(--conn-err);box-shadow:0 0 5px rgba(248,113,113,.4)'
       : 'var(--amber);box-shadow:0 0 5px var(--amber-glow)';
     wrap.innerHTML = `
       <div style="width:7px;height:7px;border-radius:50%;background:${dotColor};flex-shrink:0"></div>
@@ -5866,12 +5900,13 @@ async function athenaCallClaude(userText) {
     await athenaHandleResponse(raw);
   } catch(e) {
     if (sid !== _athenaSessionId) return;
-    // Network offline — give a spoken response via Web Speech rather than just an error banner
+    // athenaShowError() now speaks on its own (via athenaSpeak(), which
+    // falls back to Web Speech internally) -- no need for a separate
+    // explicit speak call here anymore.
     athenaHistory.pop();
     const offlineMsg = "I'm not connected right now. Please check your internet and try again.";
     athenaShowError(offlineMsg);
     athenaSetState('responding');
-    athenaWebSpeak(offlineMsg);
     console.warn('[Athena] Offline fallback triggered:', e.message);
   }
 }
@@ -6461,7 +6496,11 @@ async function routineScheduleFired(id) {
   if (!rtn) return;
   console.log(`[Routine] Scheduled fire: ${rtn.name}`);
   const result = await routineRun(id);
-  athenaSpeak(`${rtn.name} complete.`);
+  // Speak the actual done/failed result (routineRun()'s own msg already
+  // names the routine) instead of a generic "complete" that said nothing
+  // if a step failed -- this fires on a timer with no one necessarily
+  // watching the screen, so the spoken outcome is the only feedback loop.
+  athenaSpeak(result.msg || `${rtn.name} complete.`);
   reminderShowToast(`${rtn.name} — ${result.msg}`);
   if (rtn.schedule?.type === 'once') rtn.scheduleEnabled = false;
   routineScheduleSet(rtn);
@@ -7032,7 +7071,14 @@ async function athenaHandleResponse(rawText) {
         athenaSetState('responding');
         athenaSpeak(parsed.speech || `Running ${rtn.name}.`);
         const result = await routineRun(rtn.id);
-        if (result.msg) athenaShowChip(result.ok ? 'green' : 'red', result.msg);
+        if (result.msg) {
+          athenaShowChip(result.ok ? 'green' : 'red', result.msg);
+          // The initial "Running X" above fires before the outcome is known
+          // (a separate, larger fix not part of this pass) -- this follow-up
+          // speaks the actual done/failed result once it's actually available,
+          // instead of leaving it visual-only.
+          athenaSpeak(result.msg);
+        }
       } else {
         const speech = parsed.speech || 'No matching routine found.';
         athenaAddBubble('athena', speech);
@@ -7077,12 +7123,19 @@ function athenaShowChip(type, text) {
   const chip = document.createElement('div');
   chip.className = `ath-chip ath-chip-${type}`;
   const icon = type === 'green'
-    ? `<svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6L5 9L10 3" stroke="#4ADE80" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`
-    : `<svg width="9" height="9" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="#F87171" stroke-width="1.2"/><line x1="6" y1="3.5" x2="6" y2="6.5" stroke="#F87171" stroke-width="1.2" stroke-linecap="round"/><circle cx="6" cy="8.5" r=".6" fill="#F87171"/></svg>`;
+    ? `<svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6L5 9L10 3" stroke="var(--conn-ok)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+    : `<svg width="9" height="9" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="var(--conn-err)" stroke-width="1.2"/><line x1="6" y1="3.5" x2="6" y2="6.5" stroke="var(--conn-err)" stroke-width="1.2" stroke-linecap="round"/><circle cx="6" cy="8.5" r=".6" fill="var(--conn-err)"/></svg>`;
   chip.innerHTML = icon + h(text);
   area.appendChild(chip);
 }
 
+// Speaks the error in addition to showing it -- previously visual-only,
+// which meant every API/config failure (missing key, 401/429/400, prompt
+// build errors) left the panel open with no spoken feedback at all in the
+// one interaction mode where no one is necessarily looking at the screen.
+// Only the network-offline path spoke before; every other error case here
+// was silent. athenaSpeak() has its own Google-TTS-then-WebSpeech fallback
+// built in, so this degrades gracefully even if TTS itself is unreachable.
 function athenaShowError(msg) {
   athenaSetState('clarifying');
   const t = document.getElementById('ath-transcript');
@@ -7093,6 +7146,7 @@ function athenaShowError(msg) {
     t.appendChild(div);
     t.scrollTop = t.scrollHeight;
   }
+  athenaSpeak(msg);
 }
 
 // Text input submission
@@ -7716,7 +7770,7 @@ function updateArmedStatus() {
   if (pill) {
     if (armed && !isM) {
       const isAway = artemisMode === 'away';
-      const col = isAway ? '#F87171' : '#F59E0B';
+      const col = isAway ? 'var(--conn-err)' : '#F59E0B';
       const bg  = isAway ? 'rgba(248,113,113,.1)' : 'rgba(245,158,11,.1)';
       const bdr = isAway ? 'rgba(248,113,113,.25)' : 'rgba(245,158,11,.25)';
       pill.style.cssText = `display:flex;align-items:center;gap:6px;border-radius:8px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:600;letter-spacing:.04em;background:${bg};border:1px solid ${bdr};color:${col}`;
@@ -7827,6 +7881,7 @@ function artemisSensorState(d, stateKey) {
 // ── Artemis icon color helpers — respect current theme ──────────────
 function aOkColor()   { return getComputedStyle(document.documentElement).getPropertyValue('--a-ok').trim() || '#4ADE80'; }
 function aBlueColor() { return getComputedStyle(document.documentElement).getPropertyValue('--a-blue').trim() || '#60A5FA'; }
+function aRedColor()  { return getComputedStyle(document.documentElement).getPropertyValue('--conn-err').trim() || '#F87171'; }
 
 // ── Icon SVGs — 24x24 viewBox, filled shapes, state-aware ────────────
 function aIconContact(c, isOpen) {
@@ -8014,6 +8069,7 @@ function artemisCamerasListHTML() {
     const state = CAM_STATE[i] || {};
     const offline = state.online === false;
     const hasThumb = !!cam.snapshotUrl;
+    if (hasThumb) camArmLoadTimer(i, camSrc(cam, i));
     const media = hasThumb
       ? `<img src="${camSrc(cam, i)}" alt="" referrerpolicy="no-referrer" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">
          <span class="cam-live-badge ${offline ? 'off' : ''}"><span class="cam-live-dot"></span>${offline ? 'Offline' : 'Online'}</span>`
@@ -8062,7 +8118,7 @@ function artemisEnvHTML() {
   }
   return `<div class="a-env-grid">
     <div class="a-ecard ${smokeAlert?'a-trig-red':''}">
-      <div class="a-ei ${smokeAlert?'a-red':'a-ok'}">${aIconSmoke(smokeAlert?'#F87171':aOkColor())}</div>
+      <div class="a-ei ${smokeAlert?'a-red':'a-ok'}">${aIconSmoke(smokeAlert?aRedColor():aOkColor())}</div>
       <div><div class="a-en">Smoke / CO</div><div class="a-es ${smokeAlert?'a-es-red':'a-es-ok'}">${smokeAlert?'ALERT':'All clear'}</div></div>
     </div>
     <div class="a-ecard ${waterAlert?'a-trig-amber':''}">
@@ -8282,7 +8338,7 @@ function renderSecurity() {
     console.error('[Artemis] renderSecurity error:', err);
     const ma2 = document.getElementById('main-area');
     if (ma2) ma2.innerHTML = `<div style="padding:32px 24px">
-      <div style="font-size:13px;font-weight:600;color:#F87171;margin-bottom:8px">Artemis render error</div>
+      <div style="font-size:13px;font-weight:600;color:var(--conn-err);margin-bottom:8px">Artemis render error</div>
       <div style="font-size:11px;color:var(--t3);font-family:monospace">${err.message}</div>
     </div>`;
   }
@@ -8320,10 +8376,12 @@ async function artemisCheckPin(entered, dotPrefix, onSuccess) {
   const ok = await verifyPin(entered, CONFIG.artemisPin);
   if (ok) {
     artemisFails = 0;
+    pinLockoutClear('artemis');
     onSuccess();
     return;
   }
   artemisFails++;
+  pinLockoutSave('artemis', artemisFails, 0);
   for (let i = 0; i < 6; i++) {
     const d = document.getElementById(dotPrefix + i);
     if (d) d.className = 'a-pd' + (i < String(entered).length ? ' a-err' : '');
@@ -8332,30 +8390,49 @@ async function artemisCheckPin(entered, dotPrefix, onSuccess) {
     artemisPin = '';
     aspPin = '';
     artemisUpdDots(dotPrefix);
-    if (artemisFails >= 5) artemisStartLockout(dotPrefix);
+    if (artemisFails >= PIN_LOCKOUT_MAX_FAILS) artemisStartLockout(dotPrefix);
   }, 700);
 }
 
-function artemisStartLockout(dotPrefix) {
+// resumeUntil lets boot restore an in-progress lockout after a reload --
+// dotPrefix is unknown at that point (no keypad open yet), so the countdown
+// tick below re-queries the DOM by ID on every tick rather than capturing
+// elements once, letting it pick up the display whenever the keypad or
+// disarm sheet is actually opened mid-countdown.
+function artemisStartLockout(dotPrefix, resumeUntil) {
   artemisLocked = true;
-  let cd = 60;
-  const lEl = document.getElementById('a-lockout') || document.getElementById('asp-lockout');
-  const cdEl = document.getElementById('a-lcd') || document.getElementById('asp-cd');
-  if (lEl) lEl.classList.add('visible');
-  if (cdEl) cdEl.textContent = cd;
-  artemisLockTimer = setInterval(() => {
-    cd--;
+  const until = resumeUntil || (Date.now() + PIN_LOCKOUT_MS);
+  pinLockoutSave('artemis', artemisFails, until);
+  clearInterval(artemisLockTimer);
+  const tick = () => {
+    const lEl = document.getElementById('a-lockout') || document.getElementById('asp-lockout');
+    const cdEl = document.getElementById('a-lcd') || document.getElementById('asp-cd');
+    const cd = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+    if (lEl) lEl.classList.add('visible');
     if (cdEl) cdEl.textContent = cd;
     if (cd <= 0) {
       clearInterval(artemisLockTimer);
       artemisLocked = false;
       artemisFails = 0;
+      pinLockoutClear('artemis');
       if (lEl) lEl.classList.remove('visible');
       artemisPin = '';
       aspPin = '';
       artemisUpdDots(dotPrefix || 'apd');
     }
-  }, 1000);
+  };
+  tick();
+  artemisLockTimer = setInterval(tick, 1000);
+}
+
+// Called once at boot -- restores fails/lockout across a reload instead of
+// silently resetting both to zero (the bug: reloading the page mid-lockout
+// used to grant an immediate fresh set of attempts).
+function artemisRestoreLockout() {
+  const st = pinLockoutLoad('artemis');
+  artemisFails = st.fails || 0;
+  if (st.until > Date.now()) artemisStartLockout(null, st.until);
+  else artemisLocked = false;
 }
 
 // ── HSM API ───────────────────────────────────────────────────────────
@@ -8410,11 +8487,32 @@ async function artemisHsmSync() {
         }
         return;
       }
-      let newMode = 'disarm';
-      if      (/armed\s*away/i.test(hsm))                       newMode = 'away';
-      else if (/armed\s*home|armed\s*night/i.test(hsm))         newMode = 'home';
-      else if (/disarm|alldisarmed/i.test(hsm))                 newMode = 'disarm';
-      else if (artemisTransition) return;
+      let newMode = null;
+      if      (/armed\s*away/i.test(hsm))               newMode = 'away';
+      else if (/armed\s*home|armed\s*night/i.test(hsm)) newMode = 'home';
+      else if (/disarm|alldisarmed/i.test(hsm))         newMode = 'disarm';
+      if (newMode === null) {
+        // Unrecognized HSM status string (HSM otherwise reports "ready", so
+        // this isn't the not-configured case above) -- previously this fell
+        // through to a 'disarm' default, which could silently render an
+        // actually-armed system as disarmed on screen. Leave the current
+        // mode untouched instead of guessing; a transition already in
+        // progress just keeps waiting for a value it does recognize.
+        if (prevReady !== ready) {
+          // The ready-flag itself flipped (e.g. away from "not configured")
+          // even though this specific string isn't recognized -- refresh so
+          // a stale no-HSM banner doesn't linger, without guessing a mode.
+          if (isMobile() ? activeTab === 'security' : activeRoom === 'security') renderSecurity();
+          renderSidebar();
+          updateArmedStatus();
+        }
+        if (!artemisTransition && _artemisLastUnrecognizedHsm !== hsm) {
+          _artemisLastUnrecognizedHsm = hsm;
+          console.warn('[Artemis] Unrecognized HSM status, ignoring:', hsm);
+        }
+        return;
+      }
+      _artemisLastUnrecognizedHsm = null;
       const changed = newMode !== artemisMode || prevReady !== true || artemisTransition;
       if (artemisTransition) artemisClearTransition();
       if (changed) {
@@ -8769,7 +8867,7 @@ async function spWallPanelCheckSync() {
       console.log('[WallPanel] Seeded hub config for cross-device sync');
     }
   } catch(e) {
-    el.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:#F87171;display:inline-block"></span><span style="color:#F87171">Sync failed</span>';
+    el.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:var(--conn-err);display:inline-block"></span><span style="color:var(--conn-err)">Sync failed</span>';
   }
 }
 
@@ -8920,7 +9018,7 @@ function spAthenaBody() {
               onblur="saveConfig();athenaVoicePickerRefresh()">
             <span class="sp-hint">Enable both <strong>Cloud Text-to-Speech</strong> and <strong>Cloud Speech-to-Text</strong> APIs in your Google Cloud project, then create an API key.
               <a href="https://console.cloud.google.com/apis/library/texttospeech.googleapis.com" target="_blank" style="color:var(--amber);text-decoration:none" onclick="event.stopPropagation()">Open Console ↗</a>
-              <br><span style="color:#F87171">⚠ Restrict this key in Google Cloud Console to TTS + STT APIs only and add hestari.com as an allowed HTTP referrer to limit exposure.</span>
+              <br><span style="color:var(--conn-err)">⚠ Restrict this key in Google Cloud Console to TTS + STT APIs only and add hestari.com as an allowed HTTP referrer to limit exposure.</span>
             </span>
           </div>
 
@@ -9896,7 +9994,7 @@ async function diagLoadActivity() {
         </div>`).join('')}
     </div>`;
   } catch (e) {
-    el.innerHTML = '<span class="sp-hint" style="color:#F87171">Could not load activity: ' + h(e.message) + '</span>';
+    el.innerHTML = '<span class="sp-hint" style="color:var(--conn-err)">Could not load activity: ' + h(e.message) + '</span>';
   }
 }
 
@@ -10340,7 +10438,7 @@ async function artemisOpenPicker(defaultCat, catLabel) {
 
     artemisRenderPicker(allAssigned);
   } catch(e) {
-    listEl.innerHTML = `<div style="padding:12px;font-size:12px;color:#F87171">Failed to load devices: ${e.message}</div>`;
+    listEl.innerHTML = `<div style="padding:12px;font-size:12px;color:var(--conn-err)">Failed to load devices: ${e.message}</div>`;
   }
 }
 
@@ -11486,7 +11584,9 @@ function camDetailMediaHTML(cam, i) {
       <span class="cam-live-badge streaming"><span class="cam-live-dot"></span>LIVE</span>
       <div class="cam-stream-error">Stream unavailable</div>`;
   }
-  return `<img src="${camSrc(cam, i)}" alt="" referrerpolicy="no-referrer" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">`;
+  const src = camSrc(cam, i);
+  camArmLoadTimer(i, src);
+  return `<img src="${src}" alt="" referrerpolicy="no-referrer" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">`;
 }
 
 // Hubitat's own dashboards consume hub2/videoStream via a polled Image
@@ -11526,12 +11626,40 @@ function camRerenderCurrentView() {
   if (!isMobile() && activeRoom === 'cameras') { renderCameras(); return; }
   if (isMobile() && activeTab === 'security' && artemisCamerasView) { renderSecurity(); return; }
 }
+// A snapshot <img> that never fires onload or onerror (a camera/proxy that
+// accepts the connection but never sends data, or a DNS/routing black hole)
+// leaves a tile stuck showing whatever it last showed forever, with no
+// offline indication. Native <img> has no load timeout, so this fakes one:
+// arm a timer keyed to the exact src being loaded, and if neither real
+// handler has cleared it by CAM_LOAD_TIMEOUT_MS, treat it as offline. Keying
+// on src (not just index) means a re-render of the same still-loading image
+// (e.g. a background poll tick) doesn't reset the clock -- only a genuinely
+// new request (cache-busted refresh) does.
+const CAM_LOAD_TIMEOUT_MS = 10000;
+let camLoadTimers = {};
+let camLoadTimerSrc = {};
+function camClearLoadTimer(i) {
+  if (camLoadTimers[i]) { clearTimeout(camLoadTimers[i]); delete camLoadTimers[i]; }
+  delete camLoadTimerSrc[i];
+}
+function camArmLoadTimer(i, src) {
+  if (camLoadTimerSrc[i] === src) return;
+  camClearLoadTimer(i);
+  camLoadTimerSrc[i] = src;
+  camLoadTimers[i] = setTimeout(() => {
+    delete camLoadTimers[i];
+    delete camLoadTimerSrc[i];
+    camMarkOffline(i);
+  }, CAM_LOAD_TIMEOUT_MS);
+}
 function camMarkOnline(i) {
+  camClearLoadTimer(i);
   const was = CAM_STATE[i] && CAM_STATE[i].online;
   CAM_STATE[i] = Object.assign({}, CAM_STATE[i], { online: true, lastFetch: Date.now() });
   if (was !== true && !isMobile()) renderSidebar(); // sidebar shows online count on desktop only
 }
 function camMarkOffline(i) {
+  camClearLoadTimer(i);
   const was = CAM_STATE[i] && CAM_STATE[i].online;
   CAM_STATE[i] = Object.assign({}, CAM_STATE[i], { online: false, lastFetch: Date.now() });
   if (was !== false && !isMobile()) renderSidebar();
@@ -11635,6 +11763,7 @@ function renderCameras() {
     const state = CAM_STATE[i] || {};
     const offline = state.online === false;
     const hasThumb = !!cam.snapshotUrl;
+    if (hasThumb) camArmLoadTimer(i, camSrc(cam, i));
     const media = hasThumb
       ? `<img src="${camSrc(cam, i)}" alt="" referrerpolicy="no-referrer" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">
          <span class="cam-live-badge ${offline ? 'off' : ''}"><span class="cam-live-dot"></span>${offline ? 'Offline' : 'Online'}</span>`
@@ -11701,20 +11830,57 @@ function openSettings() {
   if (CONFIG.settingsPin) {
     showPINOverlay(async function(entered) {
       if (entered === null) return;
+      const st = pinLockoutLoad('settings');
+      if (st.until > Date.now()) { pinOverlayShowLockout(st.until); return; }
       const ok = await verifyPin(entered, CONFIG.settingsPin);
       if (!ok) {
-        const errEl = document.getElementById('pin-overlay-err');
-        if (errEl) { errEl.textContent = 'Incorrect PIN'; setTimeout(() => { errEl.textContent = ''; }, 2000); }
-        const inp = document.getElementById('pin-overlay-input');
-        if (inp) { inp.value = ''; inp.focus(); }
+        const fails = st.fails + 1;
+        if (fails >= PIN_LOCKOUT_MAX_FAILS) {
+          const until = Date.now() + PIN_LOCKOUT_MS;
+          pinLockoutSave('settings', fails, until);
+          pinOverlayShowLockout(until);
+        } else {
+          pinLockoutSave('settings', fails, 0);
+          const errEl = document.getElementById('pin-overlay-err');
+          if (errEl) { errEl.textContent = 'Incorrect PIN'; setTimeout(() => { errEl.textContent = ''; }, 2000); }
+          const inp = document.getElementById('pin-overlay-input');
+          if (inp) { inp.value = ''; inp.focus(); }
+        }
         return;
       }
+      pinLockoutClear('settings');
       dismissPINOverlay();
       _doOpenSettings();
     });
+    const st = pinLockoutLoad('settings');
+    if (st.until > Date.now()) pinOverlayShowLockout(st.until);
     return;
   }
   _doOpenSettings();
+}
+
+// Disables the overlay's input while a Settings-PIN lockout is active and
+// shows a live countdown in the existing error slot -- re-queries the
+// element by ID each tick so it works whether the overlay was already open
+// (fresh lockout just triggered) or is opened later mid-countdown (resumed
+// after a reload).
+let _pinOverlayLockTimer = null;
+function pinOverlayShowLockout(until) {
+  clearInterval(_pinOverlayLockTimer);
+  const tick = () => {
+    const errEl = document.getElementById('pin-overlay-err');
+    const inp = document.getElementById('pin-overlay-input');
+    const remaining = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+    if (inp) inp.disabled = remaining > 0;
+    if (errEl) errEl.textContent = remaining > 0 ? `Too many attempts — try again in ${remaining}s` : '';
+    if (remaining <= 0) {
+      clearInterval(_pinOverlayLockTimer);
+      pinLockoutClear('settings');
+      if (inp) { inp.value = ''; inp.focus(); }
+    }
+  };
+  tick();
+  _pinOverlayLockTimer = setInterval(tick, 1000);
 }
 
 function _doOpenSettings() {
@@ -12068,7 +12234,7 @@ function spRoomEditor() {
         <div style="font-size:11px;color:var(--t4);margin-top:4px">
           Assign devices to this room from the Devices section above.
         </div>
-        <button class="sp-add" style="margin-top:12px;border-color:#7F1D1D;color:#F87171"
+        <button class="sp-add" style="margin-top:12px;border-color:#7F1D1D;color:var(--conn-err)"
           onclick="spRemoveRoom(${ri})">Remove this room</button>
       </div>`;
   }).join('') +
@@ -12271,17 +12437,17 @@ function spDevicesSection() {
     const removedRows = state_removedDevices.map(d => `
       <div class="sp-dev-row" style="opacity:.7">
         <div class="sp-dev-row-top">
-          <span class="sp-dev-name" style="color:#F87171">${h(d.name)}</span>
+          <span class="sp-dev-name" style="color:var(--conn-err)">${h(d.name)}</span>
           <button class="sp-dev-remove" title="Dismiss and remove" onclick="spDismissRemoved('${d.id}',this)">✕</button>
         </div>
         <div class="sp-dev-row-bottom">
-          <span style="font-size:10px;color:#F87171">No longer in Maker API</span>
+          <span style="font-size:10px;color:var(--conn-err)">No longer in Maker API</span>
           <span class="sp-dev-id">#${d.id}</span>
         </div>
       </div>`).join('');
-    removedHTML = `<div class="sp-dev-section-hdr" style="background:#1a0505;border-color:#5c1a1a">
-      <span class="sp-dev-section-name" style="color:#F87171">Removed from Hub</span>
-      <span class="sp-dev-section-count" style="color:#F87171">${state_removedDevices.length}</span>
+    removedHTML = `<div class="sp-dev-section-hdr" style="background:rgba(248,113,113,.08);border-color:rgba(248,113,113,.3)">
+      <span class="sp-dev-section-name" style="color:var(--conn-err)">Removed from Hub</span>
+      <span class="sp-dev-section-count" style="color:var(--conn-err)">${state_removedDevices.length}</span>
     </div>
     <div class="sp-section-body open">${removedRows}</div>`;
   }
@@ -12832,7 +12998,7 @@ function spShowSection(id, force) {
                 <input class="sp-input sp-lock-id" value="${lk.id||''}" placeholder="13"></div>
               <div class="sp-field" style="flex:2"><label class="sp-label">Label</label>
                 <input class="sp-input sp-lock-label" value="${lk.label||''}" placeholder="Front Door"></div>
-              <button class="sp-btn-icon" onclick="spRemoveLock(${i})" title="Remove" style="align-self:flex-end;margin-bottom:6px;color:#F87171;background:none;border:none;font-size:16px;cursor:pointer">&times;</button>
+              <button class="sp-btn-icon" onclick="spRemoveLock(${i})" title="Remove" style="align-self:flex-end;margin-bottom:6px;color:var(--conn-err);background:none;border:none;font-size:16px;cursor:pointer">&times;</button>
             </div>
             <div class="sp-field" style="margin-bottom:0">
               <label class="sp-label">Room <span style="opacity:.65;font-weight:400;text-transform:none;letter-spacing:0">(optional -- shows an unlocked badge on that room)</span></label>
@@ -12860,7 +13026,7 @@ function spShowSection(id, force) {
                 <input class="sp-input sp-camera-url" value="${cam.snapshotUrl||''}" placeholder="http://192.168.1.50/snapshot.jpg"></div>
               <button class="sp-btn-icon" onclick="spMoveCameraUp(${i})" title="Move up" ${i===0?'disabled':''} style="margin-bottom:6px;color:var(--t3);background:none;border:none;font-size:14px;cursor:pointer">&uarr;</button>
               <button class="sp-btn-icon" onclick="spMoveCameraDown(${i})" title="Move down" ${i===(CONFIG.cameras||[]).length-1?'disabled':''} style="margin-bottom:6px;color:var(--t3);background:none;border:none;font-size:14px;cursor:pointer">&darr;</button>
-              <button class="sp-btn-icon" onclick="spRemoveCamera(${i})" title="Remove" style="margin-bottom:6px;color:#F87171;background:none;border:none;font-size:16px;cursor:pointer">&times;</button>
+              <button class="sp-btn-icon" onclick="spRemoveCamera(${i})" title="Remove" style="margin-bottom:6px;color:var(--conn-err);background:none;border:none;font-size:16px;cursor:pointer">&times;</button>
             </div>
             <div class="sp-field" style="margin-bottom:0">
               <label class="sp-label">Live Stream URL <span style="opacity:.65;font-weight:400;text-transform:none;letter-spacing:0">(optional, MJPEG)</span></label>
@@ -13227,7 +13393,7 @@ function exportSettings() {
   const data = {
     config: {
       hub: CONFIG.hub, appId: CONFIG.appId, token: CONFIG.token, poll: CONFIG.poll,
-      defaultRoom: CONFIG.defaultRoom, returnTimeout: CONFIG.returnTimeout,
+      defaultRoom: CONFIG.defaultRoom, returnTimeout: CONFIG.returnTimeout, roomSort: CONFIG.roomSort,
       locks: CONFIG.locks, cameras: CONFIG.cameras || [], weather: CONFIG.weather, settingsPin: CONFIG.settingsPin,
       artemisEnabled: CONFIG.artemisEnabled, artemisPin: CONFIG.artemisPin,
       artemisExitDelay: CONFIG.artemisExitDelay, artemisEntryDelay: CONFIG.artemisEntryDelay,
@@ -13236,9 +13402,25 @@ function exportSettings() {
       athenaEnabled: CONFIG.athenaEnabled, athenaApiKey: CONFIG.athenaApiKey,
       athenaWakeWord: CONFIG.athenaWakeWord, athenaRoom: CONFIG.athenaRoom,
       athenaLang: CONFIG.athenaLang, athenaVoice: CONFIG.athenaVoice,
-      athenaVolume: CONFIG.athenaVolume,
+      athenaVolume: CONFIG.athenaVolume, athenaPersonality: CONFIG.athenaPersonality,
+      athenaConvoMode: CONFIG.athenaConvoMode,
       athenaGoogleTTS: CONFIG.athenaGoogleTTS, athenaGoogleApiKey: CONFIG.athenaGoogleApiKey,
-      athenaGoogleVoice: CONFIG.athenaGoogleVoice, athenaModel: CONFIG.athenaModel
+      athenaGoogleVoice: CONFIG.athenaGoogleVoice, athenaModel: CONFIG.athenaModel,
+      tempUnit: CONFIG.tempUnit,
+      hestiaAppId: CONFIG.hestiaAppId, hestiaAppToken: CONFIG.hestiaAppToken,
+      announceEnabled: CONFIG.announceEnabled, announceDevices: CONFIG.announceDevices,
+      announceDoors: CONFIG.announceDoors, announceWindows: CONFIG.announceWindows,
+      announceLocks: CONFIG.announceLocks, announceMotion: CONFIG.announceMotion,
+      announceMotionDevices: CONFIG.announceMotionDevices, announceHsm: CONFIG.announceHsm,
+      announceSmoke: CONFIG.announceSmoke, announceWater: CONFIG.announceWater,
+      announceOpen: CONFIG.announceOpen, announceClose: CONFIG.announceClose,
+      pushEnabled: CONFIG.pushEnabled, pushDevices: CONFIG.pushDevices,
+      pushDoors: CONFIG.pushDoors, pushWindows: CONFIG.pushWindows,
+      pushLocks: CONFIG.pushLocks, pushMotion: CONFIG.pushMotion,
+      pushMotionDevices: CONFIG.pushMotionDevices, pushAlarming: CONFIG.pushAlarming,
+      pushSmoke: CONFIG.pushSmoke, pushWater: CONFIG.pushWater,
+      pushOpen: CONFIG.pushOpen, pushClose: CONFIG.pushClose,
+      reminders: CONFIG.reminders, routines: CONFIG.routines
     },
     thermostats: deepClone(thermostats),
     rooms:       deepClone(rooms),
@@ -15617,6 +15799,7 @@ function launchOnboarding() {
 (async function init() {
   loadTheme();
   loadDisplayMode();
+  artemisRestoreLockout();
 
   // ── Safari redirect: WebKit blocks HTTPS→HTTP to private IPs ──
   // Redirect Safari users from hestari.com to the hub's local HTTPS URL
@@ -15664,6 +15847,14 @@ function launchOnboarding() {
   const _urlHtk = _urlParams.get('htk');
   const _urlMid = _urlParams.get('mid');
   const _urlMtk = _urlParams.get('mtk');
+  // Scrub credentials from the visible URL/history immediately -- the
+  // values above are already captured in these consts, so clearing what's
+  // displayed doesn't affect anything that reads them below. Without this,
+  // a Wall Panel token sits in the address bar and browser history
+  // indefinitely (visible in a screenshot, synced history, shoulder-surfed).
+  if (_urlHid || _urlHtk || _urlMid || _urlMtk) {
+    try { history.replaceState(null, '', location.pathname); } catch(e) {}
+  }
   let _hubHint = null;
   if (_urlHub) {
     _hubHint = _urlHub.startsWith('http') ? _urlHub : ('http://' + _urlHub);

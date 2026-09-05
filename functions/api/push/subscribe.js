@@ -1,3 +1,5 @@
+import { mutatePushDevices } from '../../_lib/pushDevices.js';
+
 async function sha256(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
   return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
@@ -39,11 +41,9 @@ export async function onRequestPut({ request, env }) {
     return Response.json({ status: 'error', message: 'payload too large' }, { status: 413 });
   }
 
-  const existing = await env.HESTIA_KV.get(key);
-  const devices = existing ? JSON.parse(existing) : {};
-  devices[deviceId] = { name: deviceName || deviceId, mode, subscription };
-
-  await env.HESTIA_KV.put(key, JSON.stringify(devices), { expirationTtl: 2592000 });
+  await mutatePushDevices(env, key, (devices) => {
+    devices[deviceId] = { name: deviceName || deviceId, mode, subscription };
+  });
   return Response.json({ status: 'ok' });
 }
 
@@ -60,11 +60,8 @@ export async function onRequestDelete({ request, env }) {
   }
   if (!body.deviceId) return Response.json({ status: 'error', message: 'missing deviceId' }, { status: 400 });
 
-  const existing = await env.HESTIA_KV.get(key);
-  if (!existing) return Response.json({ status: 'ok' });
-
-  const devices = JSON.parse(existing);
-  delete devices[body.deviceId];
-  await env.HESTIA_KV.put(key, JSON.stringify(devices), { expirationTtl: 2592000 });
+  await mutatePushDevices(env, key, (devices) => {
+    delete devices[body.deviceId];
+  });
   return Response.json({ status: 'ok' });
 }

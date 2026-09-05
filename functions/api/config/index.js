@@ -24,9 +24,5 @@ export async function onRequestPut({ request, env }) {
 
   await env.HESTIA_KV.put(ipKey, raw, { expirationTtl: 2592000 });
 
-  if (body.homeId) {
-    await env.HESTIA_KV.put(`home:${body.homeId}`, raw, { expirationTtl: 2592000 });
-  }
-
   return Response.json({ status: 'ok' });
 }

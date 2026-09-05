@@ -4,6 +4,7 @@
 // registered devices" -- this is that one shared step, kept in one place so
 // the two call sites can't drift out of sync on gating rules.
 import { deserializeVapidKeys, sendPushNotification } from '../_vendor/web-push-browser/index.js';
+import { mutatePushDevices } from './pushDevices.js';
 
 const VAPID_PUBLIC_KEY = 'BGCW-E3pct69syRd4q6HDJ5mBvgrcd_Q6tkZ740s-rkuVsMYGeZyCMXjkAknBsy3mVIxVoUALroDtsPXqQAEs7A';
 const VAPID_SUBJECT = 'https://hestari.com';
@@ -70,7 +71,10 @@ export async function dispatchPush(env, shortHash, { category, title, body, arme
       sent++;
     } else if (res.status === 404 || res.status === 410) {
       // Subscription is dead (browser data cleared, uninstalled, etc.) -- self-prune.
-      pruned.push(deviceId);
+      // Records the endpoint we actually sent to, not just the device ID, so
+      // a re-subscribe under the same ID during this dispatch window (up to
+      // PUSH_SEND_TIMEOUT_MS long) doesn't get deleted out from under it.
+      pruned.push({ id: deviceId, endpoint: devices[deviceId].subscription.endpoint });
       failed++;
     } else {
       failed++;
@@ -78,8 +82,14 @@ export async function dispatchPush(env, shortHash, { category, title, body, arme
   }
 
   if (pruned.length) {
-    pruned.forEach(id => delete devices[id]);
-    await env.HESTIA_KV.put(`push:${shortHash}`, JSON.stringify(devices), { expirationTtl: 2592000 });
+    // Re-reads fresh rather than pruning the `devices` snapshot from the top
+    // of this call -- dispatch can take up to PUSH_SEND_TIMEOUT_MS per
+    // device, plenty of time for a subscribe/unsubscribe to land in between.
+    await mutatePushDevices(env, `push:${shortHash}`, (freshDevices) => {
+      pruned.forEach(({ id, endpoint }) => {
+        if (freshDevices[id] && freshDevices[id].subscription.endpoint === endpoint) delete freshDevices[id];
+      });
+    });
   }
 
   return { sent, failed, pruned: pruned.length };
