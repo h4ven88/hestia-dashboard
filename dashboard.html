@@ -1742,7 +1742,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.6.4';
-const HESTIA_BUILD_DATE = '2026-09-03';
+const HESTIA_BUILD_DATE = '2026-09-04';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 const PUSH_API          = '/api/push';
@@ -12870,7 +12870,7 @@ function spShowSection(id, force) {
         <div class="sp-group">
           <div id="sp-cameras-list">${cameraRows || '<span class="sp-hint" style="margin:8px 0;display:block">No cameras configured.</span>'}</div>
           <button class="sp-btn sp-btn-secondary" onclick="spAddCamera()" style="padding:0 16px;margin-top:8px;align-self:flex-start">+ Add Camera</button>
-          <span class="sp-hint">Snapshot URL must return a still image (JPEG/PNG) and is used for thumbnails. Live Stream URL is optional and must be an MJPEG stream (multipart HTTP), e.g. Hubitat's built-in RTSP Camera Stream driver on C-8 Pro hubs -- add it to view a real live feed when you expand a camera. A camera needs at least one of the two. List order controls display order everywhere cameras appear.</span>
+          <span class="sp-hint">Snapshot URL must return a still image (JPEG/PNG) and is used for thumbnails. Live Stream URL is optional and must be an MJPEG stream (multipart HTTP), e.g. Hubitat's built-in RTSP Camera Stream driver on C-8 Pro hubs -- add it to view a real live feed when you expand a camera. A camera needs at least one of the two. List order controls display order everywhere cameras appear. Using an <code>https://</code> hub URL? Hubitat serves HTTPS on port <strong>8443</strong>, not the default 443 -- include it explicitly, e.g. <code>https://192.168.1.50:8443/hub2/videoStream/1.mjpg</code>.</span>
         </div>`;
       break;
 
