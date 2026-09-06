@@ -13,24 +13,29 @@ async function sha256(str) {
 //
 // Body: { category, title, body }
 export async function onRequestPost({ request, env }) {
-  const ip = request.headers.get('CF-Connecting-IP');
-  if (!ip) return Response.json({ status: 'error', message: 'no IP' }, { status: 400 });
-
-  let body;
   try {
-    body = await request.json();
-  } catch {
-    return Response.json({ status: 'error', message: 'invalid JSON' }, { status: 400 });
+    const ip = request.headers.get('CF-Connecting-IP');
+    if (!ip) return Response.json({ status: 'error', message: 'no IP' }, { status: 400 });
+
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json({ status: 'error', message: 'invalid JSON' }, { status: 400 });
+    }
+
+    const { category, title, body: message } = body;
+    if (!title || !message) {
+      return Response.json({ status: 'error', message: 'missing title or body' }, { status: 400 });
+    }
+
+    const hash = await sha256(ip);
+    const shortHash = hash.substring(0, 16);
+
+    await logActivity(env, shortHash, { category: category || 'announcement', title, body: message, source: 'announcement' });
+    return Response.json({ status: 'ok' });
+  } catch (err) {
+    console.error('[activity/report] onRequestPost error:', err);
+    return Response.json({ status: 'error', message: 'internal error' }, { status: 500 });
   }
-
-  const { category, title, body: message } = body;
-  if (!title || !message) {
-    return Response.json({ status: 'error', message: 'missing title or body' }, { status: 400 });
-  }
-
-  const hash = await sha256(ip);
-  const shortHash = hash.substring(0, 16);
-
-  await logActivity(env, shortHash, { category: category || 'announcement', title, body: message, source: 'announcement' });
-  return Response.json({ status: 'ok' });
 }

@@ -581,7 +581,7 @@ html[data-display-mobile] .ath-panel-handle{display:block}
 .ath-hdr-state{font-size:14px;font-weight:300;color:var(--t1);margin-top:1px}
 .ath-hdr-state.dim{color:var(--t2)}
 .ath-hdr-state.red{color:rgba(248,113,113,.75)}
-.ath-close{width:22px;height:22px;border-radius:50%;background:var(--bg-hover);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--t3);cursor:pointer;flex-shrink:0;line-height:1}
+.ath-close{width:22px;height:22px;border-radius:50%;background:var(--bg-hover);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;font-family:inherit;color:var(--t3);cursor:pointer;flex-shrink:0;line-height:1}
 /* Waveform */
 /* Helix waveform */
 .ath-wave{padding:14px 13px 8px;display:flex;flex-direction:column;align-items:center;gap:7px;flex-shrink:0}
@@ -892,6 +892,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 .cam-mini-tile.cam-mini-offline img{visibility:hidden}
 .cam-mini-dot{position:absolute;top:4px;left:5px;width:6px;height:6px;border-radius:50%;background:var(--amber)}
 .cam-mini-dot.off{background:var(--t4)}
+.cam-mini-dot.checking{background:var(--t4);animation:camPulse 1.4s ease-in-out infinite}
 .cam-mini-more{display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;color:var(--t3)}
 .cam-strip-wrap{padding-top:10px;border-top:1px solid var(--border-s)}
 .cam-strip{display:flex;gap:10px;overflow-x:auto;padding:0 0 4px;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
@@ -914,6 +915,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 .cam-live-badge{position:absolute;top:8px;left:8px;background:rgba(0,0,0,.55);border-radius:6px;padding:3px 8px;display:flex;align-items:center;gap:5px;font-size:11px;font-weight:500;color:#fff}
 .cam-live-dot{width:6px;height:6px;border-radius:50%;background:var(--amber)}
 .cam-live-badge.off .cam-live-dot{background:var(--t4)}
+.cam-live-badge.checking .cam-live-dot{background:var(--t4);animation:camPulse 1.4s ease-in-out infinite}
 .cam-live-badge.streaming{background:rgba(220,38,38,.85)}
 .cam-live-badge.streaming .cam-live-dot{background:#fff;animation:camPulse 1.4s ease-in-out infinite}
 @keyframes camPulse{0%,100%{opacity:1}50%{opacity:.3}}
@@ -1173,6 +1175,9 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 .sp-btn-danger{background:transparent;border-color:#7F1D1D;color:var(--conn-err)}
 .sp-btn-danger:hover{background:#7F1D1D;color:var(--t1)}
 .sp-btn-row{display:flex;gap:8px}.sp-btn-row .sp-btn{flex:1}
+.sp-btn-icon{width:26px;height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1;background:none;border:none;border-radius:6px;cursor:pointer;transition:background .15s}
+.sp-btn-icon:hover{background:var(--bg-hover)}
+.sp-btn-icon:disabled{opacity:.35;cursor:default;pointer-events:none}
 .sp-saved{font-size:11px;color:var(--conn-ok);text-align:center;height:16px;transition:opacity .3s}
 /* Google TTS card within Athena section */
 .sp-gcloud-card{background:var(--bg-card);border:1px solid var(--border);border-radius:9px;padding:12px 14px;margin-top:10px}
@@ -1540,7 +1545,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
           <div class="ath-hdr-tag">Athena™ <span style="font-size:9px;background:rgba(245,158,11,.18);color:var(--amber);padding:1px 5px;border-radius:3px;margin-left:4px;letter-spacing:.04em;vertical-align:middle">BETA</span></div>
           <div class="ath-hdr-state" id="ath-state-lbl">I'm listening…</div>
         </div>
-        <div class="ath-close" onclick="athenaClose()">✕</div>
+        <button class="ath-close" onclick="athenaClose()" aria-label="Close Athena">✕</button>
       </div>
       <div class="ath-wave" id="ath-wave">
         <svg id="ath-helix-svg" class="ath-helix-svg" viewBox="0 0 282 64" xmlns="http://www.w3.org/2000/svg"></svg>
@@ -1570,7 +1575,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
   <div class="a-pin-sheet" id="a-pin-sheet">
     <div class="a-pin-sheet-hdr">
       <span class="a-pin-sheet-title" id="a-sheet-title">Enter PIN to disarm</span>
-      <button class="a-pin-sheet-close" onclick="artemisCloseSheet()">✕</button>
+      <button class="a-pin-sheet-close" onclick="artemisCloseSheet()" aria-label="Close">✕</button>
     </div>
     <div class="a-pin-sheet-mode" id="a-sheet-mode">Disarming — Armed Away</div>
     <div class="a-pdots" style="justify-content:center">
@@ -1654,7 +1659,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 <div class="settings-panel" id="settings-panel">
   <div class="sp-header">
     <div class="sp-title">Settings</div>
-    <button class="sp-close" onclick="closeSettings()">✕</button>
+    <button class="sp-close" onclick="closeSettings()" aria-label="Close settings">✕</button>
   </div>
   <!-- Appearance — above the two-column area, always visible -->
   <div class="sp-appearance" id="sp-appearance-wrap">
@@ -1742,7 +1747,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.6.4';
-const HESTIA_BUILD_DATE = '2026-09-05';
+const HESTIA_BUILD_DATE = '2026-09-06';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 const PUSH_API          = '/api/push';
@@ -3394,7 +3399,11 @@ function wxDayName(dateStr) {
 }
 
 async function fetchWeather() {
-  if (!CONFIG.weather.lat || !CONFIG.weather.lon) return;
+  if (!CONFIG.weather.lat || !CONFIG.weather.lon) {
+    wxData = { notConfigured: true };
+    if (activeRoom === 'home') renderHome();
+    return;
+  }
   try {
     const u = wxTempUnit();
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${CONFIG.weather.lat}&longitude=${CONFIG.weather.lon}` +
@@ -3607,7 +3616,7 @@ function cameraHomeRowHTML(standalone) {
       const sep = cam.snapshotUrl.includes('?') ? '&' : '?';
       const src = h(cam.snapshotUrl) + sep + '_hb=' + bust;
       media = `<img src="${src}" alt="" referrerpolicy="no-referrer" onerror="this.closest('.cam-strip-tile').classList.add('cam-mini-offline')" onload="this.closest('.cam-strip-tile').classList.remove('cam-mini-offline')">
-        <span class="cam-mini-dot${state.online === false ? ' off' : ''}"></span>`;
+        <span class="cam-mini-dot ${camStatusInfo(state).cls}"></span>`;
     } else {
       media = camPlaceholderHTML(cam);
     }
@@ -3631,6 +3640,10 @@ function weatherCardHTML() {
   if (!wxData) return isM
     ? `<div class="m-weather-card"><div style="color:var(--t3);font-size:12px">Fetching weather…</div></div>`
     : `<div class="weather-card"><div class="home-card-top"><div class="home-stat-lbl">Weather — ${(CONFIG.weather||{}).city || 'your location'}</div></div><div class="wx-loading">Fetching weather…</div></div>`;
+
+  if (wxData.notConfigured) return isM
+    ? `<div class="m-weather-card"><div style="color:var(--t3);font-size:11px;font-style:italic">Set a location in Settings &gt; Weather</div></div>`
+    : `<div class="weather-card"><div class="home-card-top"><div class="home-stat-lbl">Weather</div></div><div class="wx-err">Set a location in Settings &gt; Weather</div></div>`;
 
   if (wxData.error) return isM
     ? `<div class="m-weather-card"><div style="color:var(--t3);font-size:11px;font-style:italic">Weather unavailable</div></div>`
@@ -5440,6 +5453,8 @@ function athenaStartListening() {
           if (input) {
             if (err.message.includes('API key') || err.message.includes('403') || err.message.includes('401')) {
               input.placeholder = 'STT API error — check API key & enabled APIs';
+            } else if (err.message.includes('timed out')) {
+              input.placeholder = 'Transcription timed out — try again';
             } else if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
               input.placeholder = 'No internet — voice commands require connectivity';
             } else {
@@ -5606,10 +5621,17 @@ async function athenaCloudSTT(audioBlob, mimeType) {
     audio: { content: b64 }
   });
 
-  const res = await fetch(
-    `https://speech.googleapis.com/v1/speech:recognize?key=${key}`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }
-  );
+  let res;
+  try {
+    res = await _fetchWithTimeout(
+      `https://speech.googleapis.com/v1/speech:recognize?key=${key}`,
+      15000,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }
+    );
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('Cloud STT timed out');
+    throw e;
+  }
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -5863,7 +5885,7 @@ async function athenaCallClaude(userText) {
   console.debug('[Athena] Request:', JSON.stringify(requestBody).slice(0, 300) + '…');
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await _fetchWithTimeout('https://api.anthropic.com/v1/messages', 20000, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -5904,7 +5926,9 @@ async function athenaCallClaude(userText) {
     // falls back to Web Speech internally) -- no need for a separate
     // explicit speak call here anymore.
     athenaHistory.pop();
-    const offlineMsg = "I'm not connected right now. Please check your internet and try again.";
+    const offlineMsg = e.name === 'AbortError'
+      ? "That's taking too long to respond. Please try again."
+      : "I'm not connected right now. Please check your internet and try again.";
     athenaShowError(offlineMsg);
     athenaSetState('responding');
     console.warn('[Athena] Offline fallback triggered:', e.message);
@@ -7614,8 +7638,9 @@ async function athenaGoogleSpeak(text, onEnd) {
     audioConfig: { audioEncoding: 'MP3', speakingRate: 0.95, pitch: 0.0 }
   });
 
-  const res = await fetch(
+  const res = await _fetchWithTimeout(
     `https://texttospeech.googleapis.com/v1/text:synthesize?key=${key}`,
+    15000,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }
   );
 
@@ -7841,14 +7866,14 @@ function artemisGemSVG(m, w, h_) {
     <polygon points="9,11.5 19,11.5 24,20 14,25.5 4,20" fill="${f.p[0]}"/>
     <polygon points="9,11.5 4,20 14,25.5" fill="${f.p[1]}"/>
     <polygon points="19,11.5 24,20 14,25.5" fill="${f.p[2]}"/>
-    <polygon points="14,1.5 24,7 24,20 14,25.5 4,20 4,7" fill="none" stroke="#F59E0B" stroke-width="1.2" stroke-linejoin="miter"/>
+    <polygon points="14,1.5 24,7 24,20 14,25.5 4,20 4,7" fill="none" stroke="var(--amber)" stroke-width="1.2" stroke-linejoin="miter"/>
     ${artemisShieldPaths(m, f.s)}
   </svg>`;
 }
 
 function artemisModeBtn(key, label, active) {
   const f  = active ? artemisGemFills(key) : artemisGemFills('off');
-  const col = active ? f.s : f.s; // off fills already have muted s value
+  const col = f.s; // off fills already have a muted s value, so no separate active/inactive branch is needed
   return `<button class="a-mb${active?' '+artemisGemFills(key).mb:''}" onclick="artemisSetMode('${key}')">
     <svg viewBox="0 0 28 32" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
       <polygon points="14,1.5 24,7 19,11.5 9,11.5 4,7" fill="${f.c[0]}"/>
@@ -7857,7 +7882,7 @@ function artemisModeBtn(key, label, active) {
       <polygon points="9,11.5 19,11.5 24,20 14,25.5 4,20" fill="${f.p[0]}"/>
       <polygon points="9,11.5 4,20 14,25.5" fill="${f.p[1]}"/>
       <polygon points="19,11.5 24,20 14,25.5" fill="${f.p[2]}"/>
-      <polygon points="14,1.5 24,7 24,20 14,25.5 4,20 4,7" fill="none" stroke="#F59E0B" stroke-width="1.2" stroke-linejoin="miter"/>
+      <polygon points="14,1.5 24,7 24,20 14,25.5 4,20 4,7" fill="none" stroke="var(--amber)" stroke-width="1.2" stroke-linejoin="miter"/>
       ${artemisShieldPaths(key, col)}
     </svg>
     <span class="a-mb-lbl">${label}</span>
@@ -8067,12 +8092,13 @@ function artemisCamerasListHTML() {
   const cams = CONFIG.cameras || [];
   const rows = cams.map((cam, i) => {
     const state = CAM_STATE[i] || {};
-    const offline = state.online === false;
+    const status = camStatusInfo(state);
+    const offline = status.cls === 'off';
     const hasThumb = !!cam.snapshotUrl;
     if (hasThumb) camArmLoadTimer(i, camSrc(cam, i));
     const media = hasThumb
       ? `<img src="${camSrc(cam, i)}" alt="" referrerpolicy="no-referrer" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">
-         <span class="cam-live-badge ${offline ? 'off' : ''}"><span class="cam-live-dot"></span>${offline ? 'Offline' : 'Online'}</span>`
+         <span class="cam-live-badge ${status.cls}"><span class="cam-live-dot"></span>${status.label}</span>`
       : camPlaceholderHTML(cam);
     return `<div class="cam-list-tile ${hasThumb && offline ? 'cam-tile-offline' : ''}" onclick="camExpand(${i})" style="cursor:pointer">
         <div class="cam-tile-img">
@@ -9894,6 +9920,8 @@ async function diagCheckPush() {
     diagSetStatus('push', 'green', 'Disabled', detail);
   } else if (registered && perm === 'granted' && swActive) {
     diagSetStatus('push', 'green', 'Healthy', detail);
+  } else if (perm === 'denied') {
+    diagSetStatus('push', 'amber', 'Blocked in browser settings', detail + ' — this browser has blocked notifications for this site; re-allow it in your browser\'s site settings, an in-app prompt can\'t override a denial.');
   } else {
     diagSetStatus('push', 'amber', 'Enabled, but incomplete', detail);
   }
@@ -9976,6 +10004,10 @@ async function diagLoadActivity() {
   if (!el) return;
   try {
     const res = await fetch(ACTIVITY_API + '?limit=25');
+    if (!res.ok) {
+      el.innerHTML = '<span class="sp-hint" style="color:var(--conn-err)">Activity Log server error (HTTP ' + res.status + '). Try refreshing in a moment.</span>';
+      return;
+    }
     const data = await res.json();
     const entries = (data && data.entries) || [];
     if (!entries.length) {
@@ -9994,7 +10026,13 @@ async function diagLoadActivity() {
         </div>`).join('')}
     </div>`;
   } catch (e) {
-    el.innerHTML = '<span class="sp-hint" style="color:var(--conn-err)">Could not load activity: ' + h(e.message) + '</span>';
+    // Reaching here means fetch() itself threw -- a real network failure
+    // (offline, DNS, connection refused), not a server-side error response
+    // (that's the !res.ok branch above, which never throws).
+    const msg = (typeof navigator !== 'undefined' && navigator.onLine === false)
+      ? 'You appear to be offline.'
+      : 'Could not reach the Activity Log service: ' + h(e.message);
+    el.innerHTML = '<span class="sp-hint" style="color:var(--conn-err)">' + msg + '</span>';
   }
 }
 
@@ -11652,6 +11690,15 @@ function camArmLoadTimer(i, src) {
     camMarkOffline(i);
   }, CAM_LOAD_TIMEOUT_MS);
 }
+// Three states, not two -- CAM_STATE[i].online starts undefined until the
+// first load actually resolves, and defaulting that to "online" (as `state
+// .online === false` checks alone do) shows a confident green badge for a
+// camera that hasn't answered yet. "Checking" is its own visual state.
+function camStatusInfo(state) {
+  if (state.online === true)  return { cls: '',          label: 'Online' };
+  if (state.online === false) return { cls: 'off',       label: 'Offline' };
+  return                             { cls: 'checking',  label: 'Checking…' };
+}
 function camMarkOnline(i) {
   camClearLoadTimer(i);
   const was = CAM_STATE[i] && CAM_STATE[i].online;
@@ -11761,12 +11808,13 @@ function renderCameras() {
   const realTiles = pageCams.map((cam, pi) => {
     const i = camPage * perPage + pi;
     const state = CAM_STATE[i] || {};
-    const offline = state.online === false;
+    const status = camStatusInfo(state);
+    const offline = status.cls === 'off';
     const hasThumb = !!cam.snapshotUrl;
     if (hasThumb) camArmLoadTimer(i, camSrc(cam, i));
     const media = hasThumb
       ? `<img src="${camSrc(cam, i)}" alt="" referrerpolicy="no-referrer" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">
-         <span class="cam-live-badge ${offline ? 'off' : ''}"><span class="cam-live-dot"></span>${offline ? 'Offline' : 'Online'}</span>`
+         <span class="cam-live-badge ${status.cls}"><span class="cam-live-dot"></span>${status.label}</span>`
       : camPlaceholderHTML(cam);
     return `
       <div class="cam-tile ${hasThumb && offline ? 'cam-tile-offline' : ''}">
@@ -12998,7 +13046,7 @@ function spShowSection(id, force) {
                 <input class="sp-input sp-lock-id" value="${lk.id||''}" placeholder="13"></div>
               <div class="sp-field" style="flex:2"><label class="sp-label">Label</label>
                 <input class="sp-input sp-lock-label" value="${lk.label||''}" placeholder="Front Door"></div>
-              <button class="sp-btn-icon" onclick="spRemoveLock(${i})" title="Remove" style="align-self:flex-end;margin-bottom:6px;color:var(--conn-err);background:none;border:none;font-size:16px;cursor:pointer">&times;</button>
+              <button class="sp-btn-icon" onclick="spRemoveLock(${i})" title="Remove" style="align-self:flex-end;margin-bottom:6px;color:var(--conn-err)">&times;</button>
             </div>
             <div class="sp-field" style="margin-bottom:0">
               <label class="sp-label">Room <span style="opacity:.65;font-weight:400;text-transform:none;letter-spacing:0">(optional -- shows an unlocked badge on that room)</span></label>
@@ -13024,9 +13072,9 @@ function spShowSection(id, force) {
                 <input class="sp-input sp-camera-name" value="${cam.name||''}" placeholder="Front Door"></div>
               <div class="sp-field" style="flex:2"><label class="sp-label">Snapshot URL</label>
                 <input class="sp-input sp-camera-url" value="${cam.snapshotUrl||''}" placeholder="http://192.168.1.50/snapshot.jpg"></div>
-              <button class="sp-btn-icon" onclick="spMoveCameraUp(${i})" title="Move up" ${i===0?'disabled':''} style="margin-bottom:6px;color:var(--t3);background:none;border:none;font-size:14px;cursor:pointer">&uarr;</button>
-              <button class="sp-btn-icon" onclick="spMoveCameraDown(${i})" title="Move down" ${i===(CONFIG.cameras||[]).length-1?'disabled':''} style="margin-bottom:6px;color:var(--t3);background:none;border:none;font-size:14px;cursor:pointer">&darr;</button>
-              <button class="sp-btn-icon" onclick="spRemoveCamera(${i})" title="Remove" style="margin-bottom:6px;color:var(--conn-err);background:none;border:none;font-size:16px;cursor:pointer">&times;</button>
+              <button class="sp-btn-icon" onclick="spMoveCameraUp(${i})" title="Move up" ${i===0?'disabled':''} style="margin-bottom:6px;color:var(--t3)">&uarr;</button>
+              <button class="sp-btn-icon" onclick="spMoveCameraDown(${i})" title="Move down" ${i===(CONFIG.cameras||[]).length-1?'disabled':''} style="margin-bottom:6px;color:var(--t3)">&darr;</button>
+              <button class="sp-btn-icon" onclick="spRemoveCamera(${i})" title="Remove" style="margin-bottom:6px;color:var(--conn-err)">&times;</button>
             </div>
             <div class="sp-field" style="margin-bottom:0">
               <label class="sp-label">Live Stream URL <span style="opacity:.65;font-weight:400;text-transform:none;letter-spacing:0">(optional, MJPEG)</span></label>
@@ -13328,13 +13376,17 @@ async function saveSettings() {
   const cameraNameEls   = document.querySelectorAll('.sp-camera-name');
   const cameraUrlEls    = document.querySelectorAll('.sp-camera-url');
   const cameraStreamEls = document.querySelectorAll('.sp-camera-stream');
+  let badCameraUrls = [];
   if (cameraNameEls.length) {
     CONFIG.cameras = [];
+    const isHttpUrl = (u) => /^https?:\/\//i.test(u);
     cameraNameEls.forEach((el, i) => {
       const snapshotUrl = cameraUrlEls[i] ? cameraUrlEls[i].value.trim() : '';
       const streamUrl   = cameraStreamEls[i] ? cameraStreamEls[i].value.trim() : '';
       if (!snapshotUrl && !streamUrl) return;
       const name = el.value.trim() || 'Camera ' + (i + 1);
+      if (snapshotUrl && !isHttpUrl(snapshotUrl)) badCameraUrls.push(name + ' (snapshot URL)');
+      if (streamUrl && !isHttpUrl(streamUrl)) badCameraUrls.push(name + ' (stream URL)');
       CONFIG.cameras.push({ name, snapshotUrl, streamUrl });
     });
   }
@@ -13387,6 +13439,13 @@ async function saveSettings() {
   // Flash confirmation
   const saved = document.getElementById('sp-saved');
   if (saved) { saved.textContent = '✓ Saved and applied'; setTimeout(() => { saved.textContent = ''; }, 3000); }
+  // Camera URL warnings surface last, after everything else has already
+  // saved and applied -- alert() blocks the whole thread until dismissed,
+  // so raising it earlier would hold up saveConfig()/applyConfig() behind
+  // a modal the user has to click through first.
+  if (badCameraUrls.length) {
+    alert('Saved, but these URLs are missing http:// or https:// and won\'t load until fixed:\n\n' + badCameraUrls.join('\n'));
+  }
 }
 
 function exportSettings() {
@@ -13429,7 +13488,8 @@ function exportSettings() {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a    = document.createElement('a');
   a.href     = URL.createObjectURL(blob);
-  a.download = 'dashboard-config.json';
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  a.download = 'dashboard-config-' + stamp + '.json';
   a.click();
   URL.revokeObjectURL(a.href);
 }
@@ -13468,10 +13528,13 @@ function handleImport(evt) {
       }
       if (parsed.thermostats) { thermostats.length = 0; parsed.thermostats.forEach(t => thermostats.push(t)); }
       if (parsed.rooms)       { rooms.length = 0; parsed.rooms.forEach(r => rooms.push(r)); }
+      const importedPushDevices = parsed.config && Array.isArray(parsed.config.pushDevices) && parsed.config.pushDevices.length > 0;
       saveConfig();
       applyConfig();
       closeSettings();
-      alert('Config imported and applied successfully.');
+      alert('Config imported and applied successfully.' + (importedPushDevices
+        ? '\n\nNote: push notification device registrations were imported, but the actual browser subscription can\'t be restored this way — re-enable push notifications on this device in Settings if you want it to receive them.'
+        : ''));
     } catch(err) {
       alert('Import failed — invalid JSON file.');
     }

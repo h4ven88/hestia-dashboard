@@ -20,39 +20,44 @@ async function sha256(str) {
 // credentials before fanning out real notifications, without inventing a
 // separate secret-management scheme -- reuses data that's already synced.
 export async function onRequestPost({ request, env }) {
-  const ip = request.headers.get('CF-Connecting-IP');
-  if (!ip) return Response.json({ status: 'error', message: 'no IP' }, { status: 400 });
-
-  let body;
   try {
-    body = await request.json();
-  } catch {
-    return Response.json({ status: 'error', message: 'invalid JSON' }, { status: 400 });
+    const ip = request.headers.get('CF-Connecting-IP');
+    if (!ip) return Response.json({ status: 'error', message: 'no IP' }, { status: 400 });
+
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json({ status: 'error', message: 'invalid JSON' }, { status: 400 });
+    }
+
+    const { category, title, body: message, armed, token } = body;
+    if (!title || !message) {
+      return Response.json({ status: 'error', message: 'missing title or body' }, { status: 400 });
+    }
+
+    const hash = await sha256(ip);
+    const shortHash = hash.substring(0, 16);
+
+    const household = await getHouseholdConfig(env, ip, shortHash);
+    if (!household) return Response.json({ status: 'error', message: 'unknown household' }, { status: 404 });
+
+    const storedToken = household.config && household.config.token;
+    if (!storedToken || !token || token !== storedToken) {
+      return Response.json({ status: 'error', message: 'unauthorized' }, { status: 401 });
+    }
+
+    // This endpoint is the only path for hsmAlert intrusion trips (Groovy's
+    // pushHsmAlertHandler calls it directly, bypassing webhook.js entirely),
+    // so it's also the only place those can be captured for the Activity Log.
+    if (category) {
+      await logActivity(env, shortHash, { category, title, body: message, source: category === 'alarming' ? 'hsm' : 'manual' });
+    }
+
+    const result = await dispatchPush(env, shortHash, { category, title, body: message, armed });
+    return Response.json({ status: 'ok', logged: !!category, ...result });
+  } catch (err) {
+    console.error('[push/send] onRequestPost error:', err);
+    return Response.json({ status: 'error', message: 'internal error' }, { status: 500 });
   }
-
-  const { category, title, body: message, armed, token } = body;
-  if (!title || !message) {
-    return Response.json({ status: 'error', message: 'missing title or body' }, { status: 400 });
-  }
-
-  const hash = await sha256(ip);
-  const shortHash = hash.substring(0, 16);
-
-  const household = await getHouseholdConfig(env, ip, shortHash);
-  if (!household) return Response.json({ status: 'error', message: 'unknown household' }, { status: 404 });
-
-  const storedToken = household.config && household.config.token;
-  if (!storedToken || !token || token !== storedToken) {
-    return Response.json({ status: 'error', message: 'unauthorized' }, { status: 401 });
-  }
-
-  // This endpoint is the only path for hsmAlert intrusion trips (Groovy's
-  // pushHsmAlertHandler calls it directly, bypassing webhook.js entirely),
-  // so it's also the only place those can be captured for the Activity Log.
-  if (category) {
-    await logActivity(env, shortHash, { category, title, body: message, source: category === 'alarming' ? 'hsm' : 'manual' });
-  }
-
-  const result = await dispatchPush(env, shortHash, { category, title, body: message, armed });
-  return Response.json({ status: 'ok', logged: !!category, ...result });
 }

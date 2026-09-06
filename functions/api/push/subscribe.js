@@ -18,50 +18,68 @@ async function householdKey(request) {
 // by hashed public IP, since a browser and the hub it's paired with share
 // the same home network's public IP).
 export async function onRequestPut({ request, env }) {
-  const key = await householdKey(request);
-  if (!key) return Response.json({ status: 'error', message: 'no IP' }, { status: 400 });
-
-  let body;
   try {
-    body = await request.json();
-  } catch {
-    return Response.json({ status: 'error', message: 'invalid JSON' }, { status: 400 });
-  }
+    const key = await householdKey(request);
+    if (!key) return Response.json({ status: 'error', message: 'no IP' }, { status: 400 });
 
-  const { deviceId, deviceName, mode, subscription } = body;
-  if (!deviceId || !subscription || !subscription.endpoint || !subscription.keys) {
-    return Response.json({ status: 'error', message: 'missing deviceId or subscription' }, { status: 400 });
-  }
-  if (mode !== 'always' && mode !== 'armed') {
-    return Response.json({ status: 'error', message: 'mode must be "always" or "armed"' }, { status: 400 });
-  }
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json({ status: 'error', message: 'invalid JSON' }, { status: 400 });
+    }
 
-  const raw = JSON.stringify(body);
-  if (raw.length > 8192) {
-    return Response.json({ status: 'error', message: 'payload too large' }, { status: 413 });
-  }
+    const { deviceId, deviceName, mode, subscription } = body;
+    if (!deviceId || !subscription || !subscription.endpoint || !subscription.keys) {
+      return Response.json({ status: 'error', message: 'missing deviceId or subscription' }, { status: 400 });
+    }
+    // A real PushSubscriptionJSON from the browser's Push API always carries
+    // both key material fields -- a malformed/hand-crafted payload could
+    // omit one, which would otherwise only surface later as a silent
+    // dispatch failure with no signal back to the caller.
+    const keys = subscription.keys;
+    if (typeof keys.p256dh !== 'string' || !keys.p256dh || typeof keys.auth !== 'string' || !keys.auth) {
+      return Response.json({ status: 'error', message: 'subscription missing p256dh or auth key' }, { status: 400 });
+    }
+    if (mode !== 'always' && mode !== 'armed') {
+      return Response.json({ status: 'error', message: 'mode must be "always" or "armed"' }, { status: 400 });
+    }
 
-  await mutatePushDevices(env, key, (devices) => {
-    devices[deviceId] = { name: deviceName || deviceId, mode, subscription };
-  });
-  return Response.json({ status: 'ok' });
+    const raw = JSON.stringify(body);
+    if (raw.length > 8192) {
+      return Response.json({ status: 'error', message: 'payload too large' }, { status: 413 });
+    }
+
+    await mutatePushDevices(env, key, (devices) => {
+      devices[deviceId] = { name: deviceName || deviceId, mode, subscription };
+    });
+    return Response.json({ status: 'ok' });
+  } catch (err) {
+    console.error('[push/subscribe] onRequestPut error:', err);
+    return Response.json({ status: 'error', message: 'internal error' }, { status: 500 });
+  }
 }
 
 // Body: { deviceId }
 export async function onRequestDelete({ request, env }) {
-  const key = await householdKey(request);
-  if (!key) return Response.json({ status: 'error', message: 'no IP' }, { status: 400 });
-
-  let body;
   try {
-    body = await request.json();
-  } catch {
-    return Response.json({ status: 'error', message: 'invalid JSON' }, { status: 400 });
-  }
-  if (!body.deviceId) return Response.json({ status: 'error', message: 'missing deviceId' }, { status: 400 });
+    const key = await householdKey(request);
+    if (!key) return Response.json({ status: 'error', message: 'no IP' }, { status: 400 });
 
-  await mutatePushDevices(env, key, (devices) => {
-    delete devices[body.deviceId];
-  });
-  return Response.json({ status: 'ok' });
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json({ status: 'error', message: 'invalid JSON' }, { status: 400 });
+    }
+    if (!body.deviceId) return Response.json({ status: 'error', message: 'missing deviceId' }, { status: 400 });
+
+    await mutatePushDevices(env, key, (devices) => {
+      delete devices[body.deviceId];
+    });
+    return Response.json({ status: 'ok' });
+  } catch (err) {
+    console.error('[push/subscribe] onRequestDelete error:', err);
+    return Response.json({ status: 'error', message: 'internal error' }, { status: 500 });
+  }
 }
