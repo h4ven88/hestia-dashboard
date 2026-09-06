@@ -9,20 +9,25 @@ async function sha256(str) {
 // endpoints: the caller's own public IP hash IS the household scope, no
 // separate token needed to just read back events for that scope.
 export async function onRequestGet({ request, env }) {
-  const ip = request.headers.get('CF-Connecting-IP');
-  if (!ip) return Response.json({ status: 'error', message: 'no IP' }, { status: 400 });
+  try {
+    const ip = request.headers.get('CF-Connecting-IP');
+    if (!ip) return Response.json({ status: 'error', message: 'no IP' }, { status: 400 });
 
-  const hash = await sha256(ip);
-  const shortHash = hash.substring(0, 16);
+    const hash = await sha256(ip);
+    const shortHash = hash.substring(0, 16);
 
-  // Capped well under Cloudflare's per-invocation subrequest ceiling --
-  // listActivity() issues one KV get per entry, so this bound (plus the
-  // list() call itself) is what actually keeps this endpoint from 500ing.
-  const url = new URL(request.url);
-  const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit'), 10) || 25, 1), 25);
+    // Capped well under Cloudflare's per-invocation subrequest ceiling --
+    // listActivity() issues one KV get per entry, so this bound (plus the
+    // list() call itself) is what actually keeps this endpoint from 500ing.
+    const url = new URL(request.url);
+    const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit'), 10) || 25, 1), 25);
 
-  const entries = await listActivity(env, shortHash, limit);
-  return Response.json({ status: 'ok', entries }, {
-    headers: { 'Cache-Control': 'no-store' }
-  });
+    const entries = await listActivity(env, shortHash, limit);
+    return Response.json({ status: 'ok', entries }, {
+      headers: { 'Cache-Control': 'no-store' }
+    });
+  } catch (err) {
+    console.error('[activity/index] onRequestGet error:', err);
+    return Response.json({ status: 'error', message: 'internal error' }, { status: 500 });
+  }
 }
