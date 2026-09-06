@@ -33,9 +33,9 @@ function withTimeout(promise, ms) {
   });
 }
 
-export async function dispatchPush(env, shortHash, { category, title, body, armed }) {
+export async function dispatchPush(env, shortHash, { category, title, body, armed, targetDeviceId }) {
   const pushRaw = await env.HESTIA_KV.get(`push:${shortHash}`);
-  if (!pushRaw) return { sent: 0, failed: 0, pruned: 0 };
+  if (!pushRaw) return { sent: 0, failed: 0, pruned: 0, targetFound: !targetDeviceId };
   const devices = JSON.parse(pushRaw);
 
   const bypassesArmedGate = ALWAYS_CATEGORIES.has(category);
@@ -44,9 +44,15 @@ export async function dispatchPush(env, shortHash, { category, title, body, arme
     privateKey: env.VAPID_PRIVATE_KEY,
   });
 
-  const eligible = Object.entries(devices).filter(([, device]) =>
-    bypassesArmedGate || device.mode === 'always' || (device.mode === 'armed' && armed === true)
-  );
+  // A targeted send (currently only "test this one device" from Diagnostics)
+  // ignores the armed-only gate entirely -- the point is confirming that
+  // exact device's subscription still works right now, not whether it would
+  // have been eligible under the household's current arm state.
+  const eligible = targetDeviceId
+    ? Object.entries(devices).filter(([deviceId]) => deviceId === targetDeviceId)
+    : Object.entries(devices).filter(([, device]) =>
+        bypassesArmedGate || device.mode === 'always' || (device.mode === 'armed' && armed === true)
+      );
 
   // Dispatched in parallel with Promise.allSettled -- previously a plain
   // sequential for-loop, so one slow/hung device delayed or blocked every
@@ -92,5 +98,5 @@ export async function dispatchPush(env, shortHash, { category, title, body, arme
     });
   }
 
-  return { sent, failed, pruned: pruned.length };
+  return { sent, failed, pruned: pruned.length, targetFound: targetDeviceId ? eligible.length > 0 : true };
 }

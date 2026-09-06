@@ -31,7 +31,7 @@ export async function onRequestPost({ request, env }) {
       return Response.json({ status: 'error', message: 'invalid JSON' }, { status: 400 });
     }
 
-    const { category, title, body: message, armed, token } = body;
+    const { category, title, body: message, armed, token, targetDeviceId } = body;
     if (!title || !message) {
       return Response.json({ status: 'error', message: 'missing title or body' }, { status: 400 });
     }
@@ -54,7 +54,7 @@ export async function onRequestPost({ request, env }) {
       await logActivity(env, shortHash, { category, title, body: message, source: category === 'alarming' ? 'hsm' : 'manual' });
     }
 
-    const result = await dispatchPush(env, shortHash, { category, title, body: message, armed });
+    const result = await dispatchPush(env, shortHash, { category, title, body: message, armed, targetDeviceId });
     return Response.json({ status: 'ok', logged: !!category, ...result });
   } catch (err) {
     console.error('[push/send] onRequestPost error:', err);

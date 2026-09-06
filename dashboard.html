@@ -113,6 +113,10 @@
 .ob-test-result.ok{color:var(--conn-ok)}
 .ob-test-result.err{color:var(--conn-err)}
 .ob-test-result.loading{color:var(--t3)}
+.cam-test-result{font-size:11px;line-height:1.5;margin-top:6px;display:block}
+.cam-test-result.ok{color:var(--conn-ok)}
+.cam-test-result.err{color:var(--conn-err)}
+.cam-test-result.loading{color:var(--t3)}
 .ob-footer{display:flex;align-items:center;justify-content:space-between;padding:20px 32px;border-top:1px solid var(--border-s)}
 .ob-back{background:none;border:none;color:var(--t3);font-size:13px;font-family:inherit;cursor:pointer;padding:0;transition:color .15s}
 .ob-back:hover{color:var(--t2)}
@@ -551,6 +555,7 @@ html[data-display-desktop] .tb-date{display:block !important}
 .athena-fab-btn:hover{border-color:rgba(245,158,11,.35);box-shadow:0 2px 22px rgba(245,158,11,.22)}
 .athena-fab-btn.ath-active{border-color:rgba(245,158,11,.38);animation:athFabPulse 2s ease-in-out infinite}
 .athena-fab-btn.ath-clarify{border-color:rgba(248,113,113,.38);box-shadow:0 0 0 4px rgba(248,113,113,.05),0 2px 16px rgba(248,113,113,.18)}
+.athena-fab-btn.ath-mic-lost{border-color:rgba(248,113,113,.38);box-shadow:0 0 0 4px rgba(248,113,113,.08),0 2px 16px rgba(248,113,113,.22)}
 @keyframes athFabPulse{0%,100%{box-shadow:0 0 0 4px rgba(245,158,11,.05),0 2px 16px rgba(245,158,11,.18)}50%{box-shadow:0 0 0 9px rgba(245,158,11,.04),0 2px 24px rgba(245,158,11,.28)}}
 /* FAB mobile — sits above bottom nav */
 html[data-display-mobile] .athena-fab-btn{bottom:62px;right:12px;width:40px;height:40px}
@@ -2863,6 +2868,14 @@ const dimmerTimers = {};
 // { online: bool, lastFetch: epoch ms, cacheBust: number }
 let CAM_STATE = {};
 
+// Artemis category key -> the capToType() type a genuinely-matching device
+// reports. Shared by artemisRegisterSensors() below and the retype functions
+// further down the file. Must be declared before loadConfig()/initState()
+// run just below -- they call artemisRegisterSensors() synchronously at
+// boot, which is well before this file's own later definitions would
+// otherwise initialize if this constant lived closer to where it's mostly used.
+const ARTEMIS_CAT_TYPE = { contacts:'contact', motions:'motion', smokes:'smoke', waters:'water', glass:'glass' };
+
 // Load any saved config before seeding state
 loadConfig();
 initState();
@@ -4305,10 +4318,9 @@ function artemisRegisterSensors() {
     }
   });
   if (migrated) saveConfig();
-  const typeMap = { contacts:'contact', motions:'motion', smokes:'smoke', waters:'water', glass:'glass' };
   const artemisIds = new Set();
-  Object.keys(typeMap).forEach(cat => {
-    const devType = typeMap[cat];
+  Object.keys(ARTEMIS_CAT_TYPE).forEach(cat => {
+    const devType = ARTEMIS_CAT_TYPE[cat];
     (CONFIG.artemisSensors[cat] || []).forEach(d => {
       const id = String(d.id || d);
       artemisIds.add(id);
@@ -4608,6 +4620,13 @@ async function owwStart() {
       video: false
     });
     athenaMicPermission = true;
+    // A revoked permission or unplugged device ends the track directly, with
+    // no error thrown anywhere -- previously this left wake detection dead
+    // until a manual reload, with zero signal on a 24/7 wall panel. owwStop()
+    // also ends these same tracks on purpose (releasing the mic for a voice
+    // command); `OWW.running` is already false by the time that fires, so
+    // checking it here is what tells an intentional stop apart from this.
+    OWW.stream.getTracks().forEach(track => { track.onended = owwHandleStreamEnded; });
 
     const source = OWW.ctx.createMediaStreamSource(OWW.stream);
     let useWorklet = false;
@@ -4677,6 +4696,7 @@ async function owwStart() {
     }
 
     OWW.running = true;
+    owwClearMicLostWarning();
     if (useWorklet) console.log(`[OWW] AudioWorklet running — sampleRate: ${OWW.ctx.sampleRate}Hz, state: ${OWW.ctx.state}`);
 
     // Chrome/Brave autoplay policy: AudioContext may be suspended until user gesture.
@@ -4709,13 +4729,54 @@ async function owwStart() {
     }
   } catch(e) {
     athenaMicPermission = false;
+    owwShowMicLostWarning();
     console.warn('[OWW] Start failed:', e.message);
   } finally {
     OWW._starting = false;
   }
 }
 
+// Fires when the wake-word listener's own mic track ends outside of our own
+// owwStop() call -- permission revoked mid-session, or the input device was
+// unplugged. Surfaces a persistent, always-visible signal on the FAB (a 24/7
+// wall panel has no one watching the console or Settings > Athena) and makes
+// one bounded attempt to recover in case this was transient (e.g. a device
+// swap), rather than silently staying dead until someone notices and reloads.
+let _owwRecoveryTimer = null;
+function owwHandleStreamEnded() {
+  if (OWW.running) {
+    OWW.running = false;
+    console.warn('[OWW] Mic track ended unexpectedly (permission revoked or device disconnected)');
+    athenaMicPermission = false;
+    owwShowMicLostWarning();
+    clearTimeout(_owwRecoveryTimer);
+    // Guard on athenaState the same way every other OWW-restart call site in
+    // this file does (visibilitychange, the deferred ONNX retry, athenaClose()'s
+    // post-panel restart) -- without it, reopening the Athena panel inside this
+    // window (e.g. to work around the very mic issue that just happened) would
+    // let this stale timer spin up a second concurrent stream mid-conversation.
+    _owwRecoveryTimer = setTimeout(() => { if (!OWW.running && athenaState === 'idle') owwStart(); }, 3000);
+  }
+}
+function owwShowMicLostWarning() {
+  const fab = document.getElementById('ath-fab');
+  if (fab) {
+    fab.classList.add('ath-mic-lost');
+    fab.title = 'Athena — microphone access lost, tap to try again';
+  }
+  athenaUpdateMicStatusDot(); // updates Settings > Athena's dot if that panel happens to be open
+}
+function owwClearMicLostWarning() {
+  clearTimeout(_owwRecoveryTimer);
+  const fab = document.getElementById('ath-fab');
+  if (fab && fab.classList.contains('ath-mic-lost')) {
+    fab.classList.remove('ath-mic-lost');
+    fab.title = 'Athena — tap or say wake word';
+  }
+}
+
 function owwStop() {
+  clearTimeout(_owwRecoveryTimer);
   try {
     OWW.worklet?.disconnect();
     OWW.stream?.getTracks().forEach(t => t.stop());
@@ -5379,6 +5440,14 @@ function athenaStartListening() {
         audio: { echoCancellation: true, noiseSuppression: true }
       });
       _athenaRecStream = stream;
+      // MediaRecorder auto-stops when a track it's recording ends, so a
+      // mid-recording permission revocation already reaches recorder.onstop
+      // below rather than hanging -- this flag just lets that handler tell
+      // "the mic actually died" apart from "recorder.stop() was called with
+      // nothing captured yet," so the user gets a real error instead of a
+      // silent reset back to idle.
+      let _micLostDuringRec = false;
+      stream.getAudioTracks().forEach(t => { t.onended = () => { _micLostDuringRec = true; }; });
 
       // Set up silence detection via AnalyserNode
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -5414,11 +5483,17 @@ function athenaStartListening() {
         audioCtx.close().catch(() => {}); _athenaAudioCtxs.delete(audioCtx);
 
         if (_athenaRecChunks.length === 0) {
-          console.log('[Athena] No audio captured');
           athenaListening = false;
           athenaSetRecHint(false);
-          const mic = document.getElementById('ath-mic-btn');
-          if (mic) { mic.className = 'ath-mic-btn active'; athenaSetMicIcon('amber'); }
+          if (_micLostDuringRec) {
+            console.warn('[Athena] Mic access lost mid-recording');
+            athenaMicPermission = false;
+            athenaShowError('Microphone access was lost. Tap the mic to try again.');
+          } else {
+            console.log('[Athena] No audio captured');
+            const mic = document.getElementById('ath-mic-btn');
+            if (mic) { mic.className = 'ath-mic-btn active'; athenaSetMicIcon('amber'); }
+          }
           return;
         }
 
@@ -7077,6 +7152,22 @@ async function athenaHandleResponse(rawText) {
         const existed = (CONFIG.routines || []).some(r => r.name.toLowerCase() === rt.name.toLowerCase());
         routineCreate(rt.name, rt.steps, rt.schedule || undefined);
         const verb = existed ? 'updated' : 'saved';
+        // Voice-created steps are free-form device names Claude generated,
+        // not picked from a list -- unlike the manual Settings UI, which
+        // only ever offers real devices via a <select>. Catch a
+        // hallucinated or misspelled device name now, at creation time,
+        // rather than the first time the routine silently no-ops on it.
+        const unresolved = rt.steps.filter(s => !routineResolveDevice(s));
+        if (unresolved.length > 0) {
+          const names = unresolved.map(s => s.deviceName || 'a device').join(', ');
+          const plural = unresolved.length > 1;
+          const warnMsg = `${rt.name} ${verb}, but I couldn't find: ${names}. Fix ${plural ? 'those steps' : 'that step'} in Settings → Routines.`;
+          athenaAddBubble('athena', warnMsg);
+          athenaShowChip('red', `${unresolved.length} step${plural ? 's' : ''} need${plural ? '' : 's'} attention: ${rt.name}`);
+          athenaSetState('responding');
+          athenaSpeak(warnMsg);
+          break;
+        }
         athenaAddBubble('athena', parsed.speech || `Routine ${verb}.`);
         athenaShowChip('green', `${existed ? 'Updated' : 'Routine'}: ${rt.name}`);
       } else {
@@ -8805,7 +8896,23 @@ function spWallPanelBody() {
       </div>
     </div>`;
 
+  // A wall panel is, by definition, an always-on device anyone in the room
+  // can walk up to -- without a Settings PIN, that includes opening Settings
+  // and reconfiguring or reading back this same credential-bearing URL.
+  const kioskWarning = !CONFIG.settingsPin ? `
+    <div class="sp-group">
+      <div style="background:var(--amber-dim);border:1px solid var(--amber-bdr);border-radius:10px;padding:12px 14px">
+        <div style="font-size:12px;font-weight:500;color:var(--amber);margin-bottom:4px">⚠ No Settings PIN set</div>
+        <div style="font-size:11px;color:var(--t2);line-height:1.6;margin-bottom:10px">
+          Once this panel is mounted as an always-on display, anyone standing in front of it can open Settings and change anything on this dashboard — including this same credential-bearing URL. Set a Settings PIN before deploying.
+        </div>
+        <button class="ob-trigger-btn" onclick="spShowSection('security')" style="width:auto;padding:0 16px;border-style:solid">Set a Settings PIN →</button>
+      </div>
+    </div>
+    <div class="sp-sep"></div>` : '';
+
   return `<div class="sp-content-hdr"><span class="sp-content-icon">📺</span>Wall Panel Setup</div>
+    ${kioskWarning}
     ${urlSection}
     <div class="sp-sep"></div>
     <div class="sp-group">
@@ -9765,6 +9872,7 @@ function spDiagnosticsBody() {
       ${diagRow('mixed', 'HTTPS / Mixed Content', 'Whether this HTTPS page conflicts with an HTTP hub URL')}
       ${diagRow('token', 'Maker API Credentials', 'Whether the App ID and access token are accepted')}
       ${diagRow('loginsec', 'Hub Login Security', 'Detects a hub login page intercepting API requests')}
+      ${diagRow('devices', 'Device Authorization', 'Whether every device Hestia references is still authorized in Maker API')}
       ${diagRow('groovy', 'Companion App', 'Reachability and version of the Hestia app on the hub')}
       ${diagRow('push', 'Push Pipeline', 'Notification permission, service worker, and device registration')}
       ${diagRow('cloud', 'Cloud Sync', 'Reachability of the hestari.com backend')}
@@ -9773,7 +9881,13 @@ function spDiagnosticsBody() {
     <div class="sp-sep"></div>
     <div class="sp-group">
       <div class="sp-group-lbl">Send Test Notification</div>
-      <button class="sp-btn sp-btn-secondary" id="diag-test-push-btn" onclick="diagSendTestPush()" style="padding:0 16px">Send test push</button>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select class="sp-input" id="diag-test-push-device" style="width:auto;flex:1;min-width:160px">
+          <option value="">All devices</option>
+          ${(CONFIG.pushDevices || []).map(d => `<option value="${h(d.id)}">${h(d.name || d.id)}${d.id === DEVICE_ID ? ' (this device)' : ''}</option>`).join('')}
+        </select>
+        <button class="sp-btn sp-btn-secondary" id="diag-test-push-btn" onclick="diagSendTestPush()" style="padding:0 16px">Send test push</button>
+      </div>
       <span class="sp-hint" id="diag-test-push-result" style="display:block;margin-top:6px"></span>
     </div>
     <div class="sp-sep"></div>
@@ -9799,7 +9913,7 @@ function diagSetStatus(key, level, label, hint) {
 }
 
 function diagRunAll() {
-  ['hub','mixed','token','loginsec','groovy','push','cloud','env'].forEach(k => diagSetStatus(k, 'amber', 'Checking…'));
+  ['hub','mixed','token','loginsec','devices','groovy','push','cloud','env'].forEach(k => diagSetStatus(k, 'amber', 'Checking…'));
   diagCheckHubGroup();
   diagCheckGroovy();
   diagCheckCloud();
@@ -9823,6 +9937,12 @@ async function diagCheckHubGroup() {
     text = await res.text();
   } catch (e) {
     err = e;
+  }
+  // Parsed once here and reused by both the token-validity and device-
+  // authorization checks below, rather than each re-parsing the same body.
+  let parsedDevices = null;
+  if (!err && res && res.ok) {
+    try { parsedDevices = JSON.parse(text); } catch {}
   }
 
   if (err || !res) {
@@ -9848,8 +9968,8 @@ async function diagCheckHubGroup() {
   } else if (res.status === 401 || res.status === 403) {
     diagSetStatus('token', 'red', 'Unauthorized', 'The hub rejected the Maker API App ID/token. Re-check them in Hub Connection, or re-authorize this app instance in the Maker API device list on the hub.');
   } else if (res.ok) {
-    try { JSON.parse(text); diagSetStatus('token', 'green', 'Valid'); }
-    catch { diagSetStatus('token', 'amber', 'Unexpected response', 'Hub responded but not with the expected JSON — see Hub Login Security below.'); }
+    if (parsedDevices !== null) diagSetStatus('token', 'green', 'Valid');
+    else diagSetStatus('token', 'amber', 'Unexpected response', 'Hub responded but not with the expected JSON — see Hub Login Security below.');
   } else {
     diagSetStatus('token', 'amber', 'HTTP ' + res.status);
   }
@@ -9863,6 +9983,31 @@ async function diagCheckHubGroup() {
       diagSetStatus('loginsec', 'red', 'Likely blocking this request', `The hub returned an HTML/login page instead of JSON. If Hub Login Security is enabled on the hub, it may be intercepting this request — try adding this device's network to the trusted range, or temporarily disabling it to confirm.`);
     } else {
       diagSetStatus('loginsec', 'green', 'No interference detected');
+    }
+  }
+
+  // Every other check here validates the connection itself -- this is the
+  // one gap the audit flagged: a device added in Hestia (a room, a lock, an
+  // Artemis sensor) but never authorized in Maker API's own device list
+  // shows every check above as green while that device just never responds.
+  // DEVICE_REGISTRY already tracks every ID Hestia currently references
+  // (rebuilt on every applyConfig()); diff it against what this same
+  // /devices/all response actually authorized.
+  if (err || !res) {
+    diagSetStatus('devices', 'amber', 'Unknown', `Hub unreachable — can't check device authorization.`);
+  } else if (!Array.isArray(parsedDevices)) {
+    diagSetStatus('devices', 'amber', 'Unknown', `Hub responded but not with the expected device list format — see Hub Login Security above.`);
+  } else {
+    const makerIds = new Set(parsedDevices.map(d => String(d.id)));
+    const missing = [...DEVICE_REGISTRY]
+      .map(id => id.split(':')[0]) // strip Hestia's own virtual-ID suffix (e.g. "241:motion" -> "241")
+      .filter((id, idx, arr) => arr.indexOf(id) === idx) // dedupe (dual-capability devices register twice)
+      .filter(id => !makerIds.has(id));
+    if (missing.length === 0) {
+      diagSetStatus('devices', 'green', 'All devices authorized');
+    } else {
+      diagSetStatus('devices', 'amber', `${missing.length} device${missing.length !== 1 ? 's' : ''} not authorized`,
+        `Device ID${missing.length !== 1 ? 's' : ''} ${missing.join(', ')} ${missing.length !== 1 ? 'are' : 'is'} referenced somewhere in Hestia (a room, a lock, an Artemis sensor) but not in Maker API's own device list. Add ${missing.length !== 1 ? 'them' : 'it'} to the Maker API app instance on the hub, or remove ${missing.length !== 1 ? 'them' : 'it'} from Hestia if no longer needed.`);
     }
   }
 }
@@ -9955,6 +10100,8 @@ async function diagCheckEnv() {
 async function diagSendTestPush() {
   const btn = document.getElementById('diag-test-push-btn');
   const result = document.getElementById('diag-test-push-result');
+  const deviceSel = document.getElementById('diag-test-push-device');
+  const targetDeviceId = deviceSel ? deviceSel.value : '';
   if (btn) btn.disabled = true;
   if (result) result.textContent = 'Sending…';
   try {
@@ -9966,14 +10113,20 @@ async function diagSendTestPush() {
         title: 'Hestia Test Notification',
         body: 'If you can see this, push notifications are working.',
         armed: true,
-        token: CONFIG.token
+        token: CONFIG.token,
+        targetDeviceId: targetDeviceId || undefined
       })
     });
     const data = await res.json();
     if (data.status === 'ok') {
-      result.textContent = data.sent
-        ? `Sent to ${data.sent} device(s)${data.failed ? `, ${data.failed} failed` : ''}.`
-        : 'No devices are currently eligible — check Push Notifications settings.';
+      if (targetDeviceId && data.targetFound === false) {
+        const name = deviceSel.options[deviceSel.selectedIndex]?.textContent || 'that device';
+        result.textContent = `${name} isn't currently registered for push — it may need to re-enable notifications.`;
+      } else {
+        result.textContent = data.sent
+          ? `Sent to ${data.sent} device(s)${data.failed ? `, ${data.failed} failed` : ''}.`
+          : (targetDeviceId ? 'That device did not accept the notification — check its own Push Notifications settings.' : 'No devices are currently eligible — check Push Notifications settings.');
+      }
     } else {
       result.textContent = 'Failed: ' + (data.message || 'unknown error');
     }
@@ -10397,6 +10550,20 @@ function artemisSetRoom(id, cat, roomId) {
 
 // Handles the combined type+subtype select. Parses the value, moves sensor
 // to the correct category array, and sets its subtype — one operation.
+async function artemisWarnIfCapabilityMismatch(id, newCat) {
+  const wantType = ARTEMIS_CAT_TYPE[newCat];
+  if (!wantType) return;
+  try {
+    const res = await fetch(apiUrl(`/devices/${id}`));
+    if (!res.ok) return;
+    const data = await res.json();
+    const actualType = capToType(data.capabilities, data.label || data.name);
+    if (actualType && actualType !== wantType) {
+      showDeviceToast(`Heads up: this device's capabilities look like ${actualType}, not ${wantType}.`);
+    }
+  } catch (e) {}
+}
+
 function artemisRetypeCombined(id, oldCat, combinedValue) {
   const MAP = {
     'contact-door':   { cat:'contacts', subtype:'door'   },
@@ -10419,8 +10586,8 @@ function artemisRetypeCombined(id, oldCat, combinedValue) {
   if (!CONFIG.artemisSensors[target.cat]) CONFIG.artemisSensors[target.cat] = [];
   CONFIG.artemisSensors[target.cat].push(sensor);
   // Sync DEVICE_TYPE
-  const typeMap = { contacts:'contact', motions:'motion', smokes:'smoke', waters:'water', glass:'glass' };
-  if (typeMap[target.cat]) DEVICE_TYPE[String(id)] = typeMap[target.cat];
+  if (ARTEMIS_CAT_TYPE[target.cat]) DEVICE_TYPE[String(id)] = ARTEMIS_CAT_TYPE[target.cat];
+  artemisWarnIfCapabilityMismatch(id, target.cat);
   preserveSettingsScroll(() => spShowSection(spActiveSection));
 }
 
@@ -10437,8 +10604,8 @@ function artemisRetype(id, oldCat, newCat) {
     sensor.subtype = newCat === 'contacts' ? artemisInferSubtype(sensor.name || '') : newCat;
   }
   CONFIG.artemisSensors[newCat].push(sensor);
-  const typeMap = { contacts:'contact', motions:'motion', smokes:'smoke', waters:'water', glass:'glass' };
-  if (typeMap[newCat]) DEVICE_TYPE[String(id)] = typeMap[newCat];
+  if (ARTEMIS_CAT_TYPE[newCat]) DEVICE_TYPE[String(id)] = ARTEMIS_CAT_TYPE[newCat];
+  artemisWarnIfCapabilityMismatch(id, newCat);
   preserveSettingsScroll(() => spShowSection(spActiveSection));
 }
 
@@ -13079,6 +13246,10 @@ function spShowSection(id, force) {
             <div class="sp-field" style="margin-bottom:0">
               <label class="sp-label">Live Stream URL <span style="opacity:.65;font-weight:400;text-transform:none;letter-spacing:0">(optional, MJPEG)</span></label>
               <input class="sp-input sp-camera-stream" value="${cam.streamUrl||''}" placeholder="http://<hub-ip>/hub2/videoStream/<id>.mjpg"></div>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+              <button class="sp-btn sp-btn-secondary" style="height:28px;padding:0 12px;font-size:11px" onclick="spTestCamera(${i})">Test connection</button>
+              <span class="cam-test-result" id="cam-test-result-${i}"></span>
+            </div>
           </div>`).join('');
       html = `<div class="sp-content-hdr"><span class="sp-content-icon">📷</span>Cameras</div>
         <div class="sp-group">
@@ -13332,6 +13503,46 @@ function spMoveCameraDown(i) {
   if (i >= arr.length - 1) return;
   [arr[i + 1], arr[i]] = [arr[i], arr[i + 1]];
   spShowSection('cameras');
+}
+
+// Tests the URL(s) currently in the form fields, not the saved CONFIG value
+// -- lets a user check a camera before ever hitting Save. Loads each URL the
+// same way the real camera tiles do (a plain <img>, not fetch()), since that
+// already works around the CORS/auth quirks these snapshot endpoints have
+// and correctly renders an MJPEG stream URL too, not just a still image.
+const CAM_TEST_TIMEOUT_MS = 6000;
+function _camTestLoadUrl(url) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const timer = setTimeout(() => { img.src = ''; resolve(false); }, CAM_TEST_TIMEOUT_MS);
+    img.referrerPolicy = 'no-referrer';
+    img.onload  = () => { clearTimeout(timer); resolve(true); };
+    img.onerror = () => { clearTimeout(timer); resolve(false); };
+    img.src = url;
+  });
+}
+async function spTestCamera(i) {
+  const card = document.querySelector(`.cam-cfg-card[data-camera-idx="${i}"]`);
+  const result = document.getElementById(`cam-test-result-${i}`);
+  if (!card || !result) return;
+  const snapshotUrl = card.querySelector('.sp-camera-url')?.value.trim() || '';
+  const streamUrl   = card.querySelector('.sp-camera-stream')?.value.trim() || '';
+  if (!snapshotUrl && !streamUrl) {
+    result.textContent = 'Enter a snapshot or stream URL first.';
+    result.className = 'cam-test-result err';
+    return;
+  }
+  result.textContent = 'Testing…';
+  result.className = 'cam-test-result loading';
+
+  const checks = [];
+  if (snapshotUrl) checks.push(_camTestLoadUrl(snapshotUrl).then(ok => ({ label: 'Snapshot', ok })));
+  if (streamUrl)   checks.push(_camTestLoadUrl(streamUrl).then(ok => ({ label: 'Stream', ok })));
+  const outcomes = await Promise.all(checks);
+
+  const allOk = outcomes.every(o => o.ok);
+  result.textContent = outcomes.map(o => `${o.ok ? '✓' : '✗'} ${o.label} ${o.ok ? 'loads' : 'failed to load'}`).join('  —  ');
+  result.className = 'cam-test-result ' + (allOk ? 'ok' : 'err');
 }
 
 /* ── Save / Export / Import / Reset ── */
