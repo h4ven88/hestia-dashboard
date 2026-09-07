@@ -21,9 +21,10 @@ export async function onRequestGet({ request, env }) {
     // list() call itself) is what actually keeps this endpoint from 500ing.
     const url = new URL(request.url);
     const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit'), 10) || 25, 1), 25);
+    const cursor = url.searchParams.get('cursor') || undefined;
 
-    const entries = await listActivity(env, shortHash, limit);
-    return Response.json({ status: 'ok', entries }, {
+    const { entries, nextCursor } = await listActivity(env, shortHash, { limit, cursor });
+    return Response.json({ status: 'ok', entries, nextCursor }, {
       headers: { 'Cache-Control': 'no-store' }
     });
   } catch (err) {

@@ -10012,6 +10012,21 @@ function spDiagnosticsBody() {
         <div class="sp-group-lbl" style="margin:0">Activity Log</div>
         <button class="sp-btn sp-btn-secondary" style="font-size:10px;padding:4px 10px" onclick="diagLoadActivity()">⟳ Refresh</button>
       </div>
+      <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        <select class="sp-input" id="diag-activity-filter" style="width:auto;flex:1;min-width:120px" onchange="diagActivityFilterChange(this.value)">
+          <option value="">All categories</option>
+          <option value="doors">Doors</option>
+          <option value="windows">Windows</option>
+          <option value="locks">Locks</option>
+          <option value="motion">Motion</option>
+          <option value="smoke">Smoke/CO</option>
+          <option value="water">Water/Freeze</option>
+          <option value="alarm">Alarm</option>
+          <option value="announcement">Announcement</option>
+          <option value="test">Test</option>
+        </select>
+        <input class="sp-input" id="diag-activity-search" type="text" placeholder="Search…" style="width:auto;flex:1;min-width:120px" oninput="diagActivitySearchInput(this.value)">
+      </div>
       <div id="diag-activity-list"><span class="sp-hint">Loading…</span></div>
     </div>`;
 }
@@ -10268,33 +10283,63 @@ function diagRelTime(ts) {
   return Math.floor(hr / 24) + 'd ago';
 }
 
+// Category/search filter over what's loaded so far, with real cursor-based
+// pagination to widen that window -- see functions/_lib/activityLog.js's
+// listActivity() for why filtering isn't pushed into the KV scan itself.
+let _diagActivityEntries = [];
+let _diagActivityCursor  = null;
+let _diagActivityFilter  = '';
+let _diagActivitySearch  = '';
+let _diagActivityLoading = false;
+
+// diagLoadActivity() can be re-triggered while a previous
+// _diagFetchActivityPage() is still in flight (Refresh clicked mid-"Load
+// more", a test push completing, or re-entering the Diagnostics panel via
+// diagRunAll()). A plain loading boolean would block the NEWER, correct
+// reset-driven fetch and let the stale one win once it resolves, appending
+// its results onto the just-reset array. A generation counter lets a fresh
+// call supersede an in-flight stale one instead of just refusing to start.
+let _diagActivityGen = 0;
+
 async function diagLoadActivity() {
+  const gen = ++_diagActivityGen;
+  _diagActivityEntries = [];
+  _diagActivityCursor  = null;
+  const el = document.getElementById('diag-activity-list');
+  if (el) el.innerHTML = '<span class="sp-hint">Loading…</span>';
+  await _diagFetchActivityPage(gen);
+}
+
+async function diagLoadMoreActivity() {
+  // Guards specifically against a rapid double-click fetching the same page
+  // twice (both calls would otherwise share the same generation and cursor,
+  // since only diagLoadActivity() advances the generation) -- doesn't apply
+  // to diagLoadActivity() itself, which must always be allowed to supersede
+  // an in-flight fetch rather than be blocked by it.
+  if (_diagActivityLoading) return;
+  await _diagFetchActivityPage(_diagActivityGen);
+}
+
+async function _diagFetchActivityPage(gen = _diagActivityGen) {
   const el = document.getElementById('diag-activity-list');
   if (!el) return;
+  _diagActivityLoading = true;
   try {
-    const res = await fetch(ACTIVITY_API + '?limit=25');
+    const params = new URLSearchParams({ limit: '25' });
+    if (_diagActivityCursor) params.set('cursor', _diagActivityCursor);
+    const res = await fetch(ACTIVITY_API + '?' + params.toString());
+    if (gen !== _diagActivityGen) return; // superseded by a newer diagLoadActivity() call -- discard
     if (!res.ok) {
       el.innerHTML = '<span class="sp-hint" style="color:var(--conn-err)">Activity Log server error (HTTP ' + res.status + '). Try refreshing in a moment.</span>';
       return;
     }
     const data = await res.json();
     const entries = (data && data.entries) || [];
-    if (!entries.length) {
-      el.innerHTML = '<span class="sp-hint" style="display:block">No activity recorded yet. Events appear here once Push Notifications or Announcements are enabled and a tracked device changes state.</span>';
-      return;
-    }
-    el.innerHTML = `<div style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
-      ${entries.map(e => `
-        <div style="display:flex;gap:10px;align-items:flex-start;padding:8px 12px;border-bottom:1px solid var(--border-s)">
-          <span style="font-size:14px;flex-shrink:0;margin-top:1px">${_diagCategoryIcon[e.category] || '•'}</span>
-          <div style="flex:1;min-width:0">
-            <div style="font-size:12px;color:var(--t1)">${h(e.title || '')}</div>
-            <div style="font-size:11px;color:var(--t3)">${h(e.body || '')}</div>
-          </div>
-          <span style="font-size:10px;color:var(--t4);flex-shrink:0;white-space:nowrap">${diagRelTime(e.ts)}</span>
-        </div>`).join('')}
-    </div>`;
+    _diagActivityEntries = _diagActivityEntries.concat(entries);
+    _diagActivityCursor = (data && data.nextCursor) || null;
+    _diagRenderActivityList();
   } catch (e) {
+    if (gen !== _diagActivityGen) return;
     // Reaching here means fetch() itself threw -- a real network failure
     // (offline, DNS, connection refused), not a server-side error response
     // (that's the !res.ok branch above, which never throws).
@@ -10302,7 +10347,61 @@ async function diagLoadActivity() {
       ? 'You appear to be offline.'
       : 'Could not reach the Activity Log service: ' + h(e.message);
     el.innerHTML = '<span class="sp-hint" style="color:var(--conn-err)">' + msg + '</span>';
+  } finally {
+    if (gen === _diagActivityGen) _diagActivityLoading = false;
   }
+}
+
+function diagActivityFilterChange(value) {
+  _diagActivityFilter = value;
+  _diagRenderActivityList();
+}
+
+function diagActivitySearchInput(value) {
+  _diagActivitySearch = (value || '').trim().toLowerCase();
+  _diagRenderActivityList();
+}
+
+function _diagRenderActivityList() {
+  const el = document.getElementById('diag-activity-list');
+  if (!el) return;
+
+  if (!_diagActivityEntries.length) {
+    el.innerHTML = '<span class="sp-hint" style="display:block">No activity recorded yet. Events appear here once Push Notifications or Announcements are enabled and a tracked device changes state.</span>';
+    return;
+  }
+
+  const filtered = _diagActivityEntries.filter(e => {
+    if (_diagActivityFilter && e.category !== _diagActivityFilter) return false;
+    if (_diagActivitySearch) {
+      const hay = ((e.title || '') + ' ' + (e.body || '')).toLowerCase();
+      if (!hay.includes(_diagActivitySearch)) return false;
+    }
+    return true;
+  });
+
+  const listHtml = filtered.length
+    ? filtered.map(e => `
+        <div style="display:flex;gap:10px;align-items:flex-start;padding:8px 12px;border-bottom:1px solid var(--border-s)">
+          <span style="font-size:14px;flex-shrink:0;margin-top:1px">${_diagCategoryIcon[e.category] || '•'}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;color:var(--t1)">${h(e.title || '')}</div>
+            <div style="font-size:11px;color:var(--t3)">${h(e.body || '')}</div>
+          </div>
+          <span style="font-size:10px;color:var(--t4);flex-shrink:0;white-space:nowrap">${diagRelTime(e.ts)}</span>
+        </div>`).join('')
+    : `<div style="padding:16px 12px"><span class="sp-hint">No matching events in what's loaded so far${_diagActivityCursor ? ' — try Load more to search further back.' : '.'}</span></div>`;
+
+  const loadMoreHtml = _diagActivityCursor
+    ? `<div style="padding:8px 12px;text-align:center;border-top:1px solid var(--border-s)">
+        <button class="sp-btn sp-btn-secondary" style="font-size:11px;padding:4px 14px" onclick="diagLoadMoreActivity()">Load more</button>
+      </div>`
+    : '';
+
+  el.innerHTML = `<div style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+    ${listHtml}
+    ${loadMoreHtml}
+  </div>`;
 }
 
 function pushToggleEnabled(on) {

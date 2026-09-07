@@ -53,10 +53,18 @@ export async function logActivity(env, shortHash, { category, title, body, sourc
 // into a temporarily-wrong position in the raw key order until they expire
 // via their existing 30-day TTL -- self-healing, no migration needed.
 const MAX_LIST_LIMIT = 25;
-export async function listActivity(env, shortHash, limit = MAX_LIST_LIMIT) {
+// `cursor` is passed straight through to KV's own list() -- no filtering is
+// applied inside this scan. A category/search filter narrowed at this layer
+// would need its own composite cursor (KV's cursor only resumes at a full
+// list() page boundary, which doesn't line up with "N filtered matches"),
+// adding real correctness risk for a "not urgent" feature at this app's
+// realistic data volume. Filtering instead happens client-side over
+// whatever pages have been loaded via repeated cursor-paginated calls here --
+// see diagLoadActivity()/diagLoadMoreActivity() in dashboard.html.
+export async function listActivity(env, shortHash, { limit = MAX_LIST_LIMIT, cursor } = {}) {
   limit = Math.min(limit, MAX_LIST_LIMIT);
   const prefix = `activity:${shortHash}:`;
-  const list = await env.HESTIA_KV.list({ prefix, limit });
+  const list = await env.HESTIA_KV.list({ prefix, limit, cursor });
   const entries = await Promise.all(
     list.keys.map(async (k) => {
       const raw = await env.HESTIA_KV.get(k.name);
@@ -64,8 +72,8 @@ export async function listActivity(env, shortHash, limit = MAX_LIST_LIMIT) {
       try { return JSON.parse(raw); } catch { return null; }
     })
   );
-  return entries
-    .filter(Boolean)
-    .sort((a, b) => b.ts - a.ts)
-    .slice(0, limit);
+  return {
+    entries: entries.filter(Boolean).sort((a, b) => b.ts - a.ts).slice(0, limit),
+    nextCursor: list.list_complete ? null : list.cursor,
+  };
 }
