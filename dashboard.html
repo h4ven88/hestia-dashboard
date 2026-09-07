@@ -5601,10 +5601,19 @@ function _athenaStartSilenceDetection(analyser, recorder) {
   const FLOOR_MULT   = 2.8;
   const FLOOR_MIN    = 6;
   const FLOOR_MAX    = 30;
+  // In a noisy room the calibrated threshold can push toward FLOOR_MAX, and a
+  // soft-spoken user may never cross it -- nothing tells them that until the
+  // full 15s hard cap (athenaStartListening's recorder._maxTimer) gives up.
+  // This doesn't change detection sensitivity at all (FLOOR_MULT/MIN/MAX are
+  // untouched, and that tuning needs real-mic testing before it's safe to
+  // adjust) -- it just gives earlier feedback while still waiting.
+  const SPEAK_UP_MS  = 5000;
 
   let calibrating  = true;
   let calSamples   = [];
   let calStart     = Date.now();
+  let calEndTime   = 0;
+  let speakUpShown = false;
   let noiseFloor   = 0;
   let speechThresh = MIN_SPEECH;
   let silentSince  = 0;
@@ -5629,6 +5638,7 @@ function _athenaStartSilenceDetection(analyser, recorder) {
       calSamples.push(rms);
       if (Date.now() - calStart >= CALIBRATE_MS) {
         calibrating = false;
+        calEndTime = Date.now();
         const sorted = calSamples.slice().sort((a, b) => a - b);
         const median = sorted[Math.floor(sorted.length * 0.5)] || 0;
         noiseFloor = median;
@@ -5641,7 +5651,13 @@ function _athenaStartSilenceDetection(analyser, recorder) {
 
     if (rms > peakRms) peakRms = rms;
 
+    if (!speechHeard && !speakUpShown && Date.now() - calEndTime >= SPEAK_UP_MS) {
+      speakUpShown = true;
+      athenaShowSpeakUpHint();
+    }
+
     if (rms >= speechThresh) {
+      if (speakUpShown) athenaClearSpeakUpHint();
       speechHeard = true;
       silentSince = 0;
     } else if (speechHeard) {
@@ -5668,11 +5684,21 @@ function _athenaStartSilenceDetection(analyser, recorder) {
   _athenaSilenceTimer = requestAnimationFrame(check);
 }
 
+function athenaShowSpeakUpHint() {
+  const lbl = document.getElementById('ath-state-lbl');
+  if (lbl) lbl.textContent = 'Still listening — try speaking a bit louder';
+}
+function athenaClearSpeakUpHint() {
+  const lbl = document.getElementById('ath-state-lbl');
+  if (lbl && lbl.textContent.startsWith('Still listening')) lbl.textContent = 'Listening…';
+}
+
 function _athenaClearSilenceDetection() {
   if (_athenaSilenceTimer) {
     cancelAnimationFrame(_athenaSilenceTimer);
     _athenaSilenceTimer = null;
   }
+  athenaClearSpeakUpHint();
 }
 
 // ── Google Cloud Speech-to-Text ───────────────────────────────────────
@@ -6179,6 +6205,22 @@ function athenaActiveTimersSummary() {
 }
 
 // ── Shared Recurrence Engine ─────────────────────────────────────────
+// Real UTC-offset (in minutes) that IANA zone `tz` has in effect at a given
+// UTC instant. Used by computeNextFire()'s makeDate() to convert a reminder's
+// wall-clock time into a real instant without the DST bugs a naive double
+// round-trip through toLocaleString()/Date-string-parsing can introduce.
+function _tzOffsetMinutesAt(utcMs, tz) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit'
+  }).formatToParts(new Date(utcMs));
+  const p = {};
+  for (const x of parts) p[x.type] = x.value;
+  const asUTC = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour === 24 ? 0 : +p.hour, +p.minute, +p.second);
+  return Math.round((asUTC - utcMs) / 60000);
+}
+
 function computeNextFire(schedule, timezone) {
   if (!schedule) return null;
   const s = schedule;
@@ -6187,11 +6229,38 @@ function computeNextFire(schedule, timezone) {
   const nowLocal = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
   const [hh, mm] = (s.time || '08:00').split(':').map(Number);
 
+  // Converts a wall-clock (year, month, day, hh:mm from the schedule) in
+  // `tz` into a real UTC instant, explicitly resolving the two DST edge
+  // cases instead of leaving them to incidental arithmetic:
+  //   - GAP (spring-forward): the wall-clock time never occurs that day ->
+  //     resolves to the instant right after the gap ends.
+  //   - OVERLAP (fall-back): the wall-clock time occurs twice -> resolves to
+  //     the earlier of the two real instants (firing early beats firing late).
+  // Probes +/-48h around the naive guess to reliably find the offset on the
+  // other side of any transition, regardless of the zone's own UTC-offset
+  // magnitude or hemisphere (real-world offsets run roughly -12h..+14h, and
+  // a transition can fall up to ~24h from the target on the same local day).
   function makeDate(year, month, day) {
-    const d = new Date(new Date(year, month, day, hh, mm, 0).toLocaleString('en-US', { timeZone: tz }));
-    const target = new Date(year, month, day, hh, mm, 0);
-    const tzOffset = target.getTime() - d.getTime();
-    return new Date(target.getTime() + tzOffset);
+    const naiveUTC = Date.UTC(year, month, day, hh, mm, 0);
+    const probeOffsets = new Set([
+      _tzOffsetMinutesAt(naiveUTC, tz),
+      _tzOffsetMinutesAt(naiveUTC - 48 * 3600000, tz),
+      _tzOffsetMinutesAt(naiveUTC + 48 * 3600000, tz),
+    ]);
+    const validCandidates = [];
+    probeOffsets.forEach(off => {
+      const cand = naiveUTC - off * 60000;
+      if (_tzOffsetMinutesAt(cand, tz) === off) validCandidates.push(cand);
+    });
+    if (validCandidates.length === 0) {
+      // Gap: no offset self-validates. The standard (numerically smaller --
+      // true regardless of hemisphere/sign) offset's naive candidate lands
+      // correctly on the post-gap instant.
+      const stdOffset = Math.min(...probeOffsets);
+      return new Date(naiveUTC - stdOffset * 60000);
+    }
+    // Normal (1 candidate) or overlap (2 candidates) -- earliest wins either way.
+    return new Date(Math.min(...validCandidates));
   }
 
   function todayAt() {
