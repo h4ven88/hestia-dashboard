@@ -1752,7 +1752,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.6.4';
-const HESTIA_BUILD_DATE = '2026-09-06';
+const HESTIA_BUILD_DATE = '2026-09-07';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 const PUSH_API          = '/api/push';
@@ -9523,10 +9523,21 @@ async function pushRegisterMakerApiWebhook() {
   }
 }
 
-// Silently re-establishes this device's push subscription at boot if it's
-// supposed to have one (per synced CONFIG) but the browser's local
-// subscription is missing -- e.g. site data was cleared. Never prompts;
+// Silently re-confirms this device's push registration with the backend at
+// boot, if it's supposed to have one (per synced CONFIG). Never prompts;
 // only acts if permission was already granted previously.
+//
+// Always re-PUTs, even when the browser's local subscription object already
+// exists -- a prior dispatch attempt can have self-pruned this device from
+// the backend entirely (dispatchPush() removes any subscription a push
+// service reports as dead via 404/410, which happens periodically in the
+// ordinary course of things) while the local subscription object itself
+// stays present and gives no signal anything changed. The old version only
+// re-registered when the *local* subscription was missing (e.g. site data
+// cleared), so once the backend alone lost track of a device, nothing ever
+// re-synced it -- CONFIG.pushDevices kept showing it as registered
+// indefinitely, and Diagnostics' Push Pipeline check trusted that same list.
+// subscribe.js's PUT is idempotent, so doing this every boot is cheap and safe.
 async function pushResyncOnBoot() {
   if (!CONFIG.pushEnabled) return;
   const entry = (CONFIG.pushDevices || []).find(d => d.id === DEVICE_ID);
@@ -9535,18 +9546,19 @@ async function pushResyncOnBoot() {
   const reg = await pushRegisterServiceWorker();
   if (!reg) return;
   try {
-    const existing = await reg.pushManager.getSubscription();
-    if (existing) return;
-    const sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: _pushUrlBase64ToUint8Array(PUSH_VAPID_PUBLIC_KEY)
-    });
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: _pushUrlBase64ToUint8Array(PUSH_VAPID_PUBLIC_KEY)
+      });
+    }
     await fetch(PUSH_API + '/subscribe', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ deviceId: DEVICE_ID, deviceName: DEVICE_NAME, mode: entry.mode, subscription: sub.toJSON() })
     });
-    console.log('[Push] Re-subscribed after missing local subscription');
+    console.log('[Push] Boot resync confirmed registration with backend');
   } catch (e) {
     console.warn('[Push] Boot resync failed:', e.message);
   }

@@ -344,7 +344,14 @@ def pushPostWithRetry(String uri, Map bodyMap, Integer attempt = 0) {
 }
 
 def pushPostCallback(response, data) {
-    if (response?.status == 200) return
+    if (response?.status == 200) {
+        // Logged at info even on a plain first-attempt success -- these
+        // relays fire infrequently (arm/disarm changes, real HSM alerts),
+        // so this is cheap, and it's the only way to confirm this code path
+        // actually ran at all without waiting for a failure to happen.
+        log.info "Hestia Push: relay sent" + ((data?.attempt ?: 0) > 0 ? " (succeeded on retry, attempt ${data.attempt})" : "")
+        return
+    }
     log.warn "Hestia Push: relay failed — HTTP ${response?.status} (attempt ${data?.attempt ?: 0})"
     pushScheduleRetryIfEligible(data?.uri, data?.bodyMap, (data?.attempt ?: 0) as Integer, "HTTP ${response?.status}")
 }
