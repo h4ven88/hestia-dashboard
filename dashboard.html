@@ -4854,12 +4854,19 @@ async function athenaStartWakeDetection() {
         athenaWake();
       }
     };
-    athenaRecog.onstart = () => { athenaMicPermission = true; };
+    athenaRecog.onstart = () => { athenaMicPermission = true; _wakeMicDeniedCount = 0; owwClearMicLostWarning(); };
     let _wakeNetErrCount = 0;
+    let _wakeMicDeniedCount = 0;
     athenaRecog.onerror = (e) => {
       if (e.error === 'not-allowed' || e.error === 'permission-denied') {
         athenaMicPermission = false;
+        _wakeMicDeniedCount++;
         console.warn('[Athena] Microphone permission denied — tap to activate only');
+        // Permission denial isn't transient like a dropped device -- retrying every
+        // 300ms forever (onend below) just burns CPU in a loop that can never succeed
+        // on its own. Give up after 3 tries and surface the same persistent warning
+        // OWW uses, instead of looping silently forever.
+        if (_wakeMicDeniedCount === 3) owwShowMicLostWarning();
       } else if (e.error === 'network') {
         _wakeNetErrCount++;
         if (_wakeNetErrCount === 3) {
@@ -4869,6 +4876,7 @@ async function athenaStartWakeDetection() {
       } else { _wakeNetErrCount = 0; }
     };
     athenaRecog.onend = () => {
+      if (_wakeMicDeniedCount >= 3) return;
       if (CONFIG.athenaEnabled && athenaState === 'idle' && !document.hidden) {
         setTimeout(() => { try { athenaRecog.start(); } catch(e){} }, 300);
       }
@@ -9679,6 +9687,26 @@ function spPushBody() {
     motionPickerHtml = '<span class="sp-hint" style="display:block;margin-top:6px">No motion sensors configured. Add them in Artemis Security settings first.</span>';
   }
 
+  // A device can be registered in CONFIG.pushDevices (this backend record
+  // persists until dispatchPush() prunes it on a real delivery failure) while
+  // the browser's own Notification permission has separately reverted to
+  // 'default' or 'denied' -- e.g. a site-permissions reset. When that happens
+  // pushResyncOnBoot()'s self-heal bails out immediately (it requires
+  // Notification.permission === 'granted' before doing anything), so nothing
+  // ever surfaces this here without a trip to Diagnostics. Surface it directly.
+  const permBroken = thisDev && ('Notification' in window) && Notification.permission !== 'granted';
+  const permWarning = permBroken ? `
+    <div class="sp-group">
+      <div style="background:var(--amber-dim);border:1px solid var(--amber-bdr);border-radius:10px;padding:12px 14px">
+        <div style="font-size:12px;font-weight:500;color:var(--amber);margin-bottom:4px">⚠ Notifications not permitted in this browser</div>
+        <div style="font-size:11px;color:var(--t2);line-height:1.6;margin-bottom:10px">
+          This device is registered, but this browser's own notification permission is "${h(Notification.permission)}" instead of granted -- so pushes sent to it will keep failing silently. Re-enable it here, or in this browser's site settings for this page.
+        </div>
+        <button class="ob-trigger-btn" onclick="pushReenableThisDevice()" style="width:auto;padding:0 16px;border-style:solid">Re-enable notifications →</button>
+      </div>
+    </div>
+    <div class="sp-sep"></div>` : '';
+
   const modeLabel = { always: 'Always', armed: 'Armed only' };
   let devicesListHtml = '';
   if (devices.length) {
@@ -9714,6 +9742,7 @@ function spPushBody() {
 
     <div style="${dim}">
       <div class="sp-sep"></div>
+      ${permWarning}
       <div class="sp-group">
         <div class="sp-group-lbl">This Device</div>
         <div class="sp-toggle-row">
@@ -10216,6 +10245,14 @@ function announceToggleEnabled(on) {
   // server-side capture only sees device events once this is registered.
   if (on) pushRegisterMakerApiWebhook();
   spShowSection('announce');
+}
+
+async function pushReenableThisDevice() {
+  const devices = CONFIG.pushDevices || [];
+  const thisDev = devices.find(d => d.id === DEVICE_ID);
+  const mode = thisDev ? thisDev.mode : 'always';
+  const ok = await pushSubscribeThisDevice(mode === 'off' ? 'always' : mode);
+  if (ok) spShowSection('push');
 }
 
 async function pushSetThisDeviceMode(mode) {
