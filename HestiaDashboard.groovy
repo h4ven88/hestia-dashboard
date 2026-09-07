@@ -61,6 +61,13 @@ preferences {
 // ── Push notifications ───────────────────────────────────────────────────
 @Field static final String PUSH_SEND_URL  = "https://hestari.com/api/push/send"
 @Field static final String PUSH_ARMED_URL = "https://hestari.com/api/push/armed"
+// A transient WAN blip at the exact moment of a real alarm previously meant
+// that relay just never left the hub -- one bounded, delayed retry rides out
+// a momentary failure without retrying forever. Delay is shorter than the
+// connect timeout below on purpose: long enough for a brief blip to clear,
+// short enough that a life-safety alert doesn't sit queued for long.
+@Field static final Integer PUSH_RETRY_MAX       = 1
+@Field static final Integer PUSH_RETRY_DELAY_SEC = 8
 
 // ── CORS headers ──────────────────────────────────────────────────────────
 // Enabled by default — endpoints require OAuth tokens so there is no
@@ -291,17 +298,7 @@ def pushSeedArmedStatus() {
 def pushRelayArmedState(Boolean armed) {
     def push = getPushSettings()
     if (push?.pushEnabled != true) return
-    try {
-        asynchttpPost("pushSendCallback", [
-            uri: PUSH_ARMED_URL,
-            contentType: "application/json",
-            requestContentType: "application/json",
-            timeout: 10,
-            body: new groovy.json.JsonBuilder([armed: armed, token: push.token]).toString()
-        ])
-    } catch (e) {
-        log.warn "Hestia Push: armed-state relay error: ${e.message}"
-    }
+    pushPostWithRetry(PUSH_ARMED_URL, [armed: armed, token: push.token])
 }
 
 // hsmAlert fires on intrusion (the actual burglar-alarm trip). Smoke/CO and
@@ -317,34 +314,69 @@ def pushHsmAlertHandler(evt) {
 }
 
 def pushSendNotification(String category, String title, String body, String token) {
+    pushPostWithRetry(PUSH_SEND_URL, [
+        category: category,
+        title:    title,
+        body:     body,
+        armed:    state.pushArmed == true,
+        token:    token
+    ])
+}
+
+// Shared by pushRelayArmedState() and pushSendNotification() -- both relay
+// to the same Cloudflare push backend and previously fired a bare
+// asynchttpPost with no retry on failure. asynchttpPost's own callback has
+// no way to delay inline, so a real retry has to go through the scheduler
+// (runIn), not a loop in the same call.
+def pushPostWithRetry(String uri, Map bodyMap, Integer attempt = 0) {
     try {
-        asynchttpPost("pushSendCallback", [
-            uri: PUSH_SEND_URL,
+        asynchttpPost("pushPostCallback", [
+            uri: uri,
             contentType: "application/json",
             requestContentType: "application/json",
             timeout: 10,
-            body: new groovy.json.JsonBuilder([
-                category: category,
-                title:    title,
-                body:     body,
-                armed:    state.pushArmed == true,
-                token:    token
-            ]).toString()
-        ])
+            body: new groovy.json.JsonBuilder(bodyMap).toString()
+        ], [uri: uri, bodyMap: bodyMap, attempt: attempt])
     } catch (e) {
-        log.warn "Hestia Push: send error: ${e.message}"
+        log.warn "Hestia Push: relay error (attempt ${attempt}): ${e.message}"
+        pushScheduleRetryIfEligible(uri, bodyMap, attempt, e.message)
     }
 }
 
-def pushSendCallback(response, data) {
-    if (response?.status != 200) {
-        log.warn "Hestia Push: send failed — HTTP ${response?.status}"
+def pushPostCallback(response, data) {
+    if (response?.status == 200) return
+    log.warn "Hestia Push: relay failed — HTTP ${response?.status} (attempt ${data?.attempt ?: 0})"
+    pushScheduleRetryIfEligible(data?.uri, data?.bodyMap, (data?.attempt ?: 0) as Integer, "HTTP ${response?.status}")
+}
+
+def pushScheduleRetryIfEligible(String uri, Map bodyMap, Integer attempt, String reason) {
+    if (!uri || !bodyMap) return
+    if (attempt >= PUSH_RETRY_MAX) {
+        log.warn "Hestia Push: giving up after ${attempt + 1} attempt(s) — ${reason}"
+        return
     }
+    log.info "Hestia Push: retrying in ${PUSH_RETRY_DELAY_SEC}s (attempt ${attempt + 1}) — ${reason}"
+    runIn(PUSH_RETRY_DELAY_SEC, "pushRetryFire", [data: [uri: uri, bodyMap: bodyMap, attempt: attempt + 1]])
+}
+
+def pushRetryFire(data) {
+    pushPostWithRetry(data.uri as String, data.bodyMap as Map, data.attempt as Integer)
 }
 
 // ── Config endpoints ──────────────────────────────────────────────────────
 def getConfig() {
     def cfg = state.config
+    // Hubitat's own state-size limit doesn't throw or fail on write -- it
+    // silently persists a shorter value than what saveConfig() actually
+    // wrote. That can't be caught synchronously inside saveConfig() itself
+    // (state only actually persists once that execution ends, after any
+    // check there would already have run); comparing against the length
+    // saveConfig() recorded last time, here on a later read, is the
+    // earliest point truncation actually becomes observable.
+    if (cfg && cfg != "null" && state.configSize && cfg.length() != state.configSize) {
+        log.warn "Hestia: state.config truncated (expected ${state.configSize} bytes, found ${cfg.length()}) — falling back to hub file"
+        cfg = null // force the hub-file fallback below
+    }
     if (!cfg || cfg == "null") {
         try {
             def bytes = downloadHubFile(CONFIG_FILENAME)
@@ -354,7 +386,9 @@ def getConfig() {
                 state.configSize = cfg.length()
                 log.info "Hestia: config restored from hub file (${cfg.length()} bytes)"
             }
-        } catch(e) {}
+        } catch(e) {
+            log.warn "Hestia: hub file read failed: ${e.message}"
+        }
     }
     render contentType: "application/json", headers: CORS_HEADERS,
            data: (cfg ?: "null")
@@ -374,10 +408,9 @@ def saveConfig() {
         }
         state.config     = body
         state.configSize = body.length()
-        def verified = state.config?.length() ?: 0
-        if (verified < body.length()) {
-            log.warn "Hestia: state truncated (wrote ${body.length()}, stored ${verified}) — hub file is primary"
-        }
+        // Real truncation can't be detected here -- see getConfig()'s check,
+        // which compares against state.configSize on a later read, once
+        // Hubitat has actually had a chance to persist (or truncate) it.
         writeDiscovery()
         log.info "Hestia: config saved (${body.length()} bytes)"
         render contentType: "application/json", headers: CORS_HEADERS,
