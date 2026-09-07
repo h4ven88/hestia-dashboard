@@ -2664,6 +2664,12 @@ function loadConfig() {
    Returns a Promise so callers can await hub write before re-rendering. */
 async function saveConfig() {
   const payload = buildConfigPayload();
+  // This tab's own save is about to become the hub's new savedAt. Record it as
+  // already-applied so the staleness poll (_cfgCheckStale(), ~30s later) doesn't
+  // mistake this device's own change for one made elsewhere and banner/reload for
+  // it -- it was only ever meant to catch a *different* device's savedAt showing
+  // up here, never this one's.
+  _cfgAppliedSavedAt = payload.savedAt;
   try { localStorage.setItem('dashboard-config', JSON.stringify(payload)); }
   catch(e) { console.warn('localStorage save failed:', e); }
 
