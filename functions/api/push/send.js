@@ -47,11 +47,14 @@ export async function onRequestPost({ request, env }) {
       return Response.json({ status: 'error', message: 'unauthorized' }, { status: 401 });
     }
 
-    // This endpoint is the only path for hsmAlert intrusion trips (Groovy's
-    // pushHsmAlertHandler calls it directly, bypassing webhook.js entirely),
-    // so it's also the only place those can be captured for the Activity Log.
+    // This endpoint is the only path for hsmAlert intrusion trips AND
+    // hsmStatus arm/disarm transitions (Groovy's pushHsmAlertHandler and
+    // pushHsmStatusHandler both call it directly, bypassing webhook.js
+    // entirely), so it's also the only place those can be captured for the
+    // Activity Log.
     if (category) {
-      await logActivity(env, shortHash, { category, title, body: message, source: category === 'alarming' ? 'hsm' : 'manual' });
+      const hsmCategories = category === 'alarming' || category === 'armStatus';
+      await logActivity(env, shortHash, { category, title, body: message, source: hsmCategories ? 'hsm' : 'manual' });
     }
 
     const result = await dispatchPush(env, shortHash, { category, title, body: message, armed, targetDeviceId });

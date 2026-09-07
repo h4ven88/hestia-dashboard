@@ -10,10 +10,17 @@ const VAPID_PUBLIC_KEY = 'BGCW-E3pct69syRd4q6HDJ5mBvgrcd_Q6tkZ740s-rkuVsMYGeZyCM
 const VAPID_SUBJECT = 'https://hestari.com';
 
 // Categories that bypass the per-device "armed only" gate entirely --
-// mirrors CONFIG.pushAlarming/pushSmoke/pushWater in dashboard.html. A fire
-// or water alert shouldn't go quiet just because nobody armed the burglar
-// alarm, so these always reach any registered device regardless of mode.
-const ALWAYS_CATEGORIES = new Set(['alarming', 'smoke', 'water']);
+// mirrors CONFIG.pushAlarming/pushSmoke/pushWater/pushArmStatus in
+// dashboard.html. A fire or water alert shouldn't go quiet just because
+// nobody armed the burglar alarm, so these always reach any registered
+// device regardless of mode. armStatus belongs here for a different reason:
+// the "armed" boolean passed alongside each armStatus notification reflects
+// whether the house IS armed at that instant, which is false during every
+// arming/disarming transition and only true for the "armed" events
+// themselves -- gating on it would mean an "armed only" device could never
+// receive the arming-started or disarmed notifications at all, silently
+// defeating the whole category for exactly the devices most likely to want it.
+const ALWAYS_CATEGORIES = new Set(['alarming', 'smoke', 'water', 'armStatus']);
 
 // The vendored sendPushNotification() ends in a bare fetch() with no
 // timeout and no way to pass an AbortSignal in -- the same unguarded-fetch

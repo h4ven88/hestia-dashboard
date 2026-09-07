@@ -283,6 +283,35 @@ def pushHsmStatusHandler(evt) {
     def armed = (v.contains("armed") && !v.contains("disarmed") && !v.contains("arming"))
     state.pushArmed = armed
     pushRelayArmedState(armed)
+    pushSendArmStatusNotification(v)
+}
+
+// Push equivalent of the dashboard's announceHsmEvent() -- mirrors every
+// transition Announcements already narrates via TTS (arming/armed/disarmed,
+// home/away), not just the final settled state. Deliberately its own toggle
+// (pushArmStatus) separate from "Alarming" (pushAlarming), which stays
+// intrusion-trip-only -- see the Push/Announce scope mismatch finding this
+// closes. An unrecognized status string is left alone rather than guessed
+// at, same principle as the dashboard's own HSM-sync fix.
+def pushSendArmStatusNotification(String v) {
+    def push = getPushSettings()
+    if (!push || push.pushEnabled != true || push.pushArmStatus == false) return
+    def isHome = v.contains("home") || v.contains("night")
+    def scope = isHome ? "Home" : "Away"
+    def title, body
+    if (v.contains("arming")) {
+        title = "Arming ${scope}"
+        body  = "Exit delay started"
+    } else if (v.contains("armed") && !v.contains("disarmed")) {
+        title = "Armed ${scope}"
+        body  = "Security system armed"
+    } else if (v.contains("disarm")) {
+        title = "Disarmed"
+        body  = "Security system disarmed"
+    } else {
+        return
+    }
+    pushSendNotification("armStatus", title, body, push.token)
 }
 
 // Seeds state.pushArmed from location.hsmStatus directly -- a native

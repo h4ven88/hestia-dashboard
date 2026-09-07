@@ -2196,6 +2196,7 @@ const CONFIG = {
   pushMotion:       false,
   pushMotionDevices: [],
   pushAlarming:     true,
+  pushArmStatus:    true,
   pushSmoke:        true,
   pushWater:        true,
   pushOpen:         true,
@@ -2277,6 +2278,7 @@ const DEFAULTS = {
     pushMotion: false,
     pushMotionDevices: [],
     pushAlarming: true,
+    pushArmStatus: true,
     pushSmoke: true,
     pushWater: true,
     pushOpen: true,
@@ -2624,7 +2626,7 @@ function buildConfigPayload() {
                    pushEnabled: CONFIG.pushEnabled, pushDevices: CONFIG.pushDevices || [],
                    pushDoors: CONFIG.pushDoors, pushWindows: CONFIG.pushWindows, pushLocks: CONFIG.pushLocks,
                    pushMotion: CONFIG.pushMotion, pushMotionDevices: CONFIG.pushMotionDevices || [],
-                   pushAlarming: CONFIG.pushAlarming, pushSmoke: CONFIG.pushSmoke, pushWater: CONFIG.pushWater,
+                   pushAlarming: CONFIG.pushAlarming, pushArmStatus: CONFIG.pushArmStatus, pushSmoke: CONFIG.pushSmoke, pushWater: CONFIG.pushWater,
                    pushOpen: CONFIG.pushOpen, pushClose: CONFIG.pushClose,
                    hestiaAppId: CONFIG.hestiaAppId, hestiaAppToken: CONFIG.hestiaAppToken,
                    reminders: CONFIG.reminders || [], routines: CONFIG.routines || [] },
@@ -9905,6 +9907,17 @@ function spPushBody() {
         </div>
         <div class="sp-toggle-row">
           <div class="sp-toggle-info">
+            <div class="sp-toggle-name">Arm/Disarm Status</div>
+            <div class="sp-toggle-desc">Arming, armed, and disarmed — always sent regardless of arm state or device setting. Separate from Alarming, which only covers an actual intrusion trip</div>
+          </div>
+          <label class="sp-toggle">
+            <input type="checkbox" ${CONFIG.pushArmStatus!==false?'checked':''}
+              onchange="CONFIG.pushArmStatus=this.checked;saveConfig()">
+            <span class="sp-toggle-track"></span>
+          </label>
+        </div>
+        <div class="sp-toggle-row">
+          <div class="sp-toggle-info">
             <div class="sp-toggle-name">Smoke / CO</div>
             <div class="sp-toggle-desc">Always sent, regardless of arm state or device setting</div>
           </div>
@@ -13910,7 +13923,7 @@ function exportSettings() {
       pushEnabled: CONFIG.pushEnabled, pushDevices: CONFIG.pushDevices,
       pushDoors: CONFIG.pushDoors, pushWindows: CONFIG.pushWindows,
       pushLocks: CONFIG.pushLocks, pushMotion: CONFIG.pushMotion,
-      pushMotionDevices: CONFIG.pushMotionDevices, pushAlarming: CONFIG.pushAlarming,
+      pushMotionDevices: CONFIG.pushMotionDevices, pushAlarming: CONFIG.pushAlarming, pushArmStatus: CONFIG.pushArmStatus,
       pushSmoke: CONFIG.pushSmoke, pushWater: CONFIG.pushWater,
       pushOpen: CONFIG.pushOpen, pushClose: CONFIG.pushClose,
       reminders: CONFIG.reminders, routines: CONFIG.routines
