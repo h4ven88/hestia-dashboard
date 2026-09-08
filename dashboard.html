@@ -1752,7 +1752,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.6.4';
-const HESTIA_BUILD_DATE = '2026-09-07';
+const HESTIA_BUILD_DATE = '2026-09-08';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 const PUSH_API          = '/api/push';
@@ -3348,7 +3348,11 @@ async function fetchAllDevices() {
   setConn('ok');
 }
 
-/* Fire a command. arg is optional (e.g. setSpeed needs 'low', on/off doesn't). */
+/* Fire a command. arg is optional (e.g. setSpeed needs 'low', on/off doesn't).
+   Returns true/false reflecting whether the hub actually accepted it -- most
+   existing callers ignore the return value (fire-and-forget is fine for a
+   button tap the user can see fail), but Athena's voice command handler
+   awaits it so "Done" only gets spoken once the hub has actually confirmed. */
 async function cmd(id, command, arg) {
   id = realDeviceId(id);
   const path = arg !== undefined
@@ -3364,11 +3368,14 @@ async function cmd(id, command, arg) {
         clearTimeout(pollTimer);
         scheduleNextPoll();
       }
+      return true;
     } else {
       setConn('err');
+      return false;
     }
   } catch (e) {
     setConn('err');
+    return false;
   }
 }
 
@@ -6557,8 +6564,14 @@ async function routineRun(id) {
     }
     step.deviceId = devId;
     try {
-      await cmd(devId, step.command, step.value !== undefined ? step.value : undefined);
-      executed++;
+      // cmd() never throws (its own try/catch always resolves true/false),
+      // so this catch alone could never detect a hub-rejected command --
+      // executed++ used to fire unconditionally regardless of what cmd()
+      // actually returned, letting the spoken "N done" summary overstate
+      // success exactly like the direct-command bug just fixed above.
+      const ok = await cmd(devId, step.command, step.value !== undefined ? step.value : undefined);
+      if (ok) executed++;
+      else failures.push(step.deviceName || devId);
     } catch (e) {
       failures.push(step.deviceName || devId);
     }
@@ -7124,20 +7137,35 @@ async function athenaHandleResponse(rawText) {
   switch(parsed.type) {
     case 'action': {
       athenaAddBubble('user', lastUserMsg);
-      athenaAddBubble('athena', parsed.speech || 'Done.');
-      if (Array.isArray(parsed.commands)) {
-        parsed.commands.forEach(c => {
-          cmd(c.deviceId, c.command, c.value !== undefined ? c.value : undefined);
-        });
+      // Commands are fire-and-forget everywhere else in this app (a button
+      // tap that fails is visibly still off), but Athena is voice-first --
+      // the user isn't necessarily looking at the screen, so "Done" spoken
+      // before the hub actually confirmed is a real trust problem, not just
+      // a cosmetic one. Await every command and only speak/show success once
+      // the hub has genuinely accepted all of them.
+      let allOk = true;
+      if (Array.isArray(parsed.commands) && parsed.commands.length) {
+        const results = await Promise.all(parsed.commands.map(c =>
+          cmd(c.deviceId, c.command, c.value !== undefined ? c.value : undefined)
+        ));
+        allOk = results.every(Boolean);
         setTimeout(scheduleNextPoll, 400);
       }
       athenaSetState('responding');
-      if (parsed.confirmation) athenaShowChip('green', parsed.confirmation);
-      const speech  = parsed.speech || '';
-      const ttsText = speech.split(/\s+/).length > 16 && parsed.confirmation
-        ? parsed.confirmation
-        : speech;
-      athenaSpeak(ttsText);
+      if (allOk) {
+        athenaAddBubble('athena', parsed.speech || 'Done.');
+        if (parsed.confirmation) athenaShowChip('green', parsed.confirmation);
+        const speech  = parsed.speech || '';
+        const ttsText = speech.split(/\s+/).length > 16 && parsed.confirmation
+          ? parsed.confirmation
+          : speech;
+        athenaSpeak(ttsText);
+      } else {
+        const failMsg = "That didn't go through — the hub didn't confirm it.";
+        athenaAddBubble('athena', failMsg);
+        athenaShowChip('red', 'Command failed');
+        athenaSpeak(failMsg);
+      }
       break;
     }
     case 'conversation': {
