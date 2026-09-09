@@ -10131,7 +10131,10 @@ function spDiagnosticsBody() {
     <div class="sp-group">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <div class="sp-group-lbl" style="margin:0">Activity Log</div>
-        <button class="sp-btn sp-btn-secondary" style="font-size:10px;padding:4px 10px" onclick="diagLoadActivity()">⟳ Refresh</button>
+        <span style="display:flex;gap:8px">
+          <button class="sp-btn sp-btn-secondary" style="font-size:10px;padding:4px 10px" onclick="diagExportActivity()">⬇ Export CSV</button>
+          <button class="sp-btn sp-btn-secondary" style="font-size:10px;padding:4px 10px" onclick="diagLoadActivity()">⟳ Refresh</button>
+        </span>
       </div>
       <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
         <select class="sp-input" id="diag-activity-filter" style="width:auto;flex:1;min-width:120px" onchange="diagActivityFilterChange(this.value)">
@@ -10483,6 +10486,55 @@ function diagActivitySearchInput(value) {
   _diagRenderActivityList();
 }
 
+// Shared by the render function and Export -- exporting should match
+// whatever the category filter/search currently narrows the view to, not
+// silently export the full loaded set regardless of what's on screen.
+function _diagFilteredActivityEntries() {
+  return _diagActivityEntries.filter(e => {
+    if (_diagActivityFilter && e.category !== _diagActivityFilter) return false;
+    if (_diagActivitySearch) {
+      const hay = ((e.title || '') + ' ' + (e.body || '')).toLowerCase();
+      if (!hay.includes(_diagActivitySearch)) return false;
+    }
+    return true;
+  });
+}
+
+// Exports whatever the category filter/search currently narrows the loaded
+// entries to -- "what's on screen," not silently the full loaded set,
+// matching how filter/search already work for viewing. Client-side only:
+// this app has no server-side export endpoint, and the loaded set is
+// already capped by however many "Load more" pages have been fetched this
+// session, same ceiling the on-screen list itself has.
+function _csvField(v) {
+  const s = String(v == null ? '' : v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function diagExportActivity() {
+  const entries = _diagFilteredActivityEntries();
+  if (!entries.length) {
+    showDeviceToast('Nothing to export -- no matching events in what\'s loaded');
+    return;
+  }
+  const rows = [['Date', 'Category', 'Title', 'Body']];
+  entries.forEach(e => rows.push([
+    new Date(e.ts).toLocaleString(),
+    e.category || '',
+    e.title || '',
+    e.body || '',
+  ]));
+  const csv = rows.map(r => r.map(_csvField).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'hestia-activity-log-' + new Date().toISOString().slice(0, 10) + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 function _diagRenderActivityList() {
   const el = document.getElementById('diag-activity-list');
   if (!el) return;
@@ -10492,14 +10544,7 @@ function _diagRenderActivityList() {
     return;
   }
 
-  const filtered = _diagActivityEntries.filter(e => {
-    if (_diagActivityFilter && e.category !== _diagActivityFilter) return false;
-    if (_diagActivitySearch) {
-      const hay = ((e.title || '') + ' ' + (e.body || '')).toLowerCase();
-      if (!hay.includes(_diagActivitySearch)) return false;
-    }
-    return true;
-  });
+  const filtered = _diagFilteredActivityEntries();
 
   const listHtml = filtered.length
     ? filtered.map(e => `
@@ -13550,13 +13595,27 @@ function spShowSection(id, force) {
       break;
 
     case 'lock':
-      const lockRows = (CONFIG.locks || []).map((lk, i) => `
+      const lockRows = (CONFIG.locks || []).map((lk, i) => {
+        // An already-linked lock (real lk.id, from a prior save or an
+        // auto-detected scan) is display-only here -- hand-editing a raw ID
+        // in place is exactly the failure mode this redesign removes. A
+        // fresh, not-yet-linked row (empty id) gets the device picker
+        // instead of a free-text field.
+        const idField = lk.id
+          ? `<input class="sp-input sp-lock-id" value="${h(lk.id)}" readonly style="opacity:.7;cursor:not-allowed" title="Already linked to a real device -- remove and use + Add Lock to pick a different one">`
+          : (_lockAddCandidates && _lockAddCandidates.length
+              ? `<select class="sp-input sp-lock-id" onchange="spLockPicked(this,${i})">
+                   <option value="">Choose a device…</option>
+                   ${_lockAddCandidates.map(d => `<option value="${h(d.id)}">${h(d.name)}</option>`).join('')}
+                 </select>`
+              : `<input class="sp-input sp-lock-id" value="" placeholder="Click + Add Lock to load devices" readonly style="opacity:.6">`);
+        return `
           <div class="lock-cfg-card" data-lock-idx="${i}">
             <div class="sp-input-row">
-              <div class="sp-field" style="flex:1"><label class="sp-label">Device ID</label>
-                <input class="sp-input sp-lock-id" value="${lk.id||''}" placeholder="13"></div>
+              <div class="sp-field" style="flex:1"><label class="sp-label">Device</label>
+                ${idField}</div>
               <div class="sp-field" style="flex:2"><label class="sp-label">Label</label>
-                <input class="sp-input sp-lock-label" value="${lk.label||''}" placeholder="Front Door"></div>
+                <input class="sp-input sp-lock-label" value="${h(lk.label||'')}" placeholder="Front Door"></div>
               <button class="sp-btn-icon" onclick="spRemoveLock(${i})" title="Remove" style="align-self:flex-end;margin-bottom:6px;color:var(--conn-err)">&times;</button>
             </div>
             <div class="sp-field" style="margin-bottom:0">
@@ -13566,12 +13625,13 @@ function spShowSection(id, force) {
                 ${rooms.map(r => `<option value="${r.id}"${lk.room===r.id?' selected':''}>${h(r.name)}</option>`).join('')}
               </select>
             </div>
-          </div>`).join('');
+          </div>`;
+      }).join('');
       html = `<div class="sp-content-hdr"><span class="sp-content-icon">🚪</span>Door Locks</div>
         <div class="sp-group">
           <div id="sp-locks-list">${lockRows || '<span class="sp-hint" style="margin:8px 0;display:block">No locks configured.</span>'}</div>
           <button class="sp-btn sp-btn-secondary" onclick="spAddLock()" style="padding:0 16px;margin-top:8px;align-self:flex-start">+ Add Lock</button>
-          <span class="sp-hint">Locks appear in the ribbon and Artemis security panel. Rooms with locks show an unlocked badge.</span>
+          <span class="sp-hint">Picks from what your hub's Maker API actually reports -- the same pattern used everywhere else a device gets referenced. Locks appear in the ribbon and Artemis security panel; rooms with locks show an unlocked badge.</span>
         </div>`;
       break;
 
@@ -13817,10 +13877,78 @@ function spAddTherm() {
   if (sec) sec.innerHTML = spThermList();
 }
 
-function spAddLock() {
-  if (!CONFIG.locks) CONFIG.locks = [];
-  CONFIG.locks.push({ id: '', label: '', room: '' });
-  spShowSection('lock');
+// Candidates for the next unsaved "+ Add Lock" row -- a live-fetched list of
+// lock-capable devices (via the same capToType() classifier onboarding uses)
+// not already in CONFIG.locks, refreshed on every click rather than cached
+// across the whole Settings session. Locks already saved (real lk.id) are
+// display-only; this picker is only for a brand-new, not-yet-linked row --
+// mirrors the pattern used everywhere else a Hubitat device gets referenced
+// (e.g. Announcements' motion-sensor picker), replacing the raw free-text
+// Device ID field this section used to have.
+let _lockAddCandidates = null;
+
+async function spAddLock() {
+  if (!CONFIG.hub || !CONFIG.appId || !CONFIG.token) {
+    showDeviceToast('Hub not configured — connect to your hub first');
+    return;
+  }
+  const btn = document.querySelector('[onclick="spAddLock()"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Loading devices…'; }
+  try {
+    const res = await fetch(apiUrl('/devices/all'));
+    if (!res.ok) throw new Error('API error');
+    const devices = await res.json();
+    // Exclude locks already saved AND any device already picked in an
+    // unsaved row currently on screen -- clicking "+ Add Lock" more than
+    // once before Save & Apply shouldn't offer the same device twice.
+    const assigned = new Set((CONFIG.locks || []).map(lk => String(lk.id)));
+    document.querySelectorAll('.sp-lock-id').forEach(el => { if (el.value) assigned.add(String(el.value)); });
+    _lockAddCandidates = devices
+      .filter(d => capToType(d.capabilities, d.label || d.name) === 'lock' && !assigned.has(String(d.id)))
+      .map(d => ({ id: String(d.id), name: d.label || d.name || ('Device ' + d.id) }));
+    if (!_lockAddCandidates.length) {
+      showDeviceToast('No new lock-capable devices found on your hub');
+      return;
+    }
+    if (!CONFIG.locks) CONFIG.locks = [];
+    CONFIG.locks.push({ id: '', label: '', room: '' });
+    spShowSection('lock');
+  } catch(e) {
+    showDeviceToast('Could not load devices — check hub connection');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '+ Add Lock'; }
+  }
+}
+// Every unpicked row's <select> is built from the same _lockAddCandidates
+// snapshot -- without this, picking device X in row 1 and then also in row
+// 2 (two ordinary clicks, no race needed) would silently let both rows
+// point at the same physical lock, since nothing removed X from row 2's
+// options. Recomputes every select's available options live on every pick,
+// excluding whatever's currently chosen in any OTHER select while always
+// preserving each select's own current choice -- so switching a pick back
+// to "Choose a device…" correctly frees it up for sibling rows again too.
+function _lockRefreshSelectOptions() {
+  const selects = Array.from(document.querySelectorAll('select.sp-lock-id'));
+  selects.forEach(sel => {
+    const takenElsewhere = new Set(selects.filter(s => s !== sel && s.value).map(s => s.value));
+    const current = sel.value;
+    const opts = ['<option value="">Choose a device…</option>'].concat(
+      (_lockAddCandidates || [])
+        .filter(d => !takenElsewhere.has(d.id))
+        .map(d => `<option value="${h(d.id)}"${d.id === current ? ' selected' : ''}>${h(d.name)}</option>`)
+    );
+    sel.innerHTML = opts.join('');
+    sel.value = current;
+  });
+}
+
+// Auto-fills the still-empty Label field with the picked device's real name
+// -- a convenience, not a requirement (the user can still overwrite it).
+function spLockPicked(selectEl, i) {
+  const chosen = _lockAddCandidates && _lockAddCandidates.find(d => d.id === selectEl.value);
+  const labelEls = document.querySelectorAll('.sp-lock-label');
+  if (chosen && labelEls[i] && !labelEls[i].value.trim()) labelEls[i].value = chosen.name;
+  _lockRefreshSelectOptions();
 }
 function spRemoveLock(i) {
   CONFIG.locks.splice(i, 1);
