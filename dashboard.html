@@ -5131,8 +5131,8 @@ function athenaSetRecHint(show) {
 
 // ── Athena DNA Helix Waveform ──────────────────────────────────────────
 // Two-strand double helix with backbone lines, rungs and depth-sorted dots.
-// Amber front (#F59E0B) → Dark amber back (#92400E), interpolated by depth.
-// Rungs are the brightest element — matches the DNA reference aesthetic.
+// Amber front → dark amber back, interpolated by depth. Rungs are the
+// brightest element — matches the DNA reference aesthetic.
 
 const ATH_HELIX = {
   phase:   0,
@@ -5147,11 +5147,36 @@ const ATH_CFG = {
   clarify: { amp:16, breathRate:2.2,  breathMag:4,  speed:0.018, dotN:28, dotR:2.3  },
 };
 
-// Colour helpers
-const _AB_F = [245,158, 11]; // amber front  #F59E0B
-const _AB_B = [146, 64, 14]; // amber back   #92400E
-const _RD_F = [248,113,113]; // red front    #F87171
-const _RD_B = [153, 27, 27]; // red back     #991B1B
+// Colour helpers. Amber front/back used to be hardcoded literals matching
+// only the Dark theme's --amber (#F59E0B) -- Light (#D97706) and Cream
+// (#B8710A) both define their own, so the helix showed the wrong amber
+// shade on two of the five themes. _AB_F/_AB_B are now derived from the
+// live --amber token (refreshed each time the helix starts, in
+// athenaHelixStart() below) instead of hardcoded, so a future theme needs
+// only its own CSS block, not a matching edit here too.
+let _AB_F = [245,158, 11]; // amber front — placeholder until first refresh
+let _AB_B = [146, 64, 14]; // amber back  — placeholder until first refresh
+const _RD_F = [248,113,113]; // red front    #F87171 -- fixed alert color, not theme-reactive by design
+const _RD_B = [153, 27, 27]; // red back     #991B1B -- fixed alert color, not theme-reactive by design
+
+function _hexToRgb(hex) {
+  const h = String(hex || '').trim().replace('#', '');
+  const n = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+  const v = parseInt(n, 16);
+  return (n.length === 6 && !isNaN(v)) ? [(v >> 16) & 255, (v >> 8) & 255, v & 255] : null;
+}
+
+// Recomputes _AB_F/_AB_B from the theme currently in effect. The "back"
+// shade is a proportionate darkening of the live front color (same ~0.6x
+// ratio the original hand-picked Dark pair used) rather than its own fixed
+// per-theme token, since the point is one source of truth (the front
+// --amber value), not a second color to keep in sync.
+function _refreshThemeAmber() {
+  const hex = getComputedStyle(document.documentElement).getPropertyValue('--amber');
+  const front = _hexToRgb(hex) || [245, 158, 11];
+  _AB_F = front;
+  _AB_B = front.map(c => Math.round(c * 0.6));
+}
 
 function _lerpRGB(c1,c2,t){
   return [
@@ -5268,6 +5293,7 @@ function athenaHelixTick(ts){
 
 function athenaHelixStart(){
   if(ATH_HELIX.rafId) return; // already running
+  _refreshThemeAmber();
   ATH_HELIX.lastTs = performance.now();
   ATH_HELIX.rafId  = requestAnimationFrame(athenaHelixTick);
 }
