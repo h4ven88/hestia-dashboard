@@ -1905,14 +1905,33 @@ function isAnnounceDevice() {
    PINs are never stored in plain text after first save.
    A hashed PIN is 128 hex chars; a plain PIN is ≤6 digits.
 ═══════════════════════════════════════════════════════ */
-// Static app salt — prevents generic rainbow table attacks on numeric PINs.
-// Existing PINs are transparently re-hashed on first login via migratePinIfNeeded.
+// Static app salt — blocks a generic precomputed table, not a targeted one,
+// since it's identical across every install. Existing PINs are transparently
+// re-hashed on first login via migratePinIfNeeded.
 const _PIN_SALT = 'hestia-2026-';
 
-async function hashPin(raw) {
+// Per-install random salt on top of the static one above -- makes a leaked
+// or precomputed table for one household useless against any other. Lives
+// in CONFIG (not localStorage) so it syncs to every device in the household;
+// all devices must hash with the same salt to verify the same PIN. Lazily
+// generated on first use rather than at boot, so a fresh install never
+// writes a salt it'll never need.
+function getPinInstallSalt() {
+  if (!CONFIG.pinInstallSalt) {
+    CONFIG.pinInstallSalt = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  return CONFIG.pinInstallSalt;
+}
+
+// `salt` is normally omitted (uses the current per-install salt); verifyPin()
+// passes '' explicitly to check against the pre-per-install-salt scheme when
+// migrating an older hash.
+async function hashPin(raw, salt) {
   if (!raw) return '';
+  const useSalt = salt !== undefined ? salt : getPinInstallSalt();
   const buf = await crypto.subtle.digest('SHA-512',
-    new TextEncoder().encode(_PIN_SALT + String(raw)));
+    new TextEncoder().encode(_PIN_SALT + useSalt + String(raw)));
   return Array.from(new Uint8Array(buf))
     .map(b => b.toString(16).padStart(2,'0')).join('');
 }
@@ -1921,14 +1940,30 @@ function pinIsHashed(v) {
   return typeof v === 'string' && v.length === 128 && /^[0-9a-f]+$/.test(v);
 }
 
-async function verifyPin(entered, stored) {
+// `configKey` (optional) lets a successful match against the older,
+// pre-per-install-salt hash transparently upgrade the stored hash to the
+// current scheme -- the same "can't be done silently without the plaintext,
+// so do it on next successful entry" approach already used for the
+// plain-text -> hash migration below, extended one salt generation further.
+async function verifyPin(entered, stored, configKey) {
   if (!stored) return true; // no PIN set — allow anything
   const clean = String(entered).replace(/\D/g,'');
   if (!clean) return false;
   // Legacy plain-text PIN (pre-hash migration): compare directly
   if (!pinIsHashed(stored)) return clean === stored;
-  // Hashed: hash the entered value and compare
-  return (await hashPin(clean)) === stored;
+  // Current scheme: static salt + per-install salt
+  const currentHash = await hashPin(clean);
+  if (currentHash === stored) return true;
+  // Fall back to the pre-per-install-salt scheme (static salt only) -- a
+  // correct PIN whose stored hash predates the per-install salt.
+  if ((await hashPin(clean, '')) === stored) {
+    if (configKey) {
+      CONFIG[configKey] = currentHash;
+      saveConfig().catch(() => {});
+    }
+    return true;
+  }
+  return false;
 }
 
 // ── PIN lockout — persisted across reloads ───────────────────────────
@@ -2144,6 +2179,7 @@ const CONFIG = {
   locks: [],
   cameras: [],
   settingsPin: '',
+  pinInstallSalt: '',
   artemisEnabled: false,
   artemisPin:     '',
   artemisExitDelay:  60,
@@ -2232,6 +2268,7 @@ const DEFAULTS = {
     locks:         [],
     cameras:       [],
     settingsPin:   '',
+    pinInstallSalt: '',
     artemisEnabled: false,
     artemisPin:     '',
     artemisExitDelay:  60,
@@ -2604,7 +2641,7 @@ function buildConfigPayload() {
   return {
     config:      { hub: CONFIG.hub, appId: CONFIG.appId, token: CONFIG.token, poll: CONFIG.poll,
                    defaultRoom: CONFIG.defaultRoom, returnTimeout: CONFIG.returnTimeout, roomSort: CONFIG.roomSort, tempUnit: CONFIG.tempUnit,
-                   locks: CONFIG.locks, cameras: CONFIG.cameras || [], weather: CONFIG.weather, settingsPin: CONFIG.settingsPin,
+                   locks: CONFIG.locks, cameras: CONFIG.cameras || [], weather: CONFIG.weather, settingsPin: CONFIG.settingsPin, pinInstallSalt: CONFIG.pinInstallSalt,
                    artemisEnabled: CONFIG.artemisEnabled, artemisPin: CONFIG.artemisPin,
                    artemisExitDelay: CONFIG.artemisExitDelay, artemisEntryDelay: CONFIG.artemisEntryDelay,
                    artemisRingDeviceId: CONFIG.artemisRingDeviceId,
@@ -8620,7 +8657,7 @@ function artemisKc() {
 }
 
 async function artemisCheckPin(entered, dotPrefix, onSuccess) {
-  const ok = await verifyPin(entered, CONFIG.artemisPin);
+  const ok = await verifyPin(entered, CONFIG.artemisPin, 'artemisPin');
   if (ok) {
     artemisFails = 0;
     pinLockoutClear('artemis');
@@ -12328,7 +12365,7 @@ function openSettings() {
       if (entered === null) return;
       const st = pinLockoutLoad('settings');
       if (st.until > Date.now()) { pinOverlayShowLockout(st.until); return; }
-      const ok = await verifyPin(entered, CONFIG.settingsPin);
+      const ok = await verifyPin(entered, CONFIG.settingsPin, 'settingsPin');
       if (!ok) {
         const fails = st.fails + 1;
         if (fails >= PIN_LOCKOUT_MAX_FAILS) {
@@ -13945,7 +13982,7 @@ function exportSettings() {
     config: {
       hub: CONFIG.hub, appId: CONFIG.appId, token: CONFIG.token, poll: CONFIG.poll,
       defaultRoom: CONFIG.defaultRoom, returnTimeout: CONFIG.returnTimeout, roomSort: CONFIG.roomSort,
-      locks: CONFIG.locks, cameras: CONFIG.cameras || [], weather: CONFIG.weather, settingsPin: CONFIG.settingsPin,
+      locks: CONFIG.locks, cameras: CONFIG.cameras || [], weather: CONFIG.weather, settingsPin: CONFIG.settingsPin, pinInstallSalt: CONFIG.pinInstallSalt,
       artemisEnabled: CONFIG.artemisEnabled, artemisPin: CONFIG.artemisPin,
       artemisExitDelay: CONFIG.artemisExitDelay, artemisEntryDelay: CONFIG.artemisEntryDelay,
       artemisRingDeviceId: CONFIG.artemisRingDeviceId,
