@@ -1752,7 +1752,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.6.4';
-const HESTIA_BUILD_DATE = '2026-09-08';
+const HESTIA_BUILD_DATE = '2026-09-09';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 const PUSH_API          = '/api/push';
@@ -7765,21 +7765,38 @@ function athenaStartFollowUp() {
 }
 
 // ── Announcements — speak device events ──────────────────────────────
+// Strips a redundant "<hazard> detector/sensor" phrase from a device name
+// before it goes into a spoken announcement -- a device literally named
+// "Motion Detector Loft" otherwise produces "Motion detected in the Motion
+// Detector Loft", repeating "motion" and reading as a device label rather
+// than a room. Every call site here is announcement text, never a raw
+// display of the configured name (that always reads straight from CONFIG),
+// so this is safe to apply unconditionally at the source rather than at
+// each of the ~6 announcement call sites individually.
+function _announceCleanSensorName(name) {
+  if (!name) return name;
+  const cleaned = name
+    .replace(/\b(motion|smoke|water|glass\s*break|carbon\s*monoxide|co|moisture|occupancy)?\s*(detector|sensor)s?\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return cleaned || name; // never announce an empty string if stripping consumed the whole name
+}
+
 function announceDeviceName(id, fallback) {
   const sid = String(id);
   const cats = CONFIG.artemisSensors || {};
   for (const cat of Object.values(cats)) {
     if (!Array.isArray(cat)) continue;
     const s = cat.find(d => String(d.id) === sid);
-    if (s && s.name) return s.name;
+    if (s && s.name) return _announceCleanSensorName(s.name);
   }
   for (const r of rooms) {
     for (const t of ['switches','dimmers','fans','shades','colors','colortemps','therms']) {
       const d = (r[t] || []).find(d => String(d.id) === sid);
-      if (d && d.name) return d.name;
+      if (d && d.name) return _announceCleanSensorName(d.name);
     }
   }
-  return fallback || '';
+  return _announceCleanSensorName(fallback) || '';
 }
 const _announceLastEvent = {};
 let _announceInitialized = false;
