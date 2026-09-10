@@ -2524,12 +2524,14 @@ function applyParsedConfig(parsed) {
   try {
     if (parsed.config) {
       Object.assign(CONFIG, parsed.config);
-      // Normalize hub URL: private/local IPs must use HTTP (hubs don't have valid certs)
+      // Normalize hub URL: only strip HTTPS on a bare/443 private-IP URL (the pattern a
+      // stale auto-migration used to produce, which hubs can't serve). A deliberately
+      // specified non-443 port (e.g. :8443, which hubs do serve HTTPS on) is left alone.
       if (CONFIG.hub && CONFIG.hub.startsWith('https://')) {
         try {
           const u = new URL(CONFIG.hub);
-          if (/^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.|localhost)/.test(u.hostname)) {
-            CONFIG.hub = CONFIG.hub.replace(/^https:/, 'http:').replace(/:8443\b/, '');
+          if (/^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.|localhost)/.test(u.hostname) && (!u.port || u.port === '443')) {
+            CONFIG.hub = CONFIG.hub.replace(/^https:/, 'http:').replace(/:443\b/, '');
           }
         } catch(e) {}
       }
@@ -12330,6 +12332,22 @@ function camRefreshAll() {
   cams.forEach((c, i) => { CAM_STATE[i] = Object.assign({}, CAM_STATE[i], { cacheBust: Date.now() }); });
   camRerenderCurrentView();
 }
+// One-time boot warm-up: CAM_STATE[i].online otherwise stays undefined until a
+// real camera <img> tag exists in the DOM (i.e. the user opens the Cameras view),
+// so the sidebar's "N of M online" count shows a false "0 of M" on every fresh
+// load. Uses the same detached-Image probe as the Settings "Test connection"
+// button rather than rendering the actual grid.
+// Best-effort ONLY: if the user opens the real Cameras view while this probe is
+// still in flight, a camera that only tolerates one connection at a time (the
+// Ring-via-Hubitat-tile snapshot pattern) could have one of the two concurrent
+// requests starved, briefly showing a false Offline until the next refresh.
+async function camWarmStateOnBoot() {
+  const cams = CONFIG.cameras || [];
+  await Promise.all(cams.map((c, i) => {
+    if (!c.snapshotUrl) return Promise.resolve();
+    return _camTestLoadUrl(c.snapshotUrl).then(ok => { ok ? camMarkOnline(i) : camMarkOffline(i); });
+  }));
+}
 // Background auto-refresh — only fires while a camera-viewing surface is
 // actually on screen, so idle screens don't waste bandwidth re-fetching
 // images nobody's looking at.
@@ -16834,6 +16852,7 @@ function launchOnboarding() {
   // Ensure all sensors have room + subtype fields (adds defaults if missing)
   migrateSensorMeta();
   if (CONFIG.artemisEnabled) { artemisHsmSync(); updateArmedStatus(); }
+  if ((CONFIG.cameras || []).length > 0) { camWarmStateOnBoot(); }
   if (CONFIG.athenaEnabled)  { athenaInit(); }
   if (CONFIG.pushEnabled)    { pushResyncOnBoot(); }
   // Registered whenever either Push or Announcements needs device events --
