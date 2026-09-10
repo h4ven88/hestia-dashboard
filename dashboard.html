@@ -1752,7 +1752,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.6.5';
-const HESTIA_BUILD_DATE = '2026-09-09';
+const HESTIA_BUILD_DATE = '2026-09-10';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 const PUSH_API          = '/api/push';
@@ -12250,22 +12250,69 @@ function camArmLoadTimer(i, src) {
 // first load actually resolves, and defaulting that to "online" (as `state
 // .online === false` checks alone do) shows a confident green badge for a
 // camera that hasn't answered yet. "Checking" is its own visual state.
+// offlineReason (set by camDiagnoseOffline() below, best-effort) shows a
+// specific cause when one was actually determinable, falling back to the
+// generic "Offline" otherwise.
 function camStatusInfo(state) {
   if (state.online === true)  return { cls: '',          label: 'Online' };
-  if (state.online === false) return { cls: 'off',       label: 'Offline' };
+  if (state.online === false) return { cls: 'off',       label: state.offlineReason || 'Offline' };
   return                             { cls: 'checking',  label: 'Checking…' };
 }
 function camMarkOnline(i) {
   camClearLoadTimer(i);
   const was = CAM_STATE[i] && CAM_STATE[i].online;
-  CAM_STATE[i] = Object.assign({}, CAM_STATE[i], { online: true, lastFetch: Date.now() });
+  CAM_STATE[i] = Object.assign({}, CAM_STATE[i], { online: true, lastFetch: Date.now(), offlineReason: null });
   if (was !== true && !isMobile()) renderSidebar(); // sidebar shows online count on desktop only
 }
 function camMarkOffline(i) {
   camClearLoadTimer(i);
   const was = CAM_STATE[i] && CAM_STATE[i].online;
-  CAM_STATE[i] = Object.assign({}, CAM_STATE[i], { online: false, lastFetch: Date.now() });
+  CAM_STATE[i] = Object.assign({}, CAM_STATE[i], { online: false, lastFetch: Date.now(), offlineReason: null });
   if (was !== false && !isMobile()) renderSidebar();
+  camRerenderCurrentView();
+  camDiagnoseOffline(i);
+}
+function _camIsMixedContent(url) {
+  try {
+    return location.protocol === 'https:' && new URL(url, location.href).protocol === 'http:';
+  } catch (e) { return false; }
+}
+// Best-effort ONLY -- the actual <img> tag above remains the real display
+// mechanism unconditionally, so this can never make a camera that works
+// today display any differently. <img src> doesn't need CORS to display a
+// cross-origin image; fetch() does, so a fetch() failure here is often
+// indistinguishable between "genuinely down" and "CORS-blocked, but the
+// image tag will load it fine regardless" -- in that ambiguous case this
+// silently falls back to the existing generic "Offline" badge rather than
+// guessing. Only reports a specific reason when the fetch itself actually
+// succeeded in reaching the server and got back something diagnosable.
+async function camDiagnoseOffline(i) {
+  const cam = (CONFIG.cameras || [])[i];
+  if (!cam || !cam.snapshotUrl) return;
+  let reason = null;
+  if (_camIsMixedContent(cam.snapshotUrl)) {
+    reason = 'Mixed content (HTTP on HTTPS page)';
+  } else {
+    try {
+      const res = await _fetchWithTimeout(cam.snapshotUrl, 6000, { cache: 'no-store' });
+      if (!res.ok) {
+        reason = (res.status === 401 || res.status === 403) ? `Unauthorized (${res.status})`
+          : res.status === 404 ? 'Not found (404)'
+          : `Server error (${res.status})`;
+      } else {
+        const ct = res.headers.get('content-type') || '';
+        if (ct && !/^image\//i.test(ct)) reason = 'Not an image (' + ct.split(';')[0] + ')';
+      }
+    } catch (e) {
+      reason = null; // network failure or CORS block -- can't tell which, stay generic
+    }
+  }
+  // Only apply if this camera is STILL marked offline by the time this
+  // resolves (a slow diagnostic shouldn't overwrite a status that's since
+  // recovered via a refresh) and there's actually something more specific
+  // to say than the generic label already showing.
+  if (!reason || !CAM_STATE[i] || CAM_STATE[i].online !== false) return;
+  CAM_STATE[i] = Object.assign({}, CAM_STATE[i], { offlineReason: reason });
   camRerenderCurrentView();
 }
 function camRefreshOne(i) {
