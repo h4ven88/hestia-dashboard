@@ -1752,7 +1752,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.6.5';
-const HESTIA_BUILD_DATE = '2026-09-10';
+const HESTIA_BUILD_DATE = '2026-09-11';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 const PUSH_API          = '/api/push';
@@ -8607,7 +8607,13 @@ function renderSecurity() {
 
   if (isM) {
     // Mobile: single column — sensors first, then mode/brand only (no inline keypad)
-    const camerasNested = artemisCamerasView && (CONFIG.cameras || []).length > 0;
+    // artemisCamerasView only resets via the explicit camera-view "back" button --
+    // if a household has cameras and last left Security nested in that view, it
+    // stays true even after switching away to a different tab entirely. Without
+    // the !artemisTransition check, an entry-delay (or arming) countdown forced
+    // open by hsmAlert would render straight into the stale camera list instead
+    // of the mode/gem ring -- a live countdown always takes priority.
+    const camerasNested = artemisCamerasView && (CONFIG.cameras || []).length > 0 && !artemisTransition;
     const camerasDetail = camerasNested && camDetailIdx !== null && (CONFIG.cameras || [])[camDetailIdx];
     ma.innerHTML = `<div class="artemis-panel" style="grid-template-columns:1fr">
       ${alarmHTML}
@@ -8826,7 +8832,17 @@ async function artemisHsmSync() {
       }
       _artemisLastUnrecognizedHsm = null;
       const changed = newMode !== artemisMode || prevReady !== true || artemisTransition;
-      if (artemisTransition) artemisClearTransition();
+      // /hsm's mode string never reflects a pending-intrusion alert -- it stays
+      // "armedHome"/"armedAway" for the whole entry-delay window, since that's a
+      // separate hsmAlert value, not a mode change. Without this guard, this
+      // poll (every ~10s) saw "nothing changed" and wiped the countdown almost
+      // immediately after it started, every single time -- confirmed via a
+      // real-world test where the countdown never appeared even with the app
+      // open and foregrounded the entire time. Only clear entry-delay once the
+      // resolved mode actually changes (e.g. a real disarm); leave arming's
+      // existing unconditional-clear behavior untouched.
+      const isStaleEntryDelayClear = artemisTransition === 'entry-delay' && newMode === artemisMode;
+      if (artemisTransition && !isStaleEntryDelayClear) artemisClearTransition();
       if (changed) {
         artemisMode = newMode;
         if (isMobile() ? activeTab === 'security' : activeRoom === 'security') renderSecurity();
@@ -15346,7 +15362,10 @@ function connectWebSocket() {
           else if (/armed\s*home|armed\s*night/i.test(raw))  newMode = 'home';
           else if (/disarm|alldisarmed/i.test(raw))          newMode = 'disarm';
           const wsChanged = newMode !== artemisMode || artemisTransition;
-          if (artemisTransition) artemisClearTransition();
+          // Same guard as artemisHsmSync() -- an hsmStatus resend with an
+          // unchanged mode shouldn't wipe a legitimate entry-delay countdown.
+          const isStaleEntryDelayClearWs = artemisTransition === 'entry-delay' && newMode === artemisMode;
+          if (artemisTransition && !isStaleEntryDelayClearWs) artemisClearTransition();
           if (wsChanged) {
             artemisMode = newMode;
             if (newMode === 'away') announceHsmEvent('Armed away');
@@ -15365,9 +15384,17 @@ function connectWebSocket() {
           else if (/water|flood|freeze/i.test(alertVal))  alertType = 'water';
           else if (/glass/i.test(alertVal))               alertType = 'glass';
           else if (/intrusion|motion|contact/i.test(alertVal)) alertType = 'intrusion';
-          artemisAlarmType = alertType;
-          // Intrusion — show entry delay state + auto-open PIN
-          if (alertType === 'intrusion' && !artemisTransition) {
+          // HSM sends a distinct "...-pending" value during its own configured
+          // delay window before an intrusion escalates -- that's exactly when the
+          // entry-delay countdown should show, not a real trip yet. Previously
+          // this was keyed off "!artemisTransition" instead, which both missed
+          // re-arming races and had no way to tell "still in the delay window"
+          // from "actually tripped." artemisAlarmType (the full red "Intrusion
+          // detected" banner) is deliberately NOT set until the escalated branch
+          // below -- setting it here showed a full alarm banner during a delay
+          // window where nothing has actually happened yet.
+          const isPending = /pending/.test(alertVal);
+          if (alertType === 'intrusion' && isPending) {
             artemisSetTransition('entry-delay', null);
             announceHsmEvent('Attention — alarm triggering in ' + (CONFIG.artemisEntryDelay || 60) + ' seconds');
             if (!isDesktop()) {
@@ -15376,6 +15403,9 @@ function connectWebSocket() {
             }
             return;
           }
+          // Escalated past the delay window (or any non-intrusion HSM alert) -- a real event
+          artemisAlarmType = alertType;
+          if (artemisTransition) artemisClearTransition();
           if (isMobile() ? activeTab === 'security' : activeRoom === 'security') {
             renderSecurity();
           } else {

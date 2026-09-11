@@ -333,12 +333,24 @@ def pushRelayArmedState(Boolean armed) {
 // hsmAlert fires on intrusion (the actual burglar-alarm trip). Smoke/CO and
 // water go through the Maker API device-event webhook instead of HSM,
 // since not everyone has HSM Monitor watching those sensors at all.
+// HSM emits a distinct "...-pending" value first (its own configured delay
+// window before the alert escalates -- e.g. "intrusion-home-pending" then
+// "intrusion-home" 60s later), which also starts with "intrusion" -- without
+// this check every entry-delay countdown was being reported as an actual
+// break-in the instant the delay started. artemisEntryDelay reuses the same
+// countdown number the dashboard's own entry-delay ring counts down from,
+// so this message doesn't quote a made-up delay.
 def pushHsmAlertHandler(evt) {
     def push = getPushSettings()
     if (!push || push.pushEnabled != true || push.pushAlarming == false) return
     def v = (evt.value ?: "").toLowerCase()
     if (!v.startsWith("intrusion")) return
     def scope = v.contains("home") ? "Home" : "Away"
+    if (v.contains("pending")) {
+        def delay = push.artemisEntryDelay ?: 60
+        pushSendNotification("alarming", "Security", "${scope} alarming in ${delay} seconds -- disarm to cancel", push.token)
+        return
+    }
     pushSendNotification("alarming", "Security Alarm", "${scope} intrusion alarm triggered!", push.token)
 }
 
