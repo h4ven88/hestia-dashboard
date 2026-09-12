@@ -2421,22 +2421,111 @@ function cacheHubStoreToConfig() {
   }
 }
 
-// A 404 from HUB_STORE.appId's own /config endpoint means that companion
-// app instance no longer exists on the hub (e.g. it was uninstalled and
-// reinstalled, getting a new app ID) -- CONFIG.hestiaAppId is stale. On
-// hestari.com, live rediscovery via hestia-token.json is CORS-blocked (see
-// discoverHubStore() above), so reconstructHubStore() would otherwise keep
-// reconstructing HUB_STORE from this same dead ID forever -- _cfgCheckStale()
-// alone hits it every 30s, flooding the hub's own Logs page indefinitely.
-// Clearing it stops the flood immediately and lets a later visit direct to
-// the hub's own local address (where discovery isn't CORS-blocked) populate
-// the correct current ID going forward.
+/* ── Companion-app request breaker ──────────────────────────────────────
+   If the companion app is reinstalled it gets a NEW app id, so a cached
+   CONFIG.hestiaAppId points at an instance that no longer exists. Every
+   request to it makes the hub log "Received local request for App <id>
+   that does not exist" -- _cfgCheckStale() alone fires every 30s, which is
+   ~2,880 warnings a day in a real user's hub log.
+
+   The tempting fix is "on failure, discard the credentials." Two reasons
+   not to:
+
+   1. Cross-origin (hestari.com, where this bug actually lives) we cannot
+      tell WHY it failed. CORS_HEADERS are attached by the Groovy app's own
+      render calls, so a dead app never runs that code and the platform's
+      404 carries no Access-Control-Allow-Origin. The browser then refuses
+      to expose the response at all and fetch() rejects with a bare
+      TypeError -- byte-identical to an unplugged hub, a DNS failure, or a
+      mixed-content block. Status codes are simply not observable here.
+   2. Discarding is destructive and, cross-origin, unrecoverable: rediscovery
+      reads a static file the browser won't let us fetch. A transient Wi-Fi
+      blip would silently cost the user config sync entirely.
+
+   So: back off instead of discarding. Repetition is the only signal
+   available once classification is impossible, and backing off is
+   non-destructive. State is kept per app id in its own localStorage key --
+   deliberately NOT in CONFIG, since buildConfigPayload() syncs CONFIG to
+   both the hub and a shared cloud KV, and propagating a blanked credential
+   would break every other device in the household. */
+const HUBSTORE_BREAKER_KEY = 'hestia-hubstore-breaker';
+function _breakerRead() {
+  try {
+    const b = JSON.parse(localStorage.getItem(HUBSTORE_BREAKER_KEY) || 'null');
+    return (b && b.appId) ? b : null;
+  } catch(e) { return null; }
+}
+// First couple of failures ride the caller's normal cadence -- one blip
+// shouldn't change behaviour. Sustained failure escalates to a 30m ceiling,
+// taking the flood from ~2,880/day to ~48/day while still probing often
+// enough to recover on its own once the hub is healthy again.
+function _breakerDelayFor(fails) {
+  if (fails < 3)  return 0;
+  if (fails === 3) return 60 * 1000;
+  if (fails === 4) return 5 * 60 * 1000;
+  return 30 * 60 * 1000;
+}
+function _breakerTrip() {
+  if (!HUB_STORE) return;
+  const id = String(HUB_STORE.appId);
+  const prev = _breakerRead();
+  const fails = ((prev && prev.appId === id) ? prev.fails : 0) + 1;
+  try {
+    localStorage.setItem(HUBSTORE_BREAKER_KEY, JSON.stringify({
+      appId: id, fails, nextProbeAt: Date.now() + _breakerDelayFor(fails)
+    }));
+  } catch(e) {}
+  if (fails === 3) console.warn('[HubStore] Companion app', id, 'unreachable', fails, 'times -- backing off');
+}
+function _breakerReset() {
+  try { localStorage.removeItem(HUBSTORE_BREAKER_KEY); } catch(e) {}
+}
+// Open == currently backing off for the app id we'd be calling right now.
+function _breakerIsOpen() {
+  if (!HUB_STORE) return false;
+  const b = _breakerRead();
+  return !!(b && b.appId === String(HUB_STORE.appId) && b.nextProbeAt > Date.now());
+}
+
+// Retained for the one case that IS unambiguous: a readable 404/410, which
+// can only reach us same-origin -- and there discoverHubStore() repopulates
+// the correct id on the very next boot, so discarding is safe and recovery
+// is immediate. Never called on an ambiguous cross-origin failure.
 function _clearStaleHubStore() {
   if (!HUB_STORE) return;
-  console.warn('[HubStore] Companion app', HUB_STORE.appId, 'no longer exists on this hub -- clearing stale credentials');
+  console.warn('[HubStore] Companion app', HUB_STORE.appId, 'reported gone by the hub -- clearing stale credentials');
   HUB_STORE = null;
   CONFIG.hestiaAppId = '';
   CONFIG.hestiaAppToken = '';
+  _breakerReset();
+}
+
+// Single doorway for every companion-app call. Owns URL construction (four
+// call sites previously built it three different ways) and breaker policy.
+// Returns { ok, blocked, res, gone } rather than throwing.
+async function hubStoreFetch(path, fetchOpts, opts) {
+  opts = opts || {};
+  if (!HUB_STORE) return { ok: false, blocked: false, res: null };
+  if (!opts.bypassBreaker && _breakerIsOpen()) {
+    return { ok: false, blocked: true, res: null };
+  }
+  const hub = HUB_STORE._hubUrl
+    || (CONFIG.hub && isLocalHubUrl(CONFIG.hub) ? CONFIG.hub : null)
+    || window.location.origin;
+  const url = `${hub}/apps/api/${HUB_STORE.appId}/${path}?access_token=${HUB_STORE.token}`;
+  try {
+    const res = await _fetchWithTimeout(url, 4000, fetchOpts);
+    if (res.status === 404 || res.status === 410) {
+      _clearStaleHubStore();
+      return { ok: false, blocked: false, res, gone: true };
+    }
+    if (!res.ok) { _breakerTrip(); return { ok: false, blocked: false, res }; }
+    _breakerReset();
+    return { ok: true, blocked: false, res };
+  } catch(e) {
+    _breakerTrip();
+    return { ok: false, blocked: false, res: null, err: e };
+  }
 }
 
 // Reconstruct HUB_STORE from cached CONFIG credentials — used when
@@ -2466,17 +2555,17 @@ function hubStoreHasMakerApi() {
 async function loadConfigFromHub() {
   if (!HUB_STORE) return null;
   try {
-    // Use the hub URL recorded during discovery — handles both local-origin
-    // and cloud-served (hestari.com → local hub via explicit URL) scenarios
-    const hub = HUB_STORE._hubUrl || window.location.origin;
-    const url = `${hub}/apps/api/${HUB_STORE.appId}/config?access_token=${HUB_STORE.token}`;
-    const res = await _fetchWithTimeout(url, 4000);
-    if (res.status === 404) { _clearStaleHubStore(); return null; }
-    if (!res.ok) return null;
-    const text = await res.text();
+    const out = await hubStoreFetch('config');
+    if (!out.ok) return null;
+    const text = await out.res.text();
     if (!text || text.trim() === 'null') return null;
     return JSON.parse(text);
-  } catch(e) { return null; }
+  } catch(e) {
+    // A readable response we couldn't parse is still a failed call -- most
+    // likely something other than our app answering on that id.
+    _breakerTrip();
+    return null;
+  }
 }
 
 // "Which devices" arrays (announceDevices, pushDevices) get edited from
@@ -2701,20 +2790,14 @@ function buildConfigPayload() {
 
 async function saveConfigToHub(payload) {
   if (!HUB_STORE) return;
-  try {
-    // Priority: HUB_STORE._hubUrl (recorded during discovery) → CONFIG.hub
-    // (known local address) → window.location.origin (when served from hub)
-    const hub = HUB_STORE._hubUrl
-      || (CONFIG.hub && isLocalHubUrl(CONFIG.hub) ? CONFIG.hub : null)
-      || window.location.origin;
-    const url = `${hub}/apps/api/${HUB_STORE.appId}/config?access_token=${HUB_STORE.token}`;
-    const res = await _fetchWithTimeout(url, 4000, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    if (res && res.status === 404) _clearStaleHubStore();
-  } catch(e) { console.warn('[HubStore] save failed:', e.message); }
+  // The JSON content-type forces a CORS preflight, so against a dead app id
+  // even the OPTIONS adds to the hub's log flood. Going through the breaker
+  // suppresses the preflight too, not just the POST.
+  await hubStoreFetch('config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
 }
 
 /* Load config from localStorage (fast cache) */
@@ -3233,11 +3316,9 @@ async function checkCompanionVersion() {
   if (!HUB_STORE) reconstructHubStore();
   if (!HUB_STORE) return; // not discovered on this device -- Diagnostics covers that case
   try {
-    const hub = HUB_STORE._hubUrl || CONFIG.hub;
-    const url = `${hub}/apps/api/${HUB_STORE.appId}/version?access_token=${HUB_STORE.token}`;
-    const res = await _fetchWithTimeout(url, 4000);
-    if (!res.ok) return;
-    const data = await res.json();
+    const out = await hubStoreFetch('version');
+    if (!out.ok) return;
+    const data = await out.res.json();
     if (!data || !data.appVersion) return;
     // Don't stack a second amber bar saying the same thing -- checkAppVersion()'s
     // banner already carries this call to action when it's showing.
@@ -10395,11 +10476,14 @@ async function diagCheckGroovy() {
     diagSetStatus('groovy', 'amber', 'Not discovered', `The companion app hasn't been discovered on this device yet. Open the dashboard on your local network at least once so it can be found.`);
     return;
   }
+  // User-initiated, so deliberately bypass the breaker and force a live probe.
+  // A success inside hubStoreFetch() also resets the breaker, which makes this
+  // check double as the manual "try again now" control.
+  const wasBackedOff = _breakerIsOpen();
   try {
-    const hub = HUB_STORE._hubUrl || CONFIG.hub;
-    const url = `${hub}/apps/api/${HUB_STORE.appId}/version?access_token=${HUB_STORE.token}`;
-    const res = await fetch(url);
-    const data = await res.json();
+    const out = await hubStoreFetch('version', null, { bypassBreaker: true });
+    if (!out.ok) throw new Error(out.gone ? 'app no longer exists' : 'unreachable');
+    const data = await out.res.json();
     if (data.appVersion === HESTIA_VERSION) {
       diagSetStatus('groovy', 'green', `v${data.appVersion} (up to date)`);
     } else {
@@ -10412,7 +10496,15 @@ async function diagCheckGroovy() {
           : 'The companion app on your hub is newer than this dashboard, so the copy this device loaded is stale. Open the Hestia app on your hub and click Done to refresh it.');
     }
   } catch (e) {
-    diagSetStatus('groovy', 'red', 'Unreachable', `Could not reach the companion app's own endpoint (separate from Maker API). Make sure the Hestia Dashboard app instance is still installed and enabled on the hub.`);
+    // Surface the backed-off state explicitly. Otherwise a device that has
+    // quietly stopped talking to the companion app looks identical to one
+    // that's merely offline right now, and the user has no way to tell that
+    // requests are being suppressed on purpose.
+    const b = _breakerRead();
+    const backoffNote = (wasBackedOff && b)
+      ? ` Hestia has backed off after ${b.fails} consecutive failures and is now retrying only occasionally, to avoid flooding your hub's log. If the companion app was reinstalled, its app ID changed: open this dashboard once from your hub's own address (http://<hub-ip>/local/index.html) so it can pick up the new one.`
+      : '';
+    diagSetStatus('groovy', 'red', 'Unreachable', `Could not reach the companion app's own endpoint (separate from Maker API). Make sure the Hestia Dashboard app instance is still installed and enabled on the hub.${backoffNote}`);
   }
 }
 
@@ -16909,7 +17001,12 @@ function launchOnboarding() {
       await discoverHubStore(CONFIG.hub);
       if (HUB_STORE) console.log('[Boot] Late HUB_STORE discovery via CONFIG.hub');
     }
-    if (HUB_STORE) {
+    // A HUB_STORE reconstructed from a stale app id used to win this branch
+    // outright, which meant the one recovery channel that works cross-origin
+    // (cloud sync, where another device in the house may already have seen the
+    // new id) was never even consulted. Treat a backed-off store as unusable
+    // here so boot falls through to cloud instead of retrying a dead id.
+    if (HUB_STORE && !_breakerIsOpen()) {
       const hubCfg = await loadConfigFromHub();
       if (hubCfg) {
         applyParsedConfig(hubCfg);
@@ -16922,11 +17019,23 @@ function launchOnboarding() {
         console.log('[Boot] Seeded hub config from local cache');
       }
     } else {
+      if (HUB_STORE) console.log('[Boot] Companion app backed off — trying cloud config for a newer app ID');
       const cloudCfg = await cloudSyncDiscover();
       if (cloudCfg) {
         applyParsedConfig(cloudCfg);
         try { localStorage.setItem('dashboard-config', JSON.stringify(cloudCfg)); } catch(e) {}
         console.log('[Boot] Applied cloud config');
+        // Cloud config may carry a corrected hestiaAppId. Re-run reconstruction
+        // so it takes effect now rather than a boot later; if it's the same dead
+        // id the breaker is still keyed to it and simply stays open.
+        const _prevId = HUB_STORE && HUB_STORE.appId;
+        if (!HUB_STORE || String(CONFIG.hestiaAppId) !== String(_prevId)) {
+          HUB_STORE = null;
+          if (reconstructHubStore() && String(HUB_STORE.appId) !== String(_prevId)) {
+            _breakerReset();
+            console.log('[Boot] Picked up a different companion app ID from cloud config');
+          }
+        }
       }
     }
 
