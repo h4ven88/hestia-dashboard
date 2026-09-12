@@ -1,11 +1,11 @@
 {
   "packageName": "Hestia Dashboard",
   "author": "Haven",
-  "version": "1.6.5",
+  "version": "1.6.6",
   "minimumHEVersion": "2.3.0",
   "dateReleased": "2026-09-12",
   "licenseFile": "https://raw.githubusercontent.com/h4ven88/hestia-dashboard/main/LICENSE",
-  "releaseNotes": "https://github.com/h4ven88/hestia-dashboard/releases/tag/v1.6.5",
+  "releaseNotes": "https://github.com/h4ven88/hestia-dashboard/releases/tag/v1.6.6",
   "documentationLink": "https://github.com/h4ven88/hestia-dashboard/blob/main/README.md",
   "communityLink": "https://community.hubitat.com",
   "tags": [

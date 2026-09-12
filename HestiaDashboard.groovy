@@ -1,5 +1,5 @@
 /**
- * Hestia™ Home Dashboard v1.6.5
+ * Hestia™ Home Dashboard v1.6.6
  * ════════════════════════════════════════════════════════════════
  * Lightweight companion app — discovery helper and config store.
  *
@@ -51,7 +51,7 @@ preferences {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
-@Field static final String APP_VERSION        = "1.6.5"
+@Field static final String APP_VERSION        = "1.6.6"
 @Field static final String TOKEN_FILENAME      = "hestia-token.json"
 @Field static final String CONFIG_FILENAME     = "hestia-config.json"
 @Field static final String DASHBOARD_FILENAME  = "index.html"
@@ -174,7 +174,19 @@ def initialize() {
     subscribe(location, "hsmStatus", "pushHsmStatusHandler")
     subscribe(location, "hsmAlert",  "pushHsmAlertHandler")
     pushSeedArmedStatus()
+    // Without this, /local/index.html only ever refreshed when the app itself
+    // was installed or upgraded. If HPM went quiet for any reason (as it did in
+    // Sept 2026, when packageManifest.json sat at 1.6.4 after v1.6.5 shipped),
+    // initialize() never re-ran, the dashboard file was never re-fetched, and
+    // every hub-served install silently stayed on old code indefinitely with no
+    // way to self-correct. downloadDashboard(false) already compares versions
+    // and returns early when there's nothing new, so this is a cheap poll.
+    runEvery3Hours("dashboardUpdateCheck")
     log.info "Hestia: initialized v${APP_VERSION} — app ID: ${app.id}"
+}
+
+def dashboardUpdateCheck() {
+    downloadDashboard(false)
 }
 
 // ── Discovery file ────────────────────────────────────────────────────────
@@ -213,7 +225,11 @@ def downloadDashboard(Boolean force) {
     if (!force) {
         try {
             def latestVersion = null
-            httpGet([uri: BUILD_INFO_URL, textParser: false, timeout: 15]) { resp ->
+            // GitHub raw serves .json as text/plain with nosniff, so without an
+            // explicit Accept content-type this parses as text and resp.data.version
+            // throws MissingPropertyException -- swallowed below, making the whole
+            // update check a silent no-op. Same pattern already used elsewhere here.
+            httpGet([uri: BUILD_INFO_URL, contentType: "application/json", timeout: 15]) { resp ->
                 if (resp.status == 200) latestVersion = resp.data?.version
             }
             if (!latestVersion || latestVersion == state.dashboardVersion) return
@@ -228,7 +244,13 @@ def downloadDashboard(Boolean force) {
             if (response.status == 200) {
                 def content = response.data.text
                 uploadHubFile(DASHBOARD_FILENAME, content.getBytes("UTF-8"))
-                def version = (content =~ /HESTIA_VERSION\s*=\s*'([^']+)'/)
+                // The downloaded file is the MINIFIED index.html, where terser emits
+                // double quotes -- a single-quote-only pattern never matched, so this
+                // silently fell through to APP_VERSION and the version comparison
+                // above was really "build-info vs APP_VERSION", not "vs the dashboard
+                // actually on disk". Whenever those two legitimately diverge that
+                // meant re-downloading 600+ KB on every single check.
+                def version = (content =~ /HESTIA_VERSION\s*=\s*['"]([^'"]+)['"]/)
                 state.dashboardVersion  = version ? version[0][1] : APP_VERSION
                 state.dashboardInstalled = true
                 log.info "Hestia: dashboard v${state.dashboardVersion} installed → /local/${DASHBOARD_FILENAME} (${content.length()} bytes)"
@@ -475,6 +497,11 @@ def getVersion() {
     render contentType: "application/json", headers: CORS_HEADERS,
            data: new groovy.json.JsonBuilder([
                appVersion:   APP_VERSION,
+               // Version of the index.html actually sitting on this hub, which is
+               // what wall panels load from /local/. Distinct from APP_VERSION: the
+               // app can be current while the copy it last downloaded is stale, and
+               // without this the dashboard can't tell those two cases apart.
+               dashboardVersion: state.dashboardVersion ?: null,
                configStored: state.config != null,
                configSize:   state.configSize ?: 0,
                appId:        app.id
