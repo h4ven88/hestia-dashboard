@@ -1752,7 +1752,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.6.5';
-const HESTIA_BUILD_DATE = '2026-09-11';
+const HESTIA_BUILD_DATE = '2026-09-12';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 const PUSH_API          = '/api/push';
@@ -2417,6 +2417,24 @@ function cacheHubStoreToConfig() {
   }
 }
 
+// A 404 from HUB_STORE.appId's own /config endpoint means that companion
+// app instance no longer exists on the hub (e.g. it was uninstalled and
+// reinstalled, getting a new app ID) -- CONFIG.hestiaAppId is stale. On
+// hestari.com, live rediscovery via hestia-token.json is CORS-blocked (see
+// discoverHubStore() above), so reconstructHubStore() would otherwise keep
+// reconstructing HUB_STORE from this same dead ID forever -- _cfgCheckStale()
+// alone hits it every 30s, flooding the hub's own Logs page indefinitely.
+// Clearing it stops the flood immediately and lets a later visit direct to
+// the hub's own local address (where discovery isn't CORS-blocked) populate
+// the correct current ID going forward.
+function _clearStaleHubStore() {
+  if (!HUB_STORE) return;
+  console.warn('[HubStore] Companion app', HUB_STORE.appId, 'no longer exists on this hub -- clearing stale credentials');
+  HUB_STORE = null;
+  CONFIG.hestiaAppId = '';
+  CONFIG.hestiaAppToken = '';
+}
+
 // Reconstruct HUB_STORE from cached CONFIG credentials — used when
 // hestia-token.json is CORS-blocked (loading from hestari.com) but
 // the Groovy app has CORS enabled on its /apps/api/ endpoints.
@@ -2449,6 +2467,7 @@ async function loadConfigFromHub() {
     const hub = HUB_STORE._hubUrl || window.location.origin;
     const url = `${hub}/apps/api/${HUB_STORE.appId}/config?access_token=${HUB_STORE.token}`;
     const res = await _fetchWithTimeout(url, 4000);
+    if (res.status === 404) { _clearStaleHubStore(); return null; }
     if (!res.ok) return null;
     const text = await res.text();
     if (!text || text.trim() === 'null') return null;
@@ -2685,11 +2704,12 @@ async function saveConfigToHub(payload) {
       || (CONFIG.hub && isLocalHubUrl(CONFIG.hub) ? CONFIG.hub : null)
       || window.location.origin;
     const url = `${hub}/apps/api/${HUB_STORE.appId}/config?access_token=${HUB_STORE.token}`;
-    await _fetchWithTimeout(url, 4000, {
+    const res = await _fetchWithTimeout(url, 4000, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
+    if (res && res.status === 404) _clearStaleHubStore();
   } catch(e) { console.warn('[HubStore] save failed:', e.message); }
 }
 
