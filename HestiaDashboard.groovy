@@ -1,5 +1,5 @@
 /**
- * Hestia™ Home Dashboard v1.6.6
+ * Hestia™ Home Dashboard v1.6.7
  * ════════════════════════════════════════════════════════════════
  * Lightweight companion app — discovery helper and config store.
  *
@@ -12,7 +12,10 @@
  *      network auto-discovery by the dashboard on new devices
  *   3. Store and serve config   — cross-device settings sync
  *   4. Health check + version   — status endpoints
- *   5. Push notifications (arm-state) — subscribes to HSM directly and
+ *   5. HSM alert reporting      — records the latest hsmAlert (including the
+ *      entry-delay "pending" alert) so the dashboard can show the countdown.
+ *      HSM alerts are location events, invisible to Maker API's device poll.
+ *   6. Push notifications (arm-state) — subscribes to HSM directly and
  *      relays arm-state to Cloudflare, so it keeps working even when
  *      nobody has the dashboard open. Device-level events (doors, windows,
  *      locks, motion, smoke, water) are NOT handled here -- Maker API's own
@@ -31,6 +34,7 @@
  * OPTIONS /config    CORS preflight
  * GET     /version   Returns app version info
  * GET     /ping      Health check
+ * GET     /security  Latest HSM alert and whether it is still active
  */
 
 import groovy.transform.Field
@@ -51,7 +55,7 @@ preferences {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
-@Field static final String APP_VERSION        = "1.6.6"
+@Field static final String APP_VERSION        = "1.6.7"
 @Field static final String TOKEN_FILENAME      = "hestia-token.json"
 @Field static final String CONFIG_FILENAME     = "hestia-config.json"
 @Field static final String DASHBOARD_FILENAME  = "index.html"
@@ -89,6 +93,9 @@ mappings {
     }
     path("/ping") {
         action: [ GET: "ping", OPTIONS: "preflight" ]
+    }
+    path("/security") {
+        action: [ GET: "getSecurity", OPTIONS: "preflight" ]
     }
 }
 
@@ -173,6 +180,9 @@ def initialize() {
     writeDiscovery()
     subscribe(location, "hsmStatus", "pushHsmStatusHandler")
     subscribe(location, "hsmAlert",  "pushHsmAlertHandler")
+    // Baseline for recordHsmEvent(), so the first hsmStatus event after an
+    // install or upgrade only counts as a change if the status really changed.
+    if (state.hsmStatusValue == null) state.hsmStatusValue = location.hsmStatus?.toString()
     pushSeedArmedStatus()
     // Without this, /local/index.html only ever refreshed when the app itself
     // was installed or upgraded. If HPM went quiet for any reason (as it did in
@@ -301,6 +311,7 @@ def getPushSettings() {
 // mid-transition or disarmed does not, so "armed only" devices don't fire
 // during the entry/exit delay countdown).
 def pushHsmStatusHandler(evt) {
+    recordHsmEvent(evt)
     def v = (evt.value ?: "").toLowerCase()
     def armed = (v.contains("armed") && !v.contains("disarmed") && !v.contains("arming"))
     state.pushArmed = armed
@@ -355,25 +366,83 @@ def pushRelayArmedState(Boolean armed) {
 // hsmAlert fires on intrusion (the actual burglar-alarm trip). Smoke/CO and
 // water go through the Maker API device-event webhook instead of HSM,
 // since not everyone has HSM Monitor watching those sensors at all.
-// HSM emits a distinct "...-pending" value first (its own configured delay
-// window before the alert escalates -- e.g. "intrusion-home-pending" then
-// "intrusion-home" 60s later), which also starts with "intrusion" -- without
-// this check every entry-delay countdown was being reported as an actual
-// break-in the instant the delay started. artemisEntryDelay reuses the same
-// countdown number the dashboard's own entry-delay ring counts down from,
-// so this message doesn't quote a made-up delay.
+// During HSM's own configured entry delay it first sends a "-delay" value
+// ("intrusion-delay", "intrusion-home-delay", "intrusion-night-delay", per
+// Hubitat's Rule Machine documentation of HSM alert values), then the plain
+// value ("intrusion-home") once the delay runs out. Both start with
+// "intrusion", so without this check every entry delay is reported as a
+// break-in the instant it starts. v1.6.5 checked for "pending" instead --
+// that word only appears in HSM's log text, never in the event value, so the
+// check never matched. "pending" is still accepted in case a firmware
+// version ever uses it. artemisEntryDelay is the same number the dashboard's
+// countdown uses, so the message doesn't quote a made-up delay.
 def pushHsmAlertHandler(evt) {
+    recordHsmEvent(evt)
     def push = getPushSettings()
     if (!push || push.pushEnabled != true || push.pushAlarming == false) return
     def v = (evt.value ?: "").toLowerCase()
     if (!v.startsWith("intrusion")) return
-    def scope = v.contains("home") ? "Home" : "Away"
-    if (v.contains("pending")) {
+    def scope = v.contains("home") ? "Home" : v.contains("night") ? "Night" : "Away"
+    if (v.contains("delay") || v.contains("pending")) {
         def delay = push.artemisEntryDelay ?: 60
         pushSendNotification("alarming", "Security", "${scope} alarming in ${delay} seconds -- disarm to cancel", push.token)
         return
     }
     pushSendNotification("alarming", "Security Alarm", "${scope} intrusion alarm triggered!", push.token)
+}
+
+// ── HSM alert reporting (dashboard entry-delay countdown) ───────────────
+// Called first from both HSM handlers, before any push gating, so it runs
+// whether or not push notifications are enabled.
+//
+// An alert counts as active until HSM's arm status actually CHANGES after it
+// (a disarm or re-arm), or HSM sends "cancel". Only a changed value moves
+// hsmStatusAt: if HSM re-sent the same "armedAway" mid-delay, a plain
+// timestamp would wrongly end a countdown that is still running.
+//
+// The raw value is logged at info on purpose. The entry-delay value
+// ("intrusion-...-delay") comes from Hubitat's documentation rather than a
+// captured event, so this line is how a real test confirms it.
+//
+// A repeat of the same alert with no status change in between (e.g. a
+// second door opening during the same delay) keeps the original time, so
+// the dashboard's countdown doesn't restart from full.
+//
+// A disarm fires hsmStatus "disarmed" and hsmAlert "cancel" almost together,
+// in separate executions, and plain state is saved at the end of each, so one
+// of the two writes can be lost. That's deliberately tolerated rather than
+// solved with singleThreaded (which would queue the dashboard's /config
+// requests behind a slow dashboard download) or atomicState (unsafe to mix
+// with state): whichever write survives, getSecurity() reports not active.
+def recordHsmEvent(evt) {
+    def v = (evt.value ?: "").toString()
+    if (evt.name == "hsmAlert") {
+        def prev = state.hsmAlert
+        def prevAt = (prev?.at ?: 0L) as Long
+        def sameAlert = prev?.value == v && prevAt > ((state.hsmStatusAt ?: 0L) as Long)
+        state.hsmAlert = [value: v, at: sameAlert ? prevAt : now()]
+        log.info "Hestia: hsmAlert value=\"${v}\"" + (evt.descriptionText ? " (${evt.descriptionText})" : "")
+    } else if (evt.name == "hsmStatus" && v != state.hsmStatusValue) {
+        state.hsmStatusValue = v
+        state.hsmStatusAt    = now()
+    }
+}
+
+def getSecurity() {
+    def alert    = state.hsmAlert
+    def alertAt  = (alert?.at ?: 0L) as Long
+    def statusAt = (state.hsmStatusAt ?: 0L) as Long
+    def active   = alertAt > 0L && alertAt > statusAt && alert?.value?.toLowerCase() != "cancel"
+    render contentType: "application/json", headers: CORS_HEADERS,
+           data: new groovy.json.JsonBuilder([
+               hsmStatus:   location.hsmStatus,
+               alert:       alert?.value,
+               alertAt:     alertAt ?: null,
+               // Computed here so the dashboard never compares against a
+               // device clock that may disagree with the hub's.
+               alertAgeMs:  alertAt ? (now() - alertAt) : null,
+               alertActive: active
+           ]).toString()
 }
 
 def pushSendNotification(String category, String title, String body, String token) {

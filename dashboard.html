@@ -1755,8 +1755,8 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    Copyright © 2026 Haven. CC BY-NC 4.0.
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
-const HESTIA_VERSION    = '1.6.6';
-const HESTIA_BUILD_DATE = '2026-09-12';
+const HESTIA_VERSION    = '1.6.7';
+const HESTIA_BUILD_DATE = '2026-09-14';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 const PUSH_API          = '/api/push';
@@ -2182,6 +2182,7 @@ const CONFIG = {
   roomSort:      '',
   locks: [],
   cameras: [],
+  cameraRefreshSec: 5,
   settingsPin: '',
   pinInstallSalt: '',
   artemisEnabled: false,
@@ -2271,6 +2272,7 @@ const DEFAULTS = {
     roomSort:      '',
     locks:         [],
     cameras:       [],
+    cameraRefreshSec: 5,
     settingsPin:   '',
     pinInstallSalt: '',
     artemisEnabled: false,
@@ -2498,6 +2500,7 @@ function _clearStaleHubStore() {
   CONFIG.hestiaAppId = '';
   CONFIG.hestiaAppToken = '';
   _breakerReset();
+  _companionAppVersion = null; // whatever replaces it must report its own version
 }
 
 // Single doorway for every companion-app call. Owns URL construction (four
@@ -2505,16 +2508,27 @@ function _clearStaleHubStore() {
 // Returns { ok, blocked, res, gone } rather than throwing.
 async function hubStoreFetch(path, fetchOpts, opts) {
   opts = opts || {};
-  if (!HUB_STORE) return { ok: false, blocked: false, res: null };
-  if (!opts.bypassBreaker && _breakerIsOpen()) {
+  // opts.store: probe candidate credentials without installing them as
+  // HUB_STORE, so nothing else can pick them up before they're verified.
+  const store = opts.store || HUB_STORE;
+  if (!store) return { ok: false, blocked: false, res: null };
+  if (!opts.bypassBreaker && !opts.store && _breakerIsOpen()) {
     return { ok: false, blocked: true, res: null };
   }
-  const hub = HUB_STORE._hubUrl
+  const hub = store._hubUrl
     || (CONFIG.hub && isLocalHubUrl(CONFIG.hub) ? CONFIG.hub : null)
-    || window.location.origin;
-  const url = `${hub}/apps/api/${HUB_STORE.appId}/${path}?access_token=${HUB_STORE.token}`;
+    || (opts.store ? null : window.location.origin);
+  if (!hub) return { ok: false, blocked: false, res: null };
+  const url = `${hub}/apps/api/${store.appId}/${path}?access_token=${store.token}`;
+  // opts.isolated: a frequent, non-essential call (the armed-state HSM check)
+  // that must not trip or reset the shared breaker -- tripping would block
+  // config saves for up to 30 minutes, and resetting would hide a /config
+  // that keeps failing -- and must not read a 404 as "app deleted", since
+  // an older companion app simply doesn't have that path. Callers handle
+  // their own backoff.
   try {
     const res = await _fetchWithTimeout(url, 4000, fetchOpts);
+    if (opts.isolated) return { ok: res.ok, blocked: false, res };
     if (res.status === 404 || res.status === 410) {
       _clearStaleHubStore();
       return { ok: false, blocked: false, res, gone: true };
@@ -2523,7 +2537,7 @@ async function hubStoreFetch(path, fetchOpts, opts) {
     _breakerReset();
     return { ok: true, blocked: false, res };
   } catch(e) {
-    _breakerTrip();
+    if (!opts.isolated) _breakerTrip();
     return { ok: false, blocked: false, res: null, err: e };
   }
 }
@@ -2631,21 +2645,49 @@ function deduplicateStaging() {
 // against the hub's savedAt by the periodic staleness check below.
 let _cfgAppliedSavedAt = null;
 
+// The hub's URL as shared with the household's other devices. CONFIG.hub is
+// what THIS device connects with. They differ only when this page is loaded
+// from the hub itself: then the page's own origin is used, because the
+// browser has already accepted that exact scheme, port, and certificate to
+// show the page -- nothing else is guaranteed to work there. That substitution
+// is never synced, so a device loading http://<hub>/local/index.html can't
+// push http:// to a device on https, or the reverse.
+let _sharedHubUrl = null;
+
+function _hubUrlForThisDevice(url) {
+  if (!url || !isServedFromHub()) return url;
+  try {
+    if (new URL(url).hostname === window.location.hostname) return window.location.origin;
+  } catch(e) {}
+  return url;
+}
+
+// What to write into the synced payload: the shared URL, unless CONFIG.hub has
+// since been changed to something the shared URL wouldn't produce here (a new
+// hub address from Settings or the setup wizard), in which case that change is
+// the new shared value.
+function _hubUrlToShare() {
+  if (_sharedHubUrl && _hubUrlForThisDevice(_sharedHubUrl) === CONFIG.hub) return _sharedHubUrl;
+  return CONFIG.hub;
+}
+
 function applyParsedConfig(parsed) {
   if (!parsed) return false;
   try {
     if (parsed.config) {
       Object.assign(CONFIG, parsed.config);
-      // Normalize hub URL: only strip HTTPS on a bare/443 private-IP URL (the pattern a
-      // stale auto-migration used to produce, which hubs can't serve). A deliberately
-      // specified non-443 port (e.g. :8443, which hubs do serve HTTPS on) is left alone.
-      if (CONFIG.hub && CONFIG.hub.startsWith('https://')) {
-        try {
-          const u = new URL(CONFIG.hub);
-          if (/^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.|localhost)/.test(u.hostname) && (!u.port || u.port === '443')) {
-            CONFIG.hub = CONFIG.hub.replace(/^https:/, 'http:').replace(/:443\b/, '');
-          }
-        } catch(e) {}
+      // Until v1.6.7 this rewrote any https://<private-ip> hub URL without a port
+      // back to http://, on the belief that hubs don't serve HTTPS on 443. They
+      // do (verified: https://<hub>/apps/api/... and /local/index.html both 200).
+      // On a page loaded over HTTPS that rewrite guaranteed "Hub unreachable"
+      // after every reload, since an HTTPS page can't call an http:// hub, while
+      // edits in Settings seemed to work until the next load re-applied it.
+      // The failure it was added for in May was really cross-device: one device's
+      // https:// URL synced to devices that hadn't accepted the hub certificate.
+      // _hubUrlForThisDevice() addresses that without touching what's shared.
+      if (CONFIG.hub) {
+        _sharedHubUrl = CONFIG.hub;
+        CONFIG.hub = _hubUrlForThisDevice(CONFIG.hub);
       }
       // Deep-merge nested objects so missing fields fall back to defaults
       // rather than the whole sub-object being replaced with an incomplete version
@@ -2753,9 +2795,9 @@ function _cleanOrphanedVirtualIds() {
 
 function buildConfigPayload() {
   return {
-    config:      { hub: CONFIG.hub, appId: CONFIG.appId, token: CONFIG.token, poll: CONFIG.poll,
+    config:      { hub: _hubUrlToShare(), appId: CONFIG.appId, token: CONFIG.token, poll: CONFIG.poll,
                    defaultRoom: CONFIG.defaultRoom, returnTimeout: CONFIG.returnTimeout, roomSort: CONFIG.roomSort, tempUnit: CONFIG.tempUnit,
-                   locks: CONFIG.locks, cameras: CONFIG.cameras || [], weather: CONFIG.weather, settingsPin: CONFIG.settingsPin, pinInstallSalt: CONFIG.pinInstallSalt,
+                   locks: CONFIG.locks, cameras: CONFIG.cameras || [], cameraRefreshSec: CONFIG.cameraRefreshSec, weather: CONFIG.weather, settingsPin: CONFIG.settingsPin, pinInstallSalt: CONFIG.pinInstallSalt,
                    artemisEnabled: CONFIG.artemisEnabled, artemisPin: CONFIG.artemisPin,
                    artemisExitDelay: CONFIG.artemisExitDelay, artemisEntryDelay: CONFIG.artemisEntryDelay,
                    artemisRingDeviceId: CONFIG.artemisRingDeviceId,
@@ -3306,13 +3348,20 @@ function _versionCmp(a, b) {
   return 0;
 }
 let _companionCheckTimer = null;
+// Last appVersion the companion app reported, or null if unknown. Features
+// that call an endpoint newer than v1.6.6 must check this first: an older
+// app answers an unknown path with 404, which hubStoreFetch() reads as "app
+// deleted" and discards the credentials. hestari.com users get a new
+// dashboard before their hub gets the matching app, so this is the normal
+// case for a while after every release, not an edge case.
+let _companionAppVersion = null;
+let _companionAppVersionFor = null; // app id the cached version belongs to
+
 async function checkCompanionVersion() {
   clearTimeout(_companionCheckTimer);
-  _companionCheckTimer = setTimeout(checkCompanionVersion, 6 * 60 * 60 * 1000);
-  try {
-    const snoozed = localStorage.getItem('hestia-companion-update-snooze');
-    if (snoozed && Date.now() < parseInt(snoozed)) return;
-  } catch(e) {}
+  // Retry in a minute if this attempt doesn't learn a version, otherwise
+  // HSM alert checks (gated on it) would stay off for 6 hours.
+  _companionCheckTimer = setTimeout(checkCompanionVersion, 60 * 1000);
   if (!HUB_STORE) reconstructHubStore();
   if (!HUB_STORE) return; // not discovered on this device -- Diagnostics covers that case
   try {
@@ -3320,6 +3369,15 @@ async function checkCompanionVersion() {
     if (!out.ok) return;
     const data = await out.res.json();
     if (!data || !data.appVersion) return;
+    _companionAppVersion = String(data.appVersion);
+    _companionAppVersionFor = String(HUB_STORE.appId);
+    clearTimeout(_companionCheckTimer);
+    _companionCheckTimer = setTimeout(checkCompanionVersion, 6 * 60 * 60 * 1000);
+    // Snooze only hides the banner; the version above is still needed.
+    try {
+      const snoozed = localStorage.getItem('hestia-companion-update-snooze');
+      if (snoozed && Date.now() < parseInt(snoozed)) return;
+    } catch(e) {}
     // Don't stack a second amber bar saying the same thing -- checkAppVersion()'s
     // banner already carries this call to action when it's showing.
     const appBanner = document.getElementById('app-update-banner');
@@ -3379,6 +3437,7 @@ function _cfgTrackActivity() { _lastUserActivity = Date.now(); }
 function _cfgRefreshSafe() {
   if (document.getElementById('settings-overlay')?.classList.contains('open')) return false;
   if (document.getElementById('a-pin-sheet')?.classList.contains('open')) return false;
+  if (artemisTransition || artemisAlarmType) return false;
   if (document.getElementById('ath-overlay')?.classList.contains('open')) return false;
   if (typeof camDetailIdx !== 'undefined' && camDetailIdx !== null) return false;
   return true;
@@ -3469,21 +3528,119 @@ async function fetchDevice(id) {
    confirmed to include switch, level, speed, position, temperature etc.
    This replaces 25+ individual fetches with a single call.             */
 let lastPollDevices = [];
+let _artemisAlarmDevices = [];   // every detected alarm base station, refreshed each poll
+
+// Edge-detected so a state that stays true doesn't re-fire every second --
+// dismissing the PIN sheet or clearing the alarm screen has to stick.
+const _ringPrev = { seen: false, entry: false, exit: false, siren: false, lastAt: 0, exitEndedAt: 0 };
+
+function _ringNum(v) {
+  const n = parseFloat(v);
+  return isFinite(n) ? n : null;
+}
+
+// Ring's driver sends countdownTimeLeft once, when the delay starts; it does
+// not tick. So subtract however long ago it could have started. The device's
+// last-activity time is the best estimate, but it's hub clock vs this device's
+// clock, so it's capped: on a normal poll the delay can't have started before
+// the previous poll we saw, which also covers a tab the browser throttled or
+// a poll that was backing off. Only the first poll after boot has no cap.
+function _ringRemaining(d, firstPoll) {
+  const left = _ringNum(d.attrs.countdownTimeLeft);
+  const total = _ringNum(d.attrs.countdownTotal);
+  if (left == null || left <= 0) return { remainingSec: null, totalSec: total > 0 ? total : null };
+  const maxElapsed = firstPoll ? left : Math.min(left, (Date.now() - _ringPrev.lastAt) / 1000);
+  let elapsed = 0;
+  if (d.date) {
+    const ago = (Date.now() - Date.parse(d.date)) / 1000;
+    if (isFinite(ago) && ago > 0) elapsed = Math.min(ago, maxElapsed);
+  }
+  return { remainingSec: left - elapsed, totalSec: total > 0 ? total : null };
+}
+
+function _ringArmState(a) {
+  const m = a.mode != null ? a.mode : a.alarmMode;
+  return m == null ? null : !/^(off|disarmed|none)$/i.test(String(m));
+}
+
+function artemisRingSync(devs) {
+  if (!CONFIG.artemisEnabled) return;
+  const firstPoll = !_ringPrev.seen;
+  const entryDev = devs.find(d => d.attrs.entryDelay === 'active');
+  const exitDev  = devs.find(d => d.attrs.exitDelay === 'active');
+  // Only real siren values count, and a siren while the panel is disarmed is
+  // a siren test, not an intrusion.
+  const sirenDev = devs.find(d => /^(siren|strobe|both)$/i.test(String(d.attrs.alarm || '')) &&
+    (_ringArmState(d.attrs) != null ? _ringArmState(d.attrs) : artemisMode !== 'disarm'));
+
+  if (sirenDev && !_ringPrev.siren) {
+    artemisEscalateAlarm('ring', 'intrusion');
+  } else if (entryDev && !_ringPrev.entry) {
+    const r = _ringRemaining(entryDev, firstPoll);
+    artemisBeginEntryDelay('ring', r.remainingSec, r.totalSec);
+  } else if (!entryDev && _ringPrev.entry && !sirenDev) {
+    artemisEndEntryDelay('ring');
+  }
+
+  if (exitDev && !_ringPrev.exit) {
+    const r = _ringRemaining(exitDev, firstPoll);
+    const target = /home/i.test(String(exitDev.attrs.mode != null ? exitDev.attrs.mode : exitDev.attrs.alarmMode || '')) ? 'home' : 'away';
+    // Arm Away from this screen already started a local countdown; Ring's
+    // own numbers replace the assumed ones. Never overrides an entry delay.
+    // Without Ring's numbers, don't reset a local countdown back to full.
+    if (!artemisTransition || (artemisTransition === 'arming' && r.remainingSec != null)) {
+      artemisSetTransition('arming', artemisArmingTarget || target, { remainingSec: r.remainingSec, totalSec: r.totalSec, source: 'ring' });
+    }
+  } else if (!exitDev && _ringPrev.exit) {
+    _ringPrev.exitEndedAt = Date.now();
+    if (artemisTransition === 'arming') {
+      artemisClearTransition();
+      if (_artemisOnSecurityView()) renderSecurity();
+      renderSidebar();
+      updateArmedStatus();
+    }
+  }
+
+  _ringPrev.lastAt = Date.now();
+  _ringPrev.seen = true;
+  _ringPrev.entry = !!entryDev;
+  _ringPrev.exit = !!exitDev;
+  _ringPrev.siren = !!sirenDev;
+}
+
 async function fetchAllDevices() {
   const res = await fetch(apiUrl('/devices/all'));
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const devices = await res.json();
   lastPollDevices = devices;
-  let alarmOfficial = null, alarmUnofficial = null;
+  const alarmDevices = [];
   devices.forEach(function(device) {
     const id = String(device.id);
     const caps = (device.capabilities || []).join(',');
     const cmds = (device.commands || []).map(c => c.command || c);
-    // Detect alarm base station (generic — works with any integration)
+    // Detect alarm base stations. Official Ring (and most integrations) expose
+    // armAway/disarm; the community Ring driver exposes setMode plus
+    // entryDelay/exitDelay instead. setMode alone isn't enough to qualify --
+    // the delay attributes are what make it a security panel.
     const hasArm = cmds.includes('armAway') && cmds.includes('disarm');
-    if (hasArm) {
-      if (cmds.includes('createChildDevices')) alarmOfficial = id;
-      else if (!alarmOfficial) alarmUnofficial = id;
+    const hasSetMode = cmds.includes('setMode');
+    if (hasArm || hasSetMode) {
+      const a = parseAttrs(device);
+      // parseAttrs() drops null values, and a panel that has never been
+      // through a delay may report entryDelay as null -- so check the raw
+      // attribute names, not just the parsed values.
+      const raw = device.attributes || {};
+      const names = Array.isArray(raw) ? raw.map(x => x && x.name) : Object.keys(raw);
+      if (hasArm || names.includes('entryDelay') || names.includes('exitDelay')) {
+        alarmDevices.push({
+          id, cmds, attrs: a, date: device.date,
+          official: cmds.includes('createChildDevices'),
+          // A connected panel reports its arm state. The official Ring base
+          // station on a hub where it can't reach the panel reports nothing
+          // but alarm:"off", so it must not win command routing.
+          live: a.mode != null || a.alarmMode != null
+        });
+      }
     }
     // Dual-capability devices (e.g. floodlight cams): virtual IDs for each capability
     if (isDualCapability(device.capabilities)) {
@@ -3560,11 +3717,16 @@ async function fetchAllDevices() {
       }
     }
   });
-  const detectedAlarm = alarmOfficial || alarmUnofficial;
-  if (detectedAlarm && detectedAlarm !== CONFIG.artemisRingDeviceId) {
-    CONFIG.artemisRingDeviceId = detectedAlarm;
-    console.log(`[Artemis] Alarm base station auto-detected: device ${detectedAlarm}${alarmOfficial ? ' (official)' : ' (community)'}`);
+  _artemisAlarmDevices = alarmDevices;
+  // Command routing: a live panel beats a disconnected one, then official
+  // beats community. Every alarm device is still watched for delays below.
+  const rank = d => (d.live ? 2 : 0) + (d.official ? 1 : 0);
+  const target = alarmDevices.slice().sort((x, y) => rank(y) - rank(x))[0];
+  if (target && target.id !== CONFIG.artemisRingDeviceId) {
+    CONFIG.artemisRingDeviceId = target.id;
+    console.log(`[Artemis] Alarm base station selected: device ${target.id} (${target.official ? 'official' : 'community'}${target.live ? '' : ', not reporting state'})`);
   }
+  artemisRingSync(alarmDevices);
   if (!_announceInitialized) _announceInitialized = true;
   setConn('ok');
 }
@@ -4593,6 +4755,8 @@ let artemisTransition = null;      // null|'arming'|'entry-delay' — HSM transi
 let artemisArmingTarget = null;    // 'home'|'away' — which mode is being armed
 let artemisCountdownEnd = null;    // timestamp when countdown expires
 let artemisCountdownInterval = null; // interval ID for countdown tick
+let artemisCountdownTotal = null;  // full length of the running delay, seconds
+let artemisTransitionSource = null; // 'ring'|'hsm'|'local' — who started the running transition
 
 // ── Athena™ Voice Assistant ────────────────────────────────────────────
 let athenaState       = 'idle';    // idle|wake|listening|processing|responding|clarifying
@@ -8565,7 +8729,7 @@ function artemisCamerasListHTML() {
     const hasThumb = !!cam.snapshotUrl;
     if (hasThumb) camArmLoadTimer(i, camSrc(cam, i));
     const media = hasThumb
-      ? `<img src="${camSrc(cam, i)}" alt="" referrerpolicy="no-referrer" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">
+      ? `<img data-cam-img="${i}" src="${camSrc(cam, i)}" alt="" referrerpolicy="no-referrer" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">
          <span class="cam-live-badge ${status.cls}"><span class="cam-live-dot"></span>${status.label}</span>`
       : camPlaceholderHTML(cam);
     return `<div class="cam-list-tile ${hasThumb && offline ? 'cam-tile-offline' : ''}" onclick="camExpand(${i})" style="cursor:pointer">
@@ -8939,21 +9103,72 @@ function artemisRestoreLockout() {
 async function artemisHsmCmd(hsmCmd) {
   // Maker API HSM endpoints: armAway, armHome, disarm
   if (!CONFIG.hub || !CONFIG.appId || !CONFIG.token) return;
-  try {
-    const url = `${CONFIG.hub}/apps/api/${CONFIG.appId}/hsm/${hsmCmd}?access_token=${CONFIG.token}`;
-    await fetch(url);
-  } catch(e) {
-    console.warn('[Artemis] HSM command failed:', hsmCmd, e.message);
-  }
-  // Mirror command to Ring Alarm base station if configured
-  if (CONFIG.artemisRingDeviceId) {
+  const sendHsm = (async () => {
     try {
-      await cmd(CONFIG.artemisRingDeviceId, hsmCmd);
-      console.log(`[Artemis] Ring device ${CONFIG.artemisRingDeviceId}: ${hsmCmd}`);
+      const url = `${CONFIG.hub}/apps/api/${CONFIG.appId}/hsm/${hsmCmd}?access_token=${CONFIG.token}`;
+      await fetch(url);
     } catch(e) {
-      console.warn('[Artemis] Ring command failed:', hsmCmd, e.message);
+      console.warn('[Artemis] HSM command failed:', hsmCmd, e.message);
     }
+  })();
+  // Hestia keeps HSM and Ring together itself, so a household doesn't need
+  // Rule Machine rules to sync them: every arm/disarm goes to both at once.
+  // Only a connected panel is commanded (one reporting its own arm state),
+  // and only one panel -- the official and community integrations can both
+  // be installed against the same physical Ring alarm. Households that
+  // already sync with rules get a matching command from both places; that's
+  // the same request twice, and the community driver ignores a setMode for
+  // the mode Ring is already in.
+  await Promise.all([sendHsm, artemisAlarmPanelCmd(hsmCmd)]);
+}
+
+async function artemisAlarmPanelCmd(hsmCmd) {
+  const id = CONFIG.artemisRingDeviceId;
+  if (!id) return;
+  const target = { armAway: 'away', armHome: 'home', disarm: 'off' }[hsmCmd];
+  if (!target) return;
+  // The last poll's view of the panel can be minutes old (a phone that was
+  // asleep in a pocket, a hub outage), so it decides HOW to talk to the panel,
+  // never WHETHER to. No "already in that mode" skip at all: both Ring drivers
+  // ignore a request for the current mode themselves, using live state.
+  let dev = _artemisAlarmDevices.find(d => d.id === String(id));
+  if (!dev) {
+    // No poll yet (a command right after load). The saved id alone doesn't say
+    // which command style the panel takes, and guessing wrong on a disarm
+    // leaves Ring armed, so ask the hub.
+    try {
+      const res = await _fetchWithTimeout(apiUrl(`/devices/${id}`), 4000);
+      if (res.ok) {
+        const data = await res.json();
+        const a = parseAttrs(data);
+        dev = { id: String(id), cmds: (data.commands || []).map(c => c.command || c),
+                live: a.mode != null || a.alarmMode != null };
+      }
+    } catch(e) {}
   }
+  // A disconnected panel rejects arm commands anyway; skip those. A disarm is
+  // always sent, in case "disconnected" is just stale.
+  if (dev && !dev.live && target !== 'off') return;
+  let command = hsmCmd, arg;
+  if (dev && !dev.cmds.includes(hsmCmd) && dev.cmds.includes('setMode')) {
+    command = 'setMode';
+    arg = { away: 'Away', home: 'Home', off: 'Disarmed' }[target];
+  }
+  try {
+    const ok = await cmd(id, command, arg);
+    console.log(`[Artemis] Alarm panel ${id}: ${command}${arg ? ' ' + arg : ''}${ok ? '' : ' (rejected)'}`);
+  } catch(e) {
+    console.warn('[Artemis] Alarm panel command failed:', command, e.message);
+  }
+}
+
+// Normalizes the panel mode strings different drivers use to off|home|away.
+function _ringModeKey(m) {
+  const s = String(m).toLowerCase();
+  if (/^(off|disarmed|none)$/.test(s)) return 'off';
+  if (/home|some|stay|night/.test(s)) return 'home';
+  if (/away|all/.test(s)) return 'away';
+  return s;
 }
 
 async function artemisHsmSync() {
@@ -8981,7 +9196,12 @@ async function artemisHsmSync() {
     if (ready) {
       const isArming = /arming\s*away|arming\s*home|arming\s*night|delayed\s*arming/i.test(hsm);
       if (isArming) {
-        if (!artemisTransition) {
+        // HSM trails Ring by a few seconds when Rule Machine keeps them in
+        // sync, so right after Ring's exit delay ends HSM can still say
+        // "arming". Starting a fresh countdown then would replay the whole
+        // delay and its announcement.
+        const ringJustFinished = _ringPrev.exitEndedAt && Date.now() - _ringPrev.exitEndedAt < 20000;
+        if (!artemisTransition && !ringJustFinished) {
           const target = /home|night/i.test(hsm) ? 'home' : 'away';
           artemisSetTransition('arming', target);
         }
@@ -9024,8 +9244,35 @@ async function artemisHsmSync() {
       // resolved mode actually changes (e.g. a real disarm); leave arming's
       // existing unconditional-clear behavior untouched.
       const isStaleEntryDelayClear = artemisTransition === 'entry-delay' && newMode === artemisMode;
-      if (artemisTransition && !isStaleEntryDelayClear) artemisClearTransition();
+      // A countdown Ring or HSM started is ended by that same source, not by
+      // this poll: /hsm can't see either kind of delay, and artemisMode can be
+      // stale (it starts as 'disarm' at boot, and lags a Ring keypad arm by up
+      // to 10s), so "mode differs" here doesn't mean the delay is over. The one
+      // exception is a real observed disarm, as a backstop if the source's own
+      // end signal is ever missed.
+      const isExternalTransition = artemisTransitionSource === 'ring' || artemisTransitionSource === 'hsm';
+      const isObservedDisarm = prevReady === true && artemisMode !== 'disarm' && newMode === 'disarm';
+      // Second backstop: the source's "it's over" signal never arrived (a
+      // driver or cloud hiccup) and the countdown ran out well over half a
+      // minute ago. Otherwise it would sit at 0 until the next disarm.
+      const isExpiredExternal = isExternalTransition && artemisCountdownEnd && Date.now() > artemisCountdownEnd + 30000;
+      const shouldClear = artemisTransition && (isExternalTransition ? (isObservedDisarm || isExpiredExternal) : !isStaleEntryDelayClear);
+      if (shouldClear) artemisClearTransition();
       if (changed) {
+        // prevReady === true skips the first sync after boot, which is just
+        // learning the current state rather than observing a change.
+        if (prevReady === true && newMode !== artemisMode) {
+          announceHsmEvent(newMode === 'away' ? 'Armed away' : newMode === 'home' ? 'Armed home' : 'Disarmed');
+        }
+        // A disarm from anywhere (keypad, Ring app, a rule) ends an intrusion.
+        // Smoke/water alerts are independent of arm state and stay up. Only on
+        // an actual change to disarmed: `changed` is also true whenever any
+        // countdown is running, and closing the sheet then would wipe a PIN
+        // someone is typing while HSM simply lags behind Ring.
+        if (newMode === 'disarm' && artemisMode !== 'disarm') {
+          if (['intrusion', 'glass'].includes(artemisAlarmType)) artemisClearAlarm();
+          artemisCloseSheet();
+        }
         artemisMode = newMode;
         if (isMobile() ? activeTab === 'security' : activeRoom === 'security') renderSecurity();
         renderSidebar();
@@ -9043,6 +9290,76 @@ async function artemisHsmSync() {
   } catch(e) {
     // Network error — leave artemisHsmReady as-is, don't flash the no-HSM UI
     console.warn('[Artemis] HSM sync failed:', e.message);
+  }
+}
+
+// HSM's entry delay is a location event (hsmAlert), not a device attribute, so
+// Maker API's device poll never sees it and /hsm keeps reporting "armedAway"
+// for the whole window. The companion app subscribes to it on the hub and
+// reports the latest one at /security, with ages computed on the hub's own
+// clock. Deduped by alertAt so a dismissed PIN sheet or cleared alarm screen
+// doesn't come straight back on the next poll.
+let _hsmAlertHandledAt = null;
+let _hsmAlertLoggedAt = null;
+let _hsmSecInFlight = false;
+let _hsmSecFails = 0;
+let _hsmSecRetryAt = 0;
+async function artemisCompanionSecuritySync() {
+  if (!CONFIG.artemisEnabled || !HUB_STORE || _hsmSecInFlight) return;
+  if (!_companionAppVersion || _versionCmp(_companionAppVersion, '1.6.7') < 0) return;
+  if (_companionAppVersionFor !== String(HUB_STORE.appId)) return; // app id changed since the version check
+  if (Date.now() < _hsmSecRetryAt) return;
+  _hsmSecInFlight = true;
+  let out;
+  try {
+    out = await hubStoreFetch('security', undefined, { isolated: true });
+  } finally {
+    _hsmSecInFlight = false;
+  }
+  if (!out.ok) {
+    // An older app (downgrade, or a reinstall under the same id) answers 404:
+    // stop until the next version check says otherwise.
+    if (out.res && out.res.status === 404) {
+      _companionAppVersion = null;
+      clearTimeout(_companionCheckTimer); // re-learn it in a minute, not 6 hours
+      _companionCheckTimer = setTimeout(checkCompanionVersion, 60 * 1000);
+    }
+    _hsmSecFails++;
+    _hsmSecRetryAt = Date.now() + Math.min(60000, 3000 * Math.pow(2, _hsmSecFails));
+    return;
+  }
+  _hsmSecFails = 0;
+  _hsmSecRetryAt = 0;
+  let data;
+  try { data = await out.res.json(); } catch(e) { return; }
+  if (!data) return;
+  // Disarmed here while the request was out: a late response must not
+  // reopen the countdown.
+  if (artemisMode === 'disarm' && !artemisTransition) return;
+  const v = String(data.alert || '').toLowerCase();
+  const at = data.alertAt || null;
+  if (at && at !== _hsmAlertLoggedAt) {
+    _hsmAlertLoggedAt = at;
+    console.log(`[Artemis] HSM alert "${v}" (${Math.round((data.alertAgeMs || 0) / 1000)}s ago, active: ${data.alertActive === true})`);
+  }
+  if (!data.alertActive || !v) {
+    artemisEndEntryDelay('hsm');
+    return;
+  }
+  if (at === _hsmAlertHandledAt) return;
+  let type = null;
+  if (/intrusion/.test(v))               type = 'intrusion';
+  else if (/smoke|carbon/.test(v))       type = 'smoke';
+  else if (/water|leak|flood|freeze/.test(v)) type = 'water';
+  if (!type) return; // "arming", "rule", "cancel" and anything unrecognized
+  _hsmAlertHandledAt = at;
+  // HSM's entry-delay values are "intrusion-delay", "intrusion-home-delay",
+  // "intrusion-night-delay"; the plain value means the delay ran out.
+  if (type === 'intrusion' && /delay|pending/.test(v)) {
+    const total = CONFIG.artemisEntryDelay || 60;
+    artemisBeginEntryDelay('hsm', total - (data.alertAgeMs || 0) / 1000, total);
+  } else {
+    artemisEscalateAlarm('hsm', type);
   }
 }
 
@@ -9133,26 +9450,94 @@ function artemisClearAlarm() {
 
 // ── HSM transition states ────────────────────────────────────────────
 
-function artemisSetTransition(type, targetMode) {
+// opts.remainingSec / opts.totalSec come from an alarm system that reports its
+// own countdown (Ring does). Without them the configured delay is assumed to
+// have started just now. opts.source records who started it, so only that
+// same source can later end it -- Ring saying "no delay" must not cancel a
+// countdown HSM is running, and vice versa.
+function artemisSetTransition(type, targetMode, opts) {
+  opts = opts || {};
+  const isNew = artemisTransition !== type;
+  const configured = type === 'arming' ? (CONFIG.artemisExitDelay || 60) : (CONFIG.artemisEntryDelay || 60);
+  const totalSec = opts.totalSec > 0 ? opts.totalSec : configured;
+  const remainingSec = opts.remainingSec != null ? Math.max(0, Math.min(totalSec, opts.remainingSec)) : totalSec;
   artemisTransition = type;
   artemisArmingTarget = targetMode || null;
-  const delaySec = type === 'arming' ? (CONFIG.artemisExitDelay || 60) : (CONFIG.artemisEntryDelay || 60);
-  artemisCountdownEnd = Date.now() + delaySec * 1000;
+  artemisTransitionSource = opts.source || 'local';
+  artemisCountdownTotal = totalSec;
+  artemisCountdownEnd = Date.now() + remainingSec * 1000;
   if (artemisCountdownInterval) clearInterval(artemisCountdownInterval);
   artemisCountdownInterval = setInterval(artemisTickCountdown, 250);
+  if (isNew && type === 'arming') {
+    announceHsmEvent(`Arming ${targetMode === 'home' ? 'home' : 'away'}, ${Math.round(remainingSec)} seconds starting now`);
+  }
   if (isMobile() ? activeTab === 'security' : activeRoom === 'security') renderSecurity();
   renderSidebar();
   updateArmedStatus();
-  console.log(`[Artemis] transition: ${type}${targetMode ? ' → ' + targetMode : ''} (${delaySec}s)`);
+  console.log(`[Artemis] transition: ${type}${targetMode ? ' → ' + targetMode : ''} (${Math.round(remainingSec)}/${totalSec}s, source: ${artemisTransitionSource})`);
 }
 
 function artemisClearTransition() {
   artemisTransition = null;
   artemisArmingTarget = null;
+  artemisTransitionSource = null;
   artemisCountdownEnd = null;
+  artemisCountdownTotal = null;
   if (artemisCountdownInterval) { clearInterval(artemisCountdownInterval); artemisCountdownInterval = null; }
   const ring = document.querySelector('.a-trans-ring');
   if (ring) ring.remove();
+}
+
+function _artemisOnSecurityView() {
+  return isMobile() ? activeTab === 'security' : activeRoom === 'security';
+}
+
+// The alarm system (Ring or HSM) reported that someone has N seconds to
+// disarm. Never inferred from a door opening -- only the alarm system knows
+// whether that door is in an armed zone and whether a delay applies.
+function artemisBeginEntryDelay(source, remainingSec, totalSec) {
+  if (!CONFIG.artemisEnabled) return;
+  // Already escalated to a real alarm -- don't step back down to a countdown.
+  if (artemisAlarmType === 'intrusion') return;
+  if (artemisTransition === 'entry-delay') {
+    // Already counting (possibly started by the other system). A source that
+    // reports its own clock is more accurate than an assumed full delay.
+    if (remainingSec != null && artemisTransitionSource !== source && source === 'ring') {
+      artemisSetTransition('entry-delay', null, { remainingSec, totalSec, source });
+    }
+    return;
+  }
+  artemisSetTransition('entry-delay', null, { remainingSec, totalSec, source });
+  const secs = Math.round((artemisCountdownEnd - Date.now()) / 1000);
+  announceHsmEvent(`Attention, alarm triggering in ${secs} seconds`);
+  if (isMobile()) {
+    selectTab('security');
+    artemisOpenSheet();
+  } else if (activeRoom !== 'security') {
+    selectRoom('security');
+  }
+}
+
+// The source that started the countdown says it's over without escalating --
+// almost always a disarm from somewhere else (keypad, Ring app, a rule).
+function artemisEndEntryDelay(source) {
+  if (artemisTransition !== 'entry-delay' || artemisTransitionSource !== source) return;
+  artemisClearTransition();
+  artemisCloseSheet();
+  if (_artemisOnSecurityView()) renderSecurity();
+  renderSidebar();
+  updateArmedStatus();
+  artemisHsmSync(); // pick up the new arm state now instead of in up to 10s
+}
+
+function artemisEscalateAlarm(source, type) {
+  if (!CONFIG.artemisEnabled || artemisAlarmType === type) return;
+  if (artemisTransition) artemisClearTransition();
+  console.log(`[Artemis] alarm: ${type} (source: ${source})`);
+  announceHsmEvent(type === 'intrusion' ? 'Alarm triggered' : 'Security alert');
+  artemisShowAlarm(type);
+  renderSidebar();
+  updateArmedStatus();
 }
 
 function artemisTickCountdown() {
@@ -9172,11 +9557,15 @@ function artemisTickCountdown() {
 function artemisGemWithRing(mode) {
   const isEntry = artemisTransition === 'entry-delay';
   const cls = isEntry ? 'a-entry' : 'a-arming';
-  const delaySec = isEntry ? (CONFIG.artemisEntryDelay || 60) : (CONFIG.artemisExitDelay || 60);
+  const delaySec = artemisCountdownTotal || (isEntry ? (CONFIG.artemisEntryDelay || 60) : (CONFIG.artemisExitDelay || 60));
+  // A negative delay starts the sweep part-way through, so a re-render or a
+  // countdown that began before this screen saw it stays in step with the
+  // real clock instead of restarting from full.
+  const elapsedSec = artemisCountdownEnd ? Math.max(0, delaySec - (artemisCountdownEnd - Date.now()) / 1000) : 0;
   return `<div class="a-trans-ring">
     <svg viewBox="0 0 100 100">
       <circle class="a-trans-ring-bg" cx="50" cy="50" r="46"/>
-      <circle class="a-trans-ring-fg ${cls}" cx="50" cy="50" r="46" style="animation-duration:${delaySec}s"/>
+      <circle class="a-trans-ring-fg ${cls}" cx="50" cy="50" r="46" style="animation-duration:${delaySec}s;animation-delay:-${elapsedSec.toFixed(2)}s"/>
     </svg>
     <div class="a-trans-icon">${artemisGemSVG(mode, 22, 26)}</div>
   </div>`;
@@ -10311,6 +10700,15 @@ function spDiagnosticsBody() {
       ${diagRow('loginsec', 'Hub Login Security', 'Detects a hub login page intercepting API requests')}
       ${diagRow('devices', 'Device Authorization', 'Whether every device Hestia references is still authorized in Maker API')}
       ${diagRow('groovy', 'Companion App', 'Reachability and version of the Hestia app on the hub')}
+      <div id="diag-relink" hidden style="margin:-2px 0 10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px">
+        <div class="sp-toggle-name" style="margin-bottom:4px">Reconnect the companion app</div>
+        <div class="sp-hint" style="margin-bottom:8px">1. Open <a id="diag-relink-link" href="#" target="_blank" rel="noopener" style="color:var(--amber)">your hub's discovery file</a> in a new tab on this device.<br>2. Copy everything on that page and paste it here.<br>3. Click Reconnect. Hestia checks it with your hub before saving anything.</div>
+        <textarea class="sp-input" id="diag-relink-input" rows="3" style="width:100%;font-family:monospace;font-size:11px;resize:vertical" placeholder='{"appId":"123","token":"…","hubIp":"192.168.1.50",…}' aria-label="Paste the contents of hestia-token.json"></textarea>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+          <button class="sp-btn sp-btn-secondary" style="height:28px;padding:0 12px;font-size:11px" id="diag-relink-btn" onclick="diagRelinkCompanion()">Reconnect</button>
+          <span class="sp-hint" id="diag-relink-result" role="status"></span>
+        </div>
+      </div>
       ${diagRow('push', 'Push Pipeline', 'Notification permission, service worker, and device registration')}
       ${diagRow('cloud', 'Cloud Sync', 'Reachability of the hestari.com backend')}
       ${diagRow('env', 'Browser / Environment', 'Browser, online state, and API support on this device')}
@@ -10470,10 +10868,85 @@ async function diagCheckHubGroup() {
 // Separate from Maker API entirely -- the companion app has its own OAuth
 // app instance/token (HUB_STORE), so this can be reachable/unreachable
 // independent of the Maker API checks above.
+// A page loaded from somewhere other than the hub (hestari.com) can't read the
+// hub's discovery file on its own, so it can't find a reinstalled companion
+// app's new ID. Cloud sync can't carry it over either: it doesn't run from a
+// hub-served page. The user opens the file themselves (a normal tab isn't
+// blocked) and pastes it here.
+function diagShowRelink(show) {
+  const box = document.getElementById('diag-relink');
+  if (!box) return;
+  box.hidden = !show;
+  const link = document.getElementById('diag-relink-link');
+  if (link && CONFIG.hub) link.href = CONFIG.hub.replace(/\/+$/, '') + '/local/hestia-token.json';
+}
+
+async function diagRelinkCompanion() {
+  const input = document.getElementById('diag-relink-input');
+  const result = document.getElementById('diag-relink-result');
+  const say = (msg, ok) => { if (result) { result.textContent = msg; result.style.color = ok ? 'var(--a-ok)' : 'var(--conn-err)'; } };
+  let data;
+  try { data = JSON.parse((input && input.value || '').trim()); } catch (e) {
+    say("That isn't the discovery file. Copy the whole page, starting with {.", false); return;
+  }
+  const appId = data && data.appId != null ? String(data.appId).trim() : '';
+  const token = data && typeof data.token === 'string' ? data.token.trim() : '';
+  if (!/^\d+$/.test(appId) || !/^[\w-]{8,}$/.test(token)) {
+    say('The pasted text is missing the app ID or token.', false); return;
+  }
+  // The file names the hub it came from. Refuse one from a different hub rather
+  // than pairing this dashboard with an app it can't reach.
+  // Only comparable when the hub is configured by IP; a .local name can't be
+  // checked against the IP the file records.
+  try {
+    const host = CONFIG.hub ? new URL(CONFIG.hub).hostname : '';
+    if (data.hubIp && /^\d{1,3}(\.\d{1,3}){3}$/.test(host) && host !== String(data.hubIp)) {
+      say(`That file is from the hub at ${data.hubIp}, but this dashboard uses ${host}.`, false); return;
+    }
+  } catch (e) {}
+  // The token only ever goes to the configured local hub, never to wherever
+  // this page happens to be served from.
+  if (!CONFIG.hub || !isLocalHubUrl(CONFIG.hub)) {
+    say('Set your hub address in Settings → Hub Connection first.', false); return;
+  }
+  const btn = document.getElementById('diag-relink-btn');
+  if (btn) btn.disabled = true;
+  const candidate = { appId, token, _hubUrl: CONFIG.hub };
+  say('Checking with your hub…', true);
+  let out, info = null;
+  try {
+    // Probed without becoming HUB_STORE, and isolated: a wrong paste can't
+    // trip the breaker, be read as "app deleted", or be used by anything else
+    // while the check is in flight.
+    out = await hubStoreFetch('version', null, { store: candidate, isolated: true });
+    if (out.ok) { try { info = await out.res.json(); } catch (e) {} }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+  if (!out.ok || !info || !info.appVersion) {
+    say("Your hub didn't accept those details. Make sure the file is from this hub and the Hestia app is installed.", false);
+    return;
+  }
+  HUB_STORE = candidate;
+  CONFIG.hestiaAppId = appId;
+  CONFIG.hestiaAppToken = token;
+  _breakerReset();
+  _companionAppVersion = String(info.appVersion);
+  _companionAppVersionFor = appId;
+  if (input) input.value = '';
+  say('Reconnected.', true);
+  await saveConfig(); // carries the new ID to the hub and your other devices
+  diagCheckGroovy();
+}
+
 async function diagCheckGroovy() {
+  diagShowRelink(false);
   if (!HUB_STORE) reconstructHubStore();
   if (!HUB_STORE) {
-    diagSetStatus('groovy', 'amber', 'Not discovered', `The companion app hasn't been discovered on this device yet. Open the dashboard on your local network at least once so it can be found.`);
+    diagSetStatus('groovy', 'amber', 'Not discovered', isServedFromHub()
+      ? `The companion app wasn't found on this hub. Make sure the Hestia Dashboard app is installed, then open it and click Done.`
+      : `This device hasn't connected to the companion app yet. If it's installed on your hub, reconnect it below.`);
+    if (!isServedFromHub() && CONFIG.hub && isLocalHubUrl(CONFIG.hub)) diagShowRelink(true);
     return;
   }
   // User-initiated, so deliberately bypass the breaker and force a live probe.
@@ -10502,9 +10975,17 @@ async function diagCheckGroovy() {
     // requests are being suppressed on purpose.
     const b = _breakerRead();
     const backoffNote = (wasBackedOff && b)
-      ? ` Hestia has backed off after ${b.fails} consecutive failures and is now retrying only occasionally, to avoid flooding your hub's log. If the companion app was reinstalled, its app ID changed: open this dashboard once from your hub's own address (http://<hub-ip>/local/index.html) so it can pick up the new one.`
+      ? ` Hestia has backed off after ${b.fails} consecutive failures and is now retrying only occasionally, to avoid flooding your hub's log.`
       : '';
-    diagSetStatus('groovy', 'red', 'Unreachable', `Could not reach the companion app's own endpoint (separate from Maker API). Make sure the Hestia Dashboard app instance is still installed and enabled on the hub.${backoffNote}`);
+    // Until v1.6.7 this told users to open the dashboard from the hub's own
+    // address so it would "pick up" a reinstalled app's new ID. That can't
+    // work: the ID only reaches other devices through cloud sync, which
+    // doesn't run from a hub-served page.
+    const relinkNote = isServedFromHub()
+      ? ''
+      : ` If the app was reinstalled, it has a new ID this device can't look up on its own. Reconnect it below.`;
+    diagSetStatus('groovy', 'red', 'Unreachable', `Could not reach the companion app's own endpoint (separate from Maker API). Make sure the Hestia Dashboard app instance is still installed and enabled on the hub.${backoffNote}${relinkNote}`);
+    if (!isServedFromHub() && CONFIG.hub && isLocalHubUrl(CONFIG.hub)) diagShowRelink(true);
   }
 }
 
@@ -12409,24 +12890,49 @@ function camDetailMediaHTML(cam, i) {
 // software does: keep re-requesting on an interval while the detail view
 // is open, so a single failed frame is just superseded a second later
 // rather than needing an explicit recovery.
+// One refresh interval (Settings -> Cameras) for every snapshot, in the grid
+// and the enlarged view alike. Snapshot-only cameras refresh in the enlarged
+// view too; they used to sit on whatever frame was showing when it opened.
+// A live stream URL isn't a snapshot and doesn't take the setting: it keeps
+// Hubitat's own ~1s tile rate so "live" stays live whatever the grid uses.
+const CAM_REFRESH_CHOICES = [1, 2, 5, 10, 30, 60];
 const CAM_STREAM_POLL_MS = 1000;
+function camRefreshMs() {
+  const s = parseInt(CONFIG.cameraRefreshSec, 10);
+  return (s >= 1 && s <= 300 ? s : 5) * 1000;
+}
 let _camStreamPollTimer = null;
 function camStreamPollStart(i) {
   camStreamPollStop();
-  _camStreamPollTimer = setInterval(() => {
+  // A timeout chain rather than setInterval, so a new interval chosen in
+  // Settings takes effect on the next frame.
+  const tick = () => {
     const stillVisible = camDetailIdx === i && (
       (!isMobile() && activeRoom === 'cameras') ||
       (isMobile() && activeTab === 'security' && artemisCamerasView)
     );
     const cam = (CONFIG.cameras || [])[i];
     const img = document.querySelector('.cam-detail-img img');
-    if (!stillVisible || !img || !cam || !cam.streamUrl) { camStreamPollStop(); return; }
-    const base = camStreamSrc(cam);
-    img.src = base + (base.includes('?') ? '&' : '?') + '_poll=' + Date.now();
-  }, CAM_STREAM_POLL_MS);
+    if (!stillVisible || !img || !cam || !(cam.streamUrl || cam.snapshotUrl)) { camStreamPollStop(); return; }
+    // Raw URL, not the HTML-escaped one the templates use: assigning an
+    // escaped "&amp;" to .src breaks any URL with more than one query param.
+    const base = cam.streamUrl || cam.snapshotUrl;
+    // Same rule as the grid: let a slow snapshot finish. (Not for streams --
+    // a multipart MJPEG <img> never reports complete while it's streaming.)
+    if (!cam.streamUrl && !img.complete) { _camStreamPollTimer = setTimeout(tick, camRefreshMs()); return; }
+    if (!cam.streamUrl) CAM_STATE[i] = Object.assign({}, CAM_STATE[i], { cacheBust: Date.now() });
+    const next = base + (base.includes('?') ? '&' : '?') + (cam.streamUrl ? '_poll=' : '_hb=') + Date.now();
+    // A frame that never finishes would otherwise leave the image frozen on an
+    // Online badge, since later ticks skip an incomplete snapshot.
+    if (!cam.streamUrl) camArmLoadTimer(i, next);
+    img.src = next;
+    _camStreamPollTimer = setTimeout(tick, cam.streamUrl ? CAM_STREAM_POLL_MS : camRefreshMs());
+  };
+  const first = (CONFIG.cameras || [])[i];
+  _camStreamPollTimer = setTimeout(tick, first && first.streamUrl ? CAM_STREAM_POLL_MS : camRefreshMs());
 }
 function camStreamPollStop() {
-  clearInterval(_camStreamPollTimer);
+  clearTimeout(_camStreamPollTimer);
   _camStreamPollTimer = null;
 }
 
@@ -12480,12 +12986,29 @@ function camMarkOnline(i) {
   const was = CAM_STATE[i] && CAM_STATE[i].online;
   CAM_STATE[i] = Object.assign({}, CAM_STATE[i], { online: true, lastFetch: Date.now(), offlineReason: null });
   if (was !== true && !isMobile()) renderSidebar(); // sidebar shows online count on desktop only
+  // Auto-refresh swaps images in place without re-rendering, so a camera
+  // coming back needs a re-render to drop its Offline badge.
+  if (was === false) camRerenderCurrentView();
 }
 function camMarkOffline(i) {
   camClearLoadTimer(i);
   const was = CAM_STATE[i] && CAM_STATE[i].online;
+  // Already offline: just note the attempt. Re-rendering and re-diagnosing on
+  // every failed frame would hit the network and rebuild the view once per
+  // refresh interval (as often as every second) for as long as it's down.
+  if (was === false) {
+    const prev = CAM_STATE[i] || {};
+    CAM_STATE[i] = Object.assign({}, prev, { lastFetch: Date.now() });
+    // Re-check why about once a minute, so a reason that changes (hub back
+    // up but now 401, or a fixed 404) doesn't stay stale on the badge.
+    if (!prev.diagnosedAt || Date.now() - prev.diagnosedAt > 60000) {
+      CAM_STATE[i].diagnosedAt = Date.now();
+      camDiagnoseOffline(i);
+    }
+    return;
+  }
   CAM_STATE[i] = Object.assign({}, CAM_STATE[i], { online: false, lastFetch: Date.now(), offlineReason: null });
-  if (was !== false && !isMobile()) renderSidebar();
+  if (!isMobile()) renderSidebar();
   camRerenderCurrentView();
   camDiagnoseOffline(i);
 }
@@ -12526,9 +13049,11 @@ async function camDiagnoseOffline(i) {
   }
   // Only apply if this camera is STILL marked offline by the time this
   // resolves (a slow diagnostic shouldn't overwrite a status that's since
-  // recovered via a refresh) and there's actually something more specific
-  // to say than the generic label already showing.
-  if (!reason || !CAM_STATE[i] || CAM_STATE[i].online !== false) return;
+  // recovered via a refresh). Re-checks run about once a minute while a
+  // camera stays down, so only re-render when the reason actually changed,
+  // and drop an old specific reason that no longer applies.
+  if (!CAM_STATE[i] || CAM_STATE[i].online !== false) return;
+  if ((CAM_STATE[i].offlineReason || null) === reason) return;
   CAM_STATE[i] = Object.assign({}, CAM_STATE[i], { offlineReason: reason });
   camRerenderCurrentView();
 }
@@ -12566,17 +13091,36 @@ async function camWarmStateOnBoot() {
 // Background auto-refresh — only fires while a camera-viewing surface is
 // actually on screen, so idle screens don't waste bandwidth re-fetching
 // images nobody's looking at.
-const CAM_AUTO_REFRESH_MS = 30000;
 let camAutoRefreshTimer = null;
 function camAutoRefreshTick() {
   const desktopVisible = !isMobile() && activeRoom === 'cameras' && camDetailIdx === null;
   const mobileVisible  = isMobile() && activeTab === 'security' && artemisCamerasView && camDetailIdx === null;
   if (!desktopVisible && !mobileVisible) return;
-  camRefreshAll();
+  // Swap each thumbnail's src in place instead of re-rendering: at a short
+  // interval a re-render would flash every tile blank and, on mobile, rebuild
+  // the whole Security screen each tick. The browser keeps showing the old
+  // frame until the new one arrives. A tile whose last frame is still loading
+  // is skipped, so a slow camera finishes a frame instead of being cancelled
+  // over and over.
+  const cams = CONFIG.cameras || [];
+  document.querySelectorAll('img[data-cam-img]').forEach(img => {
+    const i = parseInt(img.getAttribute('data-cam-img'), 10);
+    const cam = cams[i];
+    if (!cam || !cam.snapshotUrl || !img.complete) return;
+    const bust = Date.now();
+    CAM_STATE[i] = Object.assign({}, CAM_STATE[i], { cacheBust: bust });
+    const next = cam.snapshotUrl + (cam.snapshotUrl.includes('?') ? '&' : '?') + '_hb=' + bust;
+    camArmLoadTimer(i, next); // same reason as the enlarged view: a stalled frame must still time out
+    img.src = next;
+  });
 }
 function camStartAutoRefresh() {
   if (camAutoRefreshTimer) return;
-  camAutoRefreshTimer = setInterval(camAutoRefreshTick, CAM_AUTO_REFRESH_MS);
+  const loop = () => {
+    camAutoRefreshTick();
+    camAutoRefreshTimer = setTimeout(loop, camRefreshMs());
+  };
+  camAutoRefreshTimer = setTimeout(loop, camRefreshMs());
 }
 
 function camGoPage(p) {
@@ -12601,7 +13145,7 @@ function camExpand(i) {
   camDetailIdx = i;
   camRerenderCurrentView();
   const cam = (CONFIG.cameras || [])[i];
-  if (cam && cam.streamUrl) camStreamPollStart(i); else camStreamPollStop();
+  if (cam && (cam.streamUrl || cam.snapshotUrl)) camStreamPollStart(i); else camStreamPollStop();
 }
 function camCloseDetail() {
   camStreamPollStop();
@@ -12649,7 +13193,7 @@ function renderCameras() {
     const hasThumb = !!cam.snapshotUrl;
     if (hasThumb) camArmLoadTimer(i, camSrc(cam, i));
     const media = hasThumb
-      ? `<img src="${camSrc(cam, i)}" alt="" referrerpolicy="no-referrer" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">
+      ? `<img data-cam-img="${i}" src="${camSrc(cam, i)}" alt="" referrerpolicy="no-referrer" onerror="camMarkOffline(${i})" onload="camMarkOnline(${i})">
          <span class="cam-live-badge ${status.cls}"><span class="cam-live-dot"></span>${status.label}</span>`
       : camPlaceholderHTML(cam);
     return `
@@ -12681,7 +13225,7 @@ function renderCameras() {
     `<span class="cam-page-dot ${p === camPage ? 'active' : ''}" onclick="camGoPage(${p})"></span>`).join('')}</div>` : '';
 
   ma.innerHTML = roomHeader('', 'Cameras', 'Showing ' + (camPage * perPage + 1) + '-' + Math.min(camPage * perPage + perPage, cams.length) + ' of ' + cams.length,
-    `<span style="font-size:11px;color:var(--t4);margin-right:10px">Auto-refresh: ${CAM_AUTO_REFRESH_MS / 1000}s</span>
+    `<span style="font-size:11px;color:var(--t4);margin-right:10px">Auto-refresh: ${camRefreshMs() / 1000}s</span>
      <button class="cam-refresh-all-btn" onclick="camRefreshAll()">&#8635; Refresh all</button>`) +
     `<div class="cam-grid" ontouchstart="camSwipeStart(event)" ontouchend="camSwipeEnd(event)">${tiles}</div>${dots}`;
 }
@@ -13773,7 +14317,7 @@ function spShowSection(id, force) {
         <div class="sp-group">
           <div class="sp-group-lbl">Hubitat Hub</div>
           <div class="sp-field"><label class="sp-label">Hub URL</label>
-            <input class="sp-input" id="sp-hub" value="${CONFIG.hub}" placeholder="http://192.168.1.100">${httpsHint}</div>
+            <input class="sp-input" id="sp-hub" value="${escapeHtml(_hubUrlToShare() || '')}" placeholder="http://192.168.1.100">${_hubUrlToShare() !== CONFIG.hub ? `<span class="sp-hint">This device is loaded from the hub, so it connects through ${escapeHtml(CONFIG.hub)}. Your other devices use the address above.</span>` : httpsHint}</div>
           <div class="sp-input-row">
             <div class="sp-field" style="flex:1"><label class="sp-label">Maker API App ID</label>
               <input class="sp-input" id="sp-appid" value="${CONFIG.appId}"></div>
@@ -13939,7 +14483,8 @@ function spShowSection(id, force) {
         <div class="sp-group">
           <div id="sp-cameras-list">${cameraRows || '<span class="sp-hint" style="margin:8px 0;display:block">No cameras configured.</span>'}</div>
           <button class="sp-btn sp-btn-secondary" onclick="spAddCamera()" style="padding:0 16px;margin-top:8px;align-self:flex-start">+ Add Camera</button>
-          <span class="sp-hint">Snapshot URL must return a still image (JPEG/PNG) and is used for thumbnails. Live Stream URL is optional and must be an MJPEG stream (multipart HTTP), e.g. Hubitat's built-in RTSP Camera Stream driver on C-8 Pro hubs -- add it to view a real live feed when you expand a camera. A camera needs at least one of the two. List order controls display order everywhere cameras appear. Using an <code>https://</code> hub URL? Hubitat serves HTTPS on port <strong>8443</strong>, not the default 443 -- include it explicitly, e.g. <code>https://192.168.1.50:8443/hub2/videoStream/1.mjpg</code>.</span>
+          ${(() => { const cur = Math.round(camRefreshMs() / 1000); const opts = CAM_REFRESH_CHOICES.includes(cur) ? CAM_REFRESH_CHOICES : CAM_REFRESH_CHOICES.concat(cur).sort((x, y) => x - y); return `<div class="sp-field" style="margin-top:14px"><label class="sp-label" for="sp-camera-refresh">Refresh every</label><select class="sp-select" id="sp-camera-refresh" style="max-width:160px">${opts.map(s => `<option value="${s}" ${s === cur ? "selected" : ""}>${s === 1 ? "1 second" : s + " seconds"}</option>`).join("")}</select><span class="sp-hint">How often snapshots update, in the camera grid and when you enlarge a camera. Shorter intervals look closer to live but put more load on your cameras and hub. Cameras with a Live Stream URL play live when enlarged regardless of this setting.</span></div>`; })()}
+          <span class="sp-hint">Snapshot URL must return a still image (JPEG/PNG) and is used for thumbnails. Live Stream URL is optional and must be an MJPEG stream (multipart HTTP), e.g. Hubitat's built-in RTSP Camera Stream driver on C-8 Pro hubs -- add it to view a real live feed when you expand a camera. A camera needs at least one of the two. List order controls display order everywhere cameras appear. Using an <code>https://</code> hub URL? Use the same address and port you use for the hub itself, e.g. <code>https://192.168.1.50/hub2/videoStream/1.mjpg</code>.</span>
         </div>`;
       break;
 
@@ -14308,7 +14853,13 @@ async function saveSettings() {
   const timeout = document.getElementById('sp-timeout');
   const lat     = document.getElementById('sp-lat');
   const lon     = document.getElementById('sp-lon');
-  if (hub)     CONFIG.hub           = hub.value.trim();
+  if (hub) {
+    // The field shows the shared URL (what other devices use). Saving it
+    // updates that; this device still connects per _hubUrlForThisDevice().
+    const v = hub.value.trim();
+    _sharedHubUrl = v;
+    CONFIG.hub = _hubUrlForThisDevice(v);
+  }
   if (appid)   CONFIG.appId         = appid.value.trim();
   if (token)   CONFIG.token         = token.value.trim();
   if (poll)    CONFIG.poll          = Math.max(500, parseInt(poll.value) || 1000);
@@ -14336,6 +14887,11 @@ async function saveSettings() {
     });
   }
   // Cameras
+  const camRefreshEl = document.getElementById('sp-camera-refresh');
+  if (camRefreshEl) {
+    const s = parseInt(camRefreshEl.value, 10);
+    if (s >= 1 && s <= 300) CONFIG.cameraRefreshSec = s;
+  }
   const cameraNameEls   = document.querySelectorAll('.sp-camera-name');
   const cameraUrlEls    = document.querySelectorAll('.sp-camera-url');
   const cameraStreamEls = document.querySelectorAll('.sp-camera-stream');
@@ -14414,9 +14970,9 @@ async function saveSettings() {
 function exportSettings() {
   const data = {
     config: {
-      hub: CONFIG.hub, appId: CONFIG.appId, token: CONFIG.token, poll: CONFIG.poll,
+      hub: _hubUrlToShare(), appId: CONFIG.appId, token: CONFIG.token, poll: CONFIG.poll,
       defaultRoom: CONFIG.defaultRoom, returnTimeout: CONFIG.returnTimeout, roomSort: CONFIG.roomSort,
-      locks: CONFIG.locks, cameras: CONFIG.cameras || [], weather: CONFIG.weather, settingsPin: CONFIG.settingsPin, pinInstallSalt: CONFIG.pinInstallSalt,
+      locks: CONFIG.locks, cameras: CONFIG.cameras || [], cameraRefreshSec: CONFIG.cameraRefreshSec, weather: CONFIG.weather, settingsPin: CONFIG.settingsPin, pinInstallSalt: CONFIG.pinInstallSalt,
       artemisEnabled: CONFIG.artemisEnabled, artemisPin: CONFIG.artemisPin,
       artemisExitDelay: CONFIG.artemisExitDelay, artemisEntryDelay: CONFIG.artemisEntryDelay,
       artemisRingDeviceId: CONFIG.artemisRingDeviceId,
@@ -14475,6 +15031,7 @@ function handleImport(evt) {
           return;
         }
         Object.assign(CONFIG, parsed.config);
+        if (CONFIG.hub) { _sharedHubUrl = CONFIG.hub; CONFIG.hub = _hubUrlForThisDevice(CONFIG.hub); }
       }
       if (!CONFIG.artemisSensors ||
           !Object.values(CONFIG.artemisSensors).some(a => Array.isArray(a) && a.length > 0)) {
@@ -14510,6 +15067,7 @@ function resetSettings() {
   if (!confirm('Reset to factory defaults? All custom configuration will be lost.')) return;
   localStorage.removeItem('dashboard-config');
   Object.assign(CONFIG, deepClone(DEFAULTS.config));
+  _sharedHubUrl = null;
   thermostats.length = 0; DEFAULTS.thermostats.forEach(t => thermostats.push(deepClone(t)));
   rooms.length = 0;       DEFAULTS.rooms.forEach(r => rooms.push(deepClone(r)));
   applyConfig();
@@ -15499,302 +16057,20 @@ function patchHomeStats() {
   });
 }
 
-/* ═══════════════════════════════════════════════════════
-   WEBSOCKET — real-time device event subscription.
-   Hubitat pushes a JSON message the instant any device
-   changes state. No polling delay.
-   Falls back to the 1s poll loop if WS is unavailable.
-═══════════════════════════════════════════════════════ */
-let ws            = null;
-let wsConnected   = false;
-let wsRetryDelay  = 2000;
-let wsRetryTimer  = null;
-// Motion auto-clear — tracks per-sensor timers keyed by device ID
-const _motionClearTimers = {};
-
-function wsUrl() {
-  const secure = CONFIG.hub.startsWith('https://');
-  const host = CONFIG.hub.replace(/^https?:\/\//, '');
-  return `${secure ? 'wss' : 'ws'}://${host}/apps/api/${CONFIG.appId}/ws?access_token=${CONFIG.token}`;
-}
-
-function connectWebSocket() {
-  clearTimeout(wsRetryTimer);
-  try {
-    ws = new WebSocket(wsUrl());
-  } catch(e) {
-    scheduleWsRetry();
-    return;
-  }
-
-  ws.onopen = function() {
-    wsConnected  = true;
-    wsRetryDelay = 2000;       // reset backoff on successful connect
-    setConn('ok');
-    console.log('[WS] connected');
-  };
-
-  ws.onmessage = function(event) {
-    try {
-      const msg = JSON.parse(event.data);
-
-      // ── HSM system events (no deviceId) ─────────────────────────────
-      // Hubitat sends: {source:"HSM", name:"hsmStatus", value:"armedAway"}
-      //            or: {source:"HSM", name:"hsmAlert",  value:"intrusion"}
-      if (msg.source === 'HSM' || msg.name === 'hsmStatus' || msg.name === 'hsmAlert') {
-        if (msg.name === 'hsmStatus' || msg.name === 'hsmSetArm') {
-          const raw = String(msg.value || '').toLowerCase();
-          // Detect arming transitional states
-          if (/arming\s*away|delayed\s*arming/i.test(raw)) {
-            if (!artemisTransition) artemisSetTransition('arming', 'away');
-            announceHsmEvent('Arming away — ' + (CONFIG.artemisExitDelay || 60) + ' seconds starting now');
-            return;
-          }
-          if (/arming\s*home|arming\s*night/i.test(raw)) {
-            if (!artemisTransition) artemisSetTransition('arming', 'home');
-            announceHsmEvent('Arming home — ' + (CONFIG.artemisExitDelay || 60) + ' seconds starting now');
-            return;
-          }
-          // Final armed/disarmed state — clear transition, update mode
-          let newMode = 'disarm';
-          if      (/armed\s*away/i.test(raw))                newMode = 'away';
-          else if (/armed\s*home|armed\s*night/i.test(raw))  newMode = 'home';
-          else if (/disarm|alldisarmed/i.test(raw))          newMode = 'disarm';
-          const wsChanged = newMode !== artemisMode || artemisTransition;
-          // Same guard as artemisHsmSync() -- an hsmStatus resend with an
-          // unchanged mode shouldn't wipe a legitimate entry-delay countdown.
-          const isStaleEntryDelayClearWs = artemisTransition === 'entry-delay' && newMode === artemisMode;
-          if (artemisTransition && !isStaleEntryDelayClearWs) artemisClearTransition();
-          if (wsChanged) {
-            artemisMode = newMode;
-            if (newMode === 'away') announceHsmEvent('Armed away');
-            else if (newMode === 'home') announceHsmEvent('Armed home');
-            else announceHsmEvent('Disarmed');
-            if (isMobile() ? activeTab === 'security' : activeRoom === 'security') {
-              renderSecurity();
-            }
-            renderSidebar();
-            updateArmedStatus();
-          }
-        } else if (msg.name === 'hsmAlert') {
-          const alertVal = String(msg.value || '').toLowerCase();
-          let alertType = 'intrusion';
-          if (/smoke|co|carbonmonoxide/i.test(alertVal))  alertType = 'smoke';
-          else if (/water|flood|freeze/i.test(alertVal))  alertType = 'water';
-          else if (/glass/i.test(alertVal))               alertType = 'glass';
-          else if (/intrusion|motion|contact/i.test(alertVal)) alertType = 'intrusion';
-          // HSM sends a distinct "...-pending" value during its own configured
-          // delay window before an intrusion escalates -- that's exactly when the
-          // entry-delay countdown should show, not a real trip yet. Previously
-          // this was keyed off "!artemisTransition" instead, which both missed
-          // re-arming races and had no way to tell "still in the delay window"
-          // from "actually tripped." artemisAlarmType (the full red "Intrusion
-          // detected" banner) is deliberately NOT set until the escalated branch
-          // below -- setting it here showed a full alarm banner during a delay
-          // window where nothing has actually happened yet.
-          const isPending = /pending/.test(alertVal);
-          if (alertType === 'intrusion' && isPending) {
-            artemisSetTransition('entry-delay', null);
-            announceHsmEvent('Attention — alarm triggering in ' + (CONFIG.artemisEntryDelay || 60) + ' seconds');
-            if (!isDesktop()) {
-              selectTab('security');
-              artemisOpenSheet();
-            }
-            return;
-          }
-          // Escalated past the delay window (or any non-intrusion HSM alert) -- a real event
-          artemisAlarmType = alertType;
-          if (artemisTransition) artemisClearTransition();
-          if (isMobile() ? activeTab === 'security' : activeRoom === 'security') {
-            renderSecurity();
-          } else {
-            artemisShowAlarm(alertType);
-          }
-        }
-        return; // HSM events handled — don't fall through to device handling
-      }
-
-      // ── Alarm base station events (Ring or any integration) ────────
-      if (CONFIG.artemisRingDeviceId && msg.deviceId && String(msg.deviceId) === CONFIG.artemisRingDeviceId) {
-        const attrName = String(msg.name || '').toLowerCase();
-        const attrVal = String(msg.value || '').toLowerCase();
-        console.log(`[Artemis] Ring device ${msg.deviceId}: ${attrName}=${attrVal}`);
-
-        // Entry delay / intrusion from Ring (securityKeypad, alarmStatus, status attributes)
-        if (/entry.?delay|alarming|siren|intrusion/i.test(attrVal) && !artemisTransition) {
-          artemisSetTransition('entry-delay', null);
-          announceHsmEvent('Attention — alarm triggering in ' + (CONFIG.artemisEntryDelay || 60) + ' seconds');
-          if (!isDesktop()) {
-            selectTab('security');
-            artemisOpenSheet();
-          }
-          return;
-        }
-
-        if (/alarmmode|alarm|mode/i.test(attrName)) {
-          if (/^(off|none|disarmed)$/i.test(attrVal) && (artemisMode !== 'disarm' || artemisTransition)) {
-            artemisClearTransition();
-            artemisMode = 'disarm';
-            if (isMobile() ? activeTab === 'security' : activeRoom === 'security') renderSecurity();
-            renderSidebar();
-            updateArmedStatus();
-            artemisHsmCmd('disarm');
-          } else if (/away/i.test(attrVal) && !/disarm/i.test(attrVal) && artemisMode !== 'away') {
-            if (artemisTransition) artemisClearTransition();
-            artemisMode = 'away';
-            if (isMobile() ? activeTab === 'security' : activeRoom === 'security') renderSecurity();
-            renderSidebar();
-            updateArmedStatus();
-          } else if (/home/i.test(attrVal) && !/disarm/i.test(attrVal) && artemisMode !== 'home') {
-            if (artemisTransition) artemisClearTransition();
-            artemisMode = 'home';
-            if (isMobile() ? activeTab === 'security' : activeRoom === 'security') renderSecurity();
-            renderSidebar();
-            updateArmedStatus();
-          }
-        }
-      }
-
-      // ── Device events ────────────────────────────────────────────────
-      // Hubitat WS event shape: {deviceId, name, value, displayName, ...}
-      const id = msg.deviceId ? String(msg.deviceId) : null;
-      if (!id) return;
-
-      // Build a minimal attrs object from the single changed attribute
-      const attrs = {};
-      attrs[msg.name] = msg.value;
-      if (msg.data) {
-        try { const extra = JSON.parse(msg.data); Object.assign(attrs, extra); } catch(e) {}
-      }
-
-      // Fan-out to virtual IDs for dual-capability devices
-      const mid = id + ':motion', sid = id + ':switch';
-      if (DEVICE_TYPE[mid] || DEVICE_TYPE[sid]) {
-        if (DEVICE_TYPE[mid] && (attrs.motion != null || attrs.battery != null)) applyAttrs(mid, attrs);
-        if (DEVICE_TYPE[sid] && attrs.switch != null) applyAttrs(sid, attrs);
-        // Motion auto-clear for virtual motion ID
-        if (DEVICE_TYPE[mid] === 'motion') {
-          if (S[mid] && S[mid].active) {
-            clearTimeout(_motionClearTimers[mid]);
-            _motionClearTimers[mid] = setTimeout(() => {
-              if (S[mid]) S[mid].active = false;
-              delete _motionClearTimers[mid];
-              patchView();
-              patchSidebarSecurity();
-            }, 30000);
-          } else {
-            clearTimeout(_motionClearTimers[mid]);
-            delete _motionClearTimers[mid];
-          }
-        }
-        patchView();
-        if (CONFIG.artemisEnabled) patchSidebarSecurity();
-        return;
-      }
-
-      // Auto-type Artemis sensors on first WS event if not yet typed
-      if (!DEVICE_TYPE[id] && DEVICE_REGISTRY.has(id)) {
-        const caps = (msg.capabilities || []).join ? (msg.capabilities||[]).join(',') : '';
-        if (/SmokeDetector|CarbonMonoxideDetector/i.test(caps)) DEVICE_TYPE[id]='smoke';
-        else if (/WaterSensor|MoistureSensor/i.test(caps))       DEVICE_TYPE[id]='water';
-        else if (/GlassBreak|ShockSensor/i.test(caps))           DEVICE_TYPE[id]='glass';
-        else if (/MotionSensor/i.test(caps))                     DEVICE_TYPE[id]='motion';
-        else if (/ContactSensor/i.test(caps))                    DEVICE_TYPE[id]='contact';
-        if (!DEVICE_TYPE[id]) {
-          if (msg.name==='contact')       DEVICE_TYPE[id]='contact';
-          else if (msg.name==='motion')   DEVICE_TYPE[id]='motion';
-          else if (msg.name==='smoke' || msg.name==='carbonMonoxide') DEVICE_TYPE[id]='smoke';
-          else if (msg.name==='water' || msg.name==='freeze')  DEVICE_TYPE[id]='water';
-          else if (msg.name==='glassBreak' || msg.name==='shock') DEVICE_TYPE[id]='glass';
-        }
-      }
-      if (!DEVICE_TYPE[id]) return;
-
-      applyAttrs(id, attrs);
-
-      // ── Announcements for device events ──
-      if (isAnnounceDevice()) {
-        const dn = announceDeviceName(id, msg.displayName);
-        if (DEVICE_TYPE[id] === 'contact' && attrs.contact != null) {
-          announceContactEvent(id, dn, attrs.contact);
-        } else if (DEVICE_TYPE[id] === 'lock' && attrs.lock != null) {
-          if (CONFIG.announceLocks) {
-            const isLock = attrs.lock === 'locked';
-            if ((isLock && CONFIG.announceClose) || (!isLock && CONFIG.announceOpen)) {
-              announceEvent('lock-' + id, (dn || 'Door lock') + (isLock ? ' locked' : ' unlocked'));
-            }
-          }
-        } else if (DEVICE_TYPE[id] === 'motion' && attrs.motion === 'active') {
-          if (CONFIG.announceMotion && (CONFIG.announceMotionDevices || []).includes(String(id))) {
-            announceEvent('motion-' + id, 'Motion detected in the ' + (dn || 'sensor'));
-          }
-        } else if (DEVICE_TYPE[id] === 'smoke') {
-          if (CONFIG.announceSmoke) {
-            if (attrs.smoke === 'detected') announceEvent('smoke-' + id, 'Smoke detected' + (dn ? ' in the ' + dn : ''));
-            if (attrs.carbonMonoxide === 'detected') announceEvent('co-' + id, 'Carbon monoxide detected' + (dn ? ' in the ' + dn : ''));
-          }
-        } else if (DEVICE_TYPE[id] === 'water') {
-          if (CONFIG.announceWater) {
-            if (attrs.water === 'wet') announceEvent('water-' + id, 'Water detected' + (dn ? ' in the ' + dn : ''));
-            if (attrs.freeze === 'detected') announceEvent('freeze-' + id, 'Freeze alert' + (dn ? ' in the ' + dn : ''));
-          }
-        }
-      }
-
-      // Motion auto-clear — start a 30s timer when a sensor goes active,
-      // clear the visual once the sensor goes inactive (Ring inactivity window)
-      if (DEVICE_TYPE[id] === 'motion') {
-        if (S[id] && S[id].active) {
-          clearTimeout(_motionClearTimers[id]);
-          _motionClearTimers[id] = setTimeout(() => {
-            if (S[id]) S[id].active = false;
-            delete _motionClearTimers[id];
-            patchView();
-            patchSidebarSecurity();
-          }, 30000);
-        } else {
-          clearTimeout(_motionClearTimers[id]);
-          delete _motionClearTimers[id];
-        }
-      }
-
-      patchView();
-      patchSidebarSecurity(); // also covers lock badges, independent of Artemis
-    } catch(e) {}
-  };
-
-  ws.onerror = function() {
-    // onclose always fires after onerror — handle reconnect there
-  };
-
-  ws.onclose = function() {
-    wsConnected = false;
-    // Do NOT call setConn('err') here — a WebSocket drop is not a hub offline event.
-    // The HTTP poll continues independently; the conn dot reflects poll state only.
-    // The banner would otherwise flash on every routine WS reconnect cycle.
-    console.warn('[WS] disconnected — retrying in', wsRetryDelay / 1000 + 's');
-    scheduleWsRetry();
-  };
-}
-
-function scheduleWsRetry() {
-  clearTimeout(wsRetryTimer);
-  wsRetryTimer = setTimeout(function() {
-    connectWebSocket();
-    wsRetryDelay = Math.min(wsRetryDelay * 2, 30000); // cap at 30s
-  }, wsRetryDelay);
-}
-
-/* ── Polling fallback ──
-   Runs at CONFIG.poll (1s) regardless of WS state.
-   When WS is healthy this is redundant but cheap —
-   it ensures state is always correct even if a WS
-   event is missed or the connection briefly drops.  */
+/* ── Device polling ──
+   Runs at CONFIG.poll (1s) and is the only live update path. A WebSocket
+   client aimed at /apps/api/<appId>/ws lived here until v1.6.7, but Maker
+   API has no such endpoint and nothing ever called it -- entry delay, alarm
+   screens, and HSM announcements that depended on it never fired. Those now
+   come from this poll (Ring device attributes) and the companion app
+   (HSM location events); see artemisRingSync() and
+   artemisCompanionSecuritySync().  */
 let pollDelay   = CONFIG.poll;
 let pollTimer   = null;
 let lastConnOk  = null;
 let _pollFailCount  = 0;
 let _hsmSyncCounter = 0; // counts poll cycles for periodic HSM sync
+let _hsmAlertCounter = 0; // counts poll cycles for the companion-app HSM alert check
 
 
 /* ═══════════════════════════════════════════════════════
@@ -16139,6 +16415,13 @@ function scheduleNextPoll() {
       if (CONFIG.artemisEnabled) {
         _hsmSyncCounter = (_hsmSyncCounter || 0) + 1;
         if (_hsmSyncCounter >= 10) { _hsmSyncCounter = 0; artemisHsmSync(); }
+        // HSM entry-delay/alarm check through the companion app, only while
+        // there's something to watch for -- a disarmed house has no delay.
+        _hsmAlertCounter = (_hsmAlertCounter || 0) + 1;
+        if (_hsmAlertCounter >= 3) {
+          _hsmAlertCounter = 0;
+          if (artemisMode !== 'disarm' || artemisTransition) artemisCompanionSecuritySync();
+        }
       }
       patchView(); // surgical patch — only changed elements touched, animations uninterrupted
       patchSidebarSecurity(); // also covers lock badges, independent of Artemis
@@ -16147,7 +16430,7 @@ function scheduleNextPoll() {
       lastConnOk = false;
       pollDelay  = Math.min(pollDelay * 2, 60000);
       _pollFailCount = (_pollFailCount || 0) + 1;
-      if (_pollFailCount >= 3 && !wsConnected) setConn('err');
+      if (_pollFailCount >= 3) setConn('err');
       // Mixed content: HTTPS page can't reach HTTP hub — slow down but keep retrying
       // (some browsers intermittently allow local IP mixed content)
       if (_pollFailCount >= 5 && window.location.protocol === 'https:' && CONFIG.hub && CONFIG.hub.startsWith('http://')) {
@@ -16159,8 +16442,6 @@ function scheduleNextPoll() {
 }
 
 // Load: fetch full state, render, then start polling
-// WebSocket endpoint not supported on this firmware version —
-// 1s polling via /devices/all provides sufficient responsiveness.
 
 /* ═══════════════════════════════════════════════════════
    ONBOARDING WIZARD  v2
@@ -16433,6 +16714,7 @@ function obImportConfig(evt) {
           return;
         }
         Object.assign(CONFIG, p.config);
+        if (CONFIG.hub) { _sharedHubUrl = CONFIG.hub; CONFIG.hub = _hubUrlForThisDevice(CONFIG.hub); }
       }
       if (p.thermostats) { thermostats.length = 0; p.thermostats.forEach(t => thermostats.push(t)); }
       if (p.rooms)       { rooms.length = 0;       p.rooms.forEach(r => rooms.push(r)); }
@@ -16758,7 +17040,8 @@ async function obNext() {
 
 /* ── Finish: write config, populate staging, launch ── */
 function obFinish() {
-  CONFIG.hub    = OB.hub;
+  _sharedHubUrl = OB.hub;
+  CONFIG.hub    = _hubUrlForThisDevice(OB.hub);
   CONFIG.appId  = OB.appId;
   CONFIG.token  = OB.token;
   // Guard: ensure CONFIG.weather is a valid object — can be clobbered by a
@@ -16826,7 +17109,7 @@ function obFinish() {
 /* ── Re-trigger from Settings ── */
 function launchOnboarding() {
   OB = {
-    step: 1, hub: CONFIG.hub, appId: CONFIG.appId, token: CONFIG.token,
+    step: 1, hub: _hubUrlToShare(), appId: CONFIG.appId, token: CONFIG.token,
     devices: [], inventory: [], roomList: [], thermostats: [],
     locks: (CONFIG.locks || []).map(lk => ({ id: lk.id, label: lk.label })),
     weather: { lat: CONFIG.weather.lat||'', lon: CONFIG.weather.lon||'' },
@@ -16945,7 +17228,8 @@ function launchOnboarding() {
         // Hub config not saved yet but hestia-token.json has Maker API credentials
         // (requires updated Groovy app that writes makerApiAppId + makerApiToken)
         // → auto-boot without wizard using discovered credentials
-        CONFIG.hub   = _hubHint || window.location.origin;
+        _sharedHubUrl = _hubHint || window.location.origin;
+        CONFIG.hub   = _hubUrlForThisDevice(_sharedHubUrl);
         CONFIG.appId = HUB_STORE.makerApiAppId;
         CONFIG.token = HUB_STORE.makerApiToken;
         // Save so subsequent loads and other devices can pick it up
@@ -16960,7 +17244,8 @@ function launchOnboarding() {
       }
     } else if (_hubHint && _urlMid && _urlMtk) {
       // Maker API credentials in URL — auto-configure without wizard
-      CONFIG.hub   = _hubHint;
+      _sharedHubUrl = _hubHint;
+      CONFIG.hub   = _hubUrlForThisDevice(_hubHint);
       CONFIG.appId = _urlMid;
       CONFIG.token = _urlMtk;
       try {
