@@ -1500,6 +1500,14 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
       <button onclick="cfgDismissStaleBanner()" style="background:none;border:none;cursor:pointer;color:var(--amber);font-size:16px;line-height:1;padding:0 4px;opacity:.7">✕</button>
     </span>
   </div>
+  <div class="app-update-banner" id="alarm-sync-banner" role="status">
+    <span id="alarm-sync-msg"></span>
+    <span style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+      <button id="alarm-sync-a1" hidden onclick="alarmSyncRun(0)" style="background:none;border:1px solid var(--amber);border-radius:5px;cursor:pointer;color:var(--amber);font-size:11px;padding:2px 10px"></button>
+      <button id="alarm-sync-a2" hidden onclick="alarmSyncRun(1)" style="background:none;border:1px solid var(--amber);border-radius:5px;cursor:pointer;color:var(--amber);font-size:11px;padding:2px 10px"></button>
+      <button onclick="alarmSyncDismiss()" aria-label="Dismiss" style="background:none;border:none;cursor:pointer;color:var(--amber);font-size:16px;line-height:1;padding:0 4px;opacity:.7">✕</button>
+    </span>
+  </div>
   <div class="body">
     <div class="sidebar">
       <div class="sb-tabs">
@@ -3612,12 +3620,165 @@ function artemisRingSync(devs) {
   _ringPrev.siren = !!sirenDev;
 }
 
+// ── Alarm health: Ring cloud connection + HSM/Ring agreement ─────────────
+// Two failures that otherwise look like "Hestia's buttons stopped working":
+// the Ring integration losing its cloud connection (seen overnight after an
+// internet outage: the community driver's retry was cancelled by its own
+// refresh() and never came back), and HSM and Ring settling in different
+// modes. Both are visible in data the poll already has.
+const _ringConn = { downSince: 0, lastAttempt: 0, bannerShown: false,
+  // Staggers auto-reconnects when several screens are open in one household.
+  jitterMs: Math.floor(Math.random() * 20000) };
+const RING_RECONNECT_AFTER_MS = 120000; // the driver retries at 2s, 4s, 8s... first
+const RING_RECONNECT_EVERY_MS = 300000;
+const ALARM_MISMATCH_AFTER_MS = 45000;  // rules and driver sync take a few seconds
+let _alarmMismatchKey = null;
+let _alarmMismatchSince = 0;
+// Ring reports armed while HSM reports disarmed: Disarm (with PIN) has to be
+// allowed even though Artemis itself shows Disarmed, or Ring can't be stopped
+// from Hestia at all.
+let _artemisMismatchDisarm = false;
+let _alarmSyncBannerKey = null;
+let _alarmSyncDismissedKey = null;
+let _alarmSyncActions = [];
+
+async function ringReconnect(id, why) {
+  _ringConn.lastAttempt = Date.now();
+  const ok = await cmd(id, 'initialize');
+  console.log(`[Artemis] Ring cloud reconnect (${why}): initialize sent to device ${id}${ok ? '' : ' (rejected)'}`);
+  return ok;
+}
+
+function _alarmSyncShow(key, text, actions) {
+  const banner = document.getElementById('alarm-sync-banner');
+  const msg = document.getElementById('alarm-sync-msg');
+  if (!banner || !msg) return;
+  if (!key) {
+    banner.classList.remove('visible');
+    // The situation is over, so a past dismissal shouldn't silence it if it
+    // happens again later in the session.
+    _alarmSyncDismissedKey = null;
+    _alarmSyncBannerKey = null;
+    _alarmSyncActions = [];
+    return;
+  }
+  // A dismissed banner stays hidden until the situation itself changes.
+  if (key === _alarmSyncDismissedKey) { banner.classList.remove('visible'); return; }
+  msg.textContent = text;
+  _alarmSyncActions = actions || [];
+  ['alarm-sync-a1', 'alarm-sync-a2'].forEach((bid, n) => {
+    const b = document.getElementById(bid);
+    if (!b) return;
+    const a = _alarmSyncActions[n];
+    b.hidden = !a;
+    if (a) b.textContent = a.label;
+  });
+  _alarmSyncBannerKey = key;
+  banner.classList.add('visible');
+}
+function alarmSyncRun(n) {
+  const a = _alarmSyncActions[n];
+  if (a) a.fn();
+}
+function alarmSyncDismiss() {
+  _alarmSyncDismissedKey = _alarmSyncBannerKey;
+  const banner = document.getElementById('alarm-sync-banner');
+  if (banner) banner.classList.remove('visible');
+}
+
+// Opens the PIN pad for a disarm, on whichever layout this is.
+function _artemisPromptDisarm() {
+  if (isMobile()) {
+    selectTab('security');
+    artemisOpenSheet();
+  } else {
+    selectRoom('security');
+  }
+}
+
+function artemisAlarmHealthSync(conns, panels) {
+  if (!CONFIG.artemisEnabled) { _artemisMismatchDisarm = false; _alarmSyncShow(null); return; }
+  const now = Date.now();
+  const MODE_NAME = { off: 'Disarmed', home: 'Armed Home', away: 'Armed Away' };
+
+  const down = conns.find(c => c.websocket && c.websocket !== 'connected');
+  if (down) {
+    if (!_ringConn.downSince) _ringConn.downSince = now;
+    const downFor = now - _ringConn.downSince;
+    if (downFor >= RING_RECONNECT_AFTER_MS + _ringConn.jitterMs &&
+        now - _ringConn.lastAttempt >= RING_RECONNECT_EVERY_MS) {
+      ringReconnect(down.id, 'auto');
+    }
+    // While the connection is down, Ring's reported mode is frozen, so any
+    // HSM/Ring comparison would be comparing against stale data.
+    _artemisMismatchDisarm = false;
+    _alarmMismatchKey = null;
+    if (downFor >= 60000) {
+      _ringConn.bannerShown = true;
+      _alarmSyncShow('ring-down',
+        `Ring's cloud connection is down, so arm and disarm can't reach your alarm.${_ringConn.lastAttempt ? ' Hestia is trying to reconnect.' : ''}`,
+        [{ label: 'Reconnect now', fn: () => { ringReconnect(down.id, 'manual'); _alarmSyncShow('ring-down', "Ring's cloud connection is down. Reconnecting…", []); } }]);
+    }
+    return;
+  }
+  if (_ringConn.downSince) {
+    const wasShown = _ringConn.bannerShown;
+    _ringConn.downSince = 0; _ringConn.lastAttempt = 0; _ringConn.bannerShown = false;
+    if (_alarmSyncDismissedKey === 'ring-down') _alarmSyncDismissedKey = null;
+    if (wasShown) {
+      console.log('[Artemis] Ring cloud connection restored');
+      _alarmSyncShow('ring-up', "Ring's cloud connection is back.", []);
+      setTimeout(() => { if (_alarmSyncBannerKey === 'ring-up') _alarmSyncShow(null); }, 6000);
+    }
+  }
+
+  const clearMismatch = () => {
+    _alarmMismatchKey = null;
+    _artemisMismatchDisarm = false;
+    if (_alarmSyncDismissedKey && _alarmSyncDismissedKey.startsWith('mismatch')) _alarmSyncDismissedKey = null;
+    if (_alarmSyncBannerKey && _alarmSyncBannerKey.startsWith('mismatch')) _alarmSyncShow(null);
+  };
+  const panel = panels.find(d => d.id === String(CONFIG.artemisRingDeviceId) && d.live) || panels.find(d => d.live);
+  const ringRaw = panel ? (panel.attrs.mode != null ? panel.attrs.mode : panel.attrs.alarmMode) : null;
+  const ring = ringRaw != null ? _ringModeKey(ringRaw) : null;
+  // Nothing to compare, or mid-transition, when the two legitimately differ.
+  if (!ring || !MODE_NAME[ring] || artemisHsmReady !== true || artemisTransition ||
+      panel.attrs.exitDelay === 'active' || panel.attrs.entryDelay === 'active') {
+    clearMismatch();
+    return;
+  }
+  const hsm = artemisMode === 'disarm' ? 'off' : artemisMode;
+  if (ring === hsm) { clearMismatch(); return; }
+
+  const key = `mismatch:${hsm}:${ring}`;
+  if (_alarmMismatchKey !== key) { _alarmMismatchKey = key; _alarmMismatchSince = now; }
+  if (now - _alarmMismatchSince < ALARM_MISMATCH_AFTER_MS) return;
+
+  const text = `Hubitat Safety Monitor is ${MODE_NAME[hsm]} but Ring is ${MODE_NAME[ring]}.`;
+  const actions = [];
+  // Every action that disarms goes through the PIN pad; arming never needed a
+  // PIN in Hestia, so matching toward armed is a single tap.
+  if (hsm === 'off') {
+    _artemisMismatchDisarm = true;
+    actions.push({ label: 'Disarm Ring', fn: _artemisPromptDisarm });
+    actions.push({ label: `Arm HSM ${ring === 'home' ? 'Home' : 'Away'}`, fn: () => artemisHsmOnlyCmd(ring === 'home' ? 'armHome' : 'armAway').then(artemisHsmSync) });
+  } else {
+    _artemisMismatchDisarm = false;
+    if (ring === 'off') {
+      actions.push({ label: 'Disarm HSM', fn: _artemisPromptDisarm });
+    }
+    actions.push({ label: `Set Ring to ${hsm === 'home' ? 'Home' : 'Away'}`, fn: () => artemisAlarmPanelCmd(hsm === 'home' ? 'armHome' : 'armAway', panel.id) });
+  }
+  _alarmSyncShow(key, text, actions);
+}
+
 async function fetchAllDevices() {
   const res = await fetch(apiUrl('/devices/all'));
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const devices = await res.json();
   lastPollDevices = devices;
   const alarmDevices = [];
+  const ringConnDevices = [];
   devices.forEach(function(device) {
     const id = String(device.id);
     const caps = (device.capabilities || []).join(',');
@@ -3628,6 +3789,17 @@ async function fetchAllDevices() {
     // the delay attributes are what make it a security panel.
     const hasArm = cmds.includes('armAway') && cmds.includes('disarm');
     const hasSetMode = cmds.includes('setMode');
+    // The Ring integration's cloud connection (community driver: "Ring API
+    // Virtual Device", attribute websocket, command initialize). When it
+    // drops, every alarm command silently goes nowhere.
+    if (cmds.includes('initialize')) {
+      const rawA = device.attributes || {};
+      const attrNames = Array.isArray(rawA) ? rawA.map(x => x && x.name) : Object.keys(rawA);
+      if (attrNames.includes('websocket')) {
+        ringConnDevices.push({ id, label: device.label || device.name, websocket: parseAttrs(device).websocket || null });
+        return; // never also treated as an alarm panel, even though it has setMode
+      }
+    }
     if (hasArm || hasSetMode) {
       const a = parseAttrs(device);
       // parseAttrs() drops null values, and a panel that has never been
@@ -3731,6 +3903,7 @@ async function fetchAllDevices() {
     console.log(`[Artemis] Alarm base station selected: device ${target.id} (${target.official ? 'official' : 'community'}${target.live ? '' : ', not reporting state'})`);
   }
   artemisRingSync(alarmDevices);
+  artemisAlarmHealthSync(ringConnDevices, alarmDevices);
   if (!_announceInitialized) _announceInitialized = true;
   setConn('ok');
 }
@@ -8860,7 +9033,7 @@ function artemisNoHsmRightHTML() {
 }
 
 function artemisKeypadHTML() {
-  const disarmed = artemisMode === 'disarm';
+  const disarmed = artemisMode === 'disarm' && !artemisTransition && !_artemisMismatchDisarm;
   const lbl = disarmed ? 'Select Mode' : 'Enter PIN to disarm';
   return `<div class="a-kp" id="a-kp">
     <div class="a-kp-lbl" id="a-kp-lbl">${lbl}</div>
@@ -9027,7 +9200,7 @@ function artemisUpdDots(prefix) {
   }
 }
 function artemisKd(n) {
-  if (artemisLocked || (artemisMode === 'disarm' && !artemisTransition)) return;
+  if (artemisLocked || (artemisMode === 'disarm' && !artemisTransition && !_artemisMismatchDisarm)) return;
   if (artemisPin.length < 6) { artemisPin += n; artemisUpdDots(); }
 }
 function artemisKb() {
@@ -9036,7 +9209,7 @@ function artemisKb() {
   artemisUpdDots();
 }
 function artemisKc() {
-  if (artemisLocked || (artemisMode === 'disarm' && !artemisTransition) || !artemisPin.length) return;
+  if (artemisLocked || (artemisMode === 'disarm' && !artemisTransition && !_artemisMismatchDisarm) || !artemisPin.length) return;
   artemisCheckPin(artemisPin, 'apd', function() {
     artemisDoDisarm();
     artemisPin = '';
@@ -9111,14 +9284,7 @@ function artemisRestoreLockout() {
 async function artemisHsmCmd(hsmCmd) {
   // Maker API HSM endpoints: armAway, armHome, disarm
   if (!CONFIG.hub || !CONFIG.appId || !CONFIG.token) return;
-  const sendHsm = (async () => {
-    try {
-      const url = `${CONFIG.hub}/apps/api/${CONFIG.appId}/hsm/${hsmCmd}?access_token=${CONFIG.token}`;
-      await fetch(url);
-    } catch(e) {
-      console.warn('[Artemis] HSM command failed:', hsmCmd, e.message);
-    }
-  })();
+  const sendHsm = artemisHsmOnlyCmd(hsmCmd);
   // Hestia keeps HSM and Ring together itself, so a household doesn't need
   // Rule Machine rules to sync them: every arm/disarm goes to both at once.
   // Only a connected panel is commanded (one reporting its own arm state),
@@ -9130,8 +9296,19 @@ async function artemisHsmCmd(hsmCmd) {
   await Promise.all([sendHsm, artemisAlarmPanelCmd(hsmCmd)]);
 }
 
-async function artemisAlarmPanelCmd(hsmCmd) {
-  const id = CONFIG.artemisRingDeviceId;
+// HSM alone, without the Ring mirror -- for resolving a mismatch toward Ring.
+async function artemisHsmOnlyCmd(hsmCmd) {
+  if (!CONFIG.hub || !CONFIG.appId || !CONFIG.token) return;
+  try {
+    const url = `${CONFIG.hub}/apps/api/${CONFIG.appId}/hsm/${hsmCmd}?access_token=${CONFIG.token}`;
+    await fetch(url);
+  } catch(e) {
+    console.warn('[Artemis] HSM command failed:', hsmCmd, e.message);
+  }
+}
+
+async function artemisAlarmPanelCmd(hsmCmd, panelId) {
+  const id = panelId || CONFIG.artemisRingDeviceId;
   if (!id) return;
   const target = { armAway: 'away', armHome: 'home', disarm: 'off' }[hsmCmd];
   if (!target) return;
@@ -9386,7 +9563,8 @@ function artemisDoDisarm() {
 
 function artemisSetMode(m) {
   if (artemisHsmReady === false) return;
-  if (m === 'disarm' && (artemisMode !== 'disarm' || artemisTransition)) {
+  // _artemisMismatchDisarm: Ring still armed while HSM reads disarmed.
+  if (m === 'disarm' && (artemisMode !== 'disarm' || artemisTransition || _artemisMismatchDisarm)) {
     if (isMobile()) artemisOpenSheet();
     return;
   }
@@ -9597,7 +9775,7 @@ function artemisOpenSheet() {
   artemisUpdDots('asp');
   const sheet = document.getElementById('a-pin-sheet');
   const modeEl = document.getElementById('a-sheet-mode');
-  if (modeEl) modeEl.textContent = 'Disarming — Armed ' + artemisModeName();
+  if (modeEl) modeEl.textContent = _artemisMismatchDisarm && artemisMode === 'disarm' ? 'Disarming Ring' : 'Disarming — Armed ' + artemisModeName();
   if (sheet) sheet.classList.add('open');
 }
 function artemisCloseSheet() {
@@ -16439,6 +16617,9 @@ function scheduleNextPoll() {
       pollDelay  = Math.min(pollDelay * 2, 60000);
       _pollFailCount = (_pollFailCount || 0) + 1;
       if (_pollFailCount >= 3) setConn('err');
+      // Can't confirm a mismatch against a hub we can't reach: drop the
+      // keypad exception rather than leave it on indefinitely.
+      if (_pollFailCount >= 3) _artemisMismatchDisarm = false;
       // Mixed content: HTTPS page can't reach HTTP hub — slow down but keep retrying
       // (some browsers intermittently allow local IP mixed content)
       if (_pollFailCount >= 5 && window.location.protocol === 'https:' && CONFIG.hub && CONFIG.hub.startsWith('http://')) {
