@@ -91,6 +91,7 @@
 /* ═══════════════════════════════════════════════
    ONBOARDING WIZARD
 ═══════════════════════════════════════════════ */
+#cloud-adopt-banner.visible{position:fixed;top:0;left:0;right:0;z-index:300}
 .ob-wrap{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:200;padding:24px;overflow-y:auto}
 .ob-card{background:var(--bg-panel);border:1px solid var(--border);border-radius:20px;width:100%;max-width:540px;overflow:hidden;flex-shrink:0}
 .ob-progress{height:3px;background:var(--border);flex-shrink:0}
@@ -1391,6 +1392,13 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
         crossorigin="anonymous"></script>
 </head>
 <body>
+  <div class="app-update-banner" id="cloud-adopt-banner" role="status">
+    <span id="cloud-adopt-msg"></span>
+    <span style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+      <button onclick="cloudAdoptConfig()" style="background:none;border:1px solid var(--amber);border-radius:5px;cursor:pointer;color:var(--amber);font-size:11px;padding:2px 10px">Use these settings</button>
+      <button onclick="cloudDeclineConfig()" style="background:none;border:1px solid var(--amber);border-radius:5px;cursor:pointer;color:var(--amber);font-size:11px;padding:2px 10px;opacity:.75">Not mine</button>
+    </span>
+  </div>
 <div class="panel">
   <div class="topbar">
     <div class="tb-left">
@@ -1768,7 +1776,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.6.7';
-const HESTIA_BUILD_DATE = '2026-09-15';
+const HESTIA_BUILD_DATE = '2026-09-16';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 const PUSH_API          = '/api/push';
@@ -2616,6 +2624,11 @@ async function mergeDeviceListField(fieldName, updater) {
     try { hubCfg = await loadConfigFromHub(); } catch(e) {}
   }
   try { cloudCfg = await cloudSyncDiscover(); } catch(e) {}
+  // Same rule as boot: a config for a household this device hasn't accepted
+  // is not a source of truth. Without this, flipping a per-device Push or
+  // Announcements toggle pulls a stranger's pushDevices list in wholesale and
+  // saveConfig() then republishes it to hub and cloud.
+  if (cloudCfg && !_cloudConfigTrusted(cloudCfg)) cloudCfg = null;
 
   const hubAt   = (hubCfg && hubCfg.savedAt) || 0;
   const cloudAt = (cloudCfg && cloudCfg.savedAt) || 0;
@@ -2918,6 +2931,11 @@ async function _cloudDecrypt(blob, ip) {
 }
 
 function cloudSyncPush(payload) {
+  // An unanswered adoption prompt means the entry for this IP belongs to a
+  // household this device hasn't accepted. Pushing would overwrite their
+  // settings with ours -- and destroy the cross-origin recovery channel boot
+  // falls back to when the companion app is backed off.
+  if (_cloudPendingConfig) return;
   if (Date.now() - _lastCloudPushAt < 30000) {
     clearTimeout(_cloudSyncDebounce);
     _cloudSyncDebounce = setTimeout(() => cloudSyncPush(payload), 30000);
@@ -2932,6 +2950,82 @@ function cloudSyncPush(payload) {
       return fetch(CLOUD_SYNC_API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
     }).then(r => { if (r && r.ok) { _lastCloudPushAt = Date.now(); console.log('[CloudSync] Encrypted push to cloud'); } });
   }).catch(e => console.warn('[CloudSync] Push failed:', e.message));
+}
+
+/* ── Adopting a cloud config: confirm before trusting it ──────────────────
+   The cloud entry is keyed by a hash of the household's public IP, so "same
+   IP" is the only thing identifying a household. Residential IPs get
+   reassigned, and this used to be applied automatically at boot -- meaning
+   whoever received the address next could silently inherit the previous
+   household's hub URL, Maker API token, camera URLs and PIN hash just by
+   opening hestari.com. It also meant a laptop opening Hestia on someone
+   else's network could have its own settings replaced by theirs.
+
+   A config is applied without asking only when it belongs to a hub this
+   device already uses, or one the user has accepted here before. Anything
+   else waits behind a prompt. The proper fix is a real per-household secret
+   (see the cloud-sync trust model work); this closes the silent-adoption
+   path in the meantime. */
+const CLOUD_HOUSEHOLD_KEY = 'hestia-cloud-household';
+const CLOUD_DECLINED_KEY  = 'hestia-cloud-declined';
+let _cloudPendingConfig = null;
+
+// Identity of a household as far as this check is concerned: which hub, and
+// which Maker API app on it. Hostname only, since the scheme and port are
+// per-device (see _hubUrlForThisDevice).
+function _cloudHouseholdId(cfg) {
+  const c = (cfg && cfg.config) || {};
+  if (!c.hub || !c.appId) return null;
+  try {
+    return `${new URL(c.hub).hostname}|${c.appId}`;
+  } catch(e) { return null; }
+}
+function _cloudLocalHouseholdId() {
+  if (!CONFIG.hub || !CONFIG.appId) return null;
+  try {
+    return `${new URL(CONFIG.hub).hostname}|${CONFIG.appId}`;
+  } catch(e) { return null; }
+}
+function _cloudConfigTrusted(cfg) {
+  const id = _cloudHouseholdId(cfg);
+  if (!id) return false;
+  if (id === _cloudLocalHouseholdId()) return true; // already this device's own hub
+  try { return localStorage.getItem(CLOUD_HOUSEHOLD_KEY) === id; } catch(e) { return false; }
+}
+function _cloudRememberHousehold(cfg) {
+  const id = _cloudHouseholdId(cfg);
+  if (!id) return;
+  try { localStorage.setItem(CLOUD_HOUSEHOLD_KEY, id); } catch(e) {}
+}
+// Offered, not applied. Boot carries on exactly as if no cloud config existed.
+function cloudOfferConfig(cfg) {
+  const id = _cloudHouseholdId(cfg);
+  if (!id) return;
+  try { if (localStorage.getItem(CLOUD_DECLINED_KEY) === id) return; } catch(e) {}
+  _cloudPendingConfig = cfg;
+  const banner = document.getElementById('cloud-adopt-banner');
+  const msg = document.getElementById('cloud-adopt-msg');
+  if (!banner || !msg) return;
+  msg.textContent = `Hestia found saved settings for this network (hub ${id.split('|')[0]}). Use them on this device?`;
+  banner.classList.add('visible');
+  console.log('[Cloud] Found a config for an unrecognized household — waiting for confirmation');
+}
+function cloudAdoptConfig() {
+  const cfg = _cloudPendingConfig;
+  if (!cfg) return;
+  _cloudRememberHousehold(cfg);
+  try { localStorage.setItem('dashboard-config', JSON.stringify(cfg)); } catch(e) {}
+  _cloudPendingConfig = null;
+  const banner = document.getElementById('cloud-adopt-banner');
+  if (banner) banner.classList.remove('visible');
+  location.reload(); // simplest correct path: boot again, now trusting it
+}
+function cloudDeclineConfig() {
+  const id = _cloudHouseholdId(_cloudPendingConfig);
+  if (id) { try { localStorage.setItem(CLOUD_DECLINED_KEY, id); } catch(e) {} }
+  _cloudPendingConfig = null;
+  const banner = document.getElementById('cloud-adopt-banner');
+  if (banner) banner.classList.remove('visible');
 }
 
 async function cloudSyncDiscover() {
@@ -3701,7 +3795,8 @@ function artemisAlarmHealthSync(conns, panels) {
   const now = Date.now();
   const MODE_NAME = { off: 'Disarmed', home: 'Armed Home', away: 'Armed Away' };
 
-  const down = conns.find(c => c.websocket && c.websocket !== 'connected');
+  // No alarm panel behind it means nothing here depends on that connection.
+  const down = panels.length ? conns.find(c => c.websocket && c.websocket !== 'connected') : null;
   if (down) {
     if (!_ringConn.downSince) _ringConn.downSince = now;
     const downFor = now - _ringConn.downSince;
@@ -3792,7 +3887,10 @@ async function fetchAllDevices() {
     // The Ring integration's cloud connection (community driver: "Ring API
     // Virtual Device", attribute websocket, command initialize). When it
     // drops, every alarm command silently goes nowhere.
-    if (cmds.includes('initialize')) {
+    // Driver name must name the integration too: plenty of unrelated drivers
+    // (TVs, media players, MQTT bridges) expose Initialize plus a websocket
+    // attribute, and Hestia sends initialize to this device unattended.
+    if (cmds.includes('initialize') && /ring/i.test(String(device.type || device.name || ''))) {
       const rawA = device.attributes || {};
       const attrNames = Array.isArray(rawA) ? rawA.map(x => x && x.name) : Object.keys(rawA);
       if (attrNames.includes('websocket')) {
@@ -3811,6 +3909,10 @@ async function fetchAllDevices() {
         alarmDevices.push({
           id, cmds, attrs: a, date: device.date,
           official: cmds.includes('createChildDevices'),
+          // Exposing entry/exit delay means the integration is wired deeply
+          // enough to run the countdown -- better evidence of a working link
+          // to the panel than whether it ships with Hubitat.
+          delayAware: names.includes('entryDelay') || names.includes('exitDelay'),
           // A connected panel reports its arm state. The official Ring base
           // station on a hub where it can't reach the panel reports nothing
           // but alarm:"off", so it must not win command routing.
@@ -3896,7 +3998,12 @@ async function fetchAllDevices() {
   _artemisAlarmDevices = alarmDevices;
   // Command routing: a live panel beats a disconnected one, then official
   // beats community. Every alarm device is still watched for delays below.
-  const rank = d => (d.live ? 2 : 0) + (d.official ? 1 : 0);
+  // Delay-aware beats live-but-silent beats official. Hubitat's official Ring
+  // integration is still in beta: a release that reports a mode but rejects
+  // commands would otherwise take over command routing from a community
+  // integration that works, and Maker API returns 200 for a command the
+  // driver only fails later, so the failure isn't detectable here.
+  const rank = d => (d.delayAware ? 4 : 0) + (d.live ? 2 : 0) + (d.official ? 1 : 0);
   const target = alarmDevices.slice().sort((x, y) => rank(y) - rank(x))[0];
   if (target && target.id !== CONFIG.artemisRingDeviceId) {
     CONFIG.artemisRingDeviceId = target.id;
@@ -10888,7 +10995,7 @@ function spDiagnosticsBody() {
       ${diagRow('groovy', 'Companion App', 'Reachability and version of the Hestia app on the hub')}
       <div id="diag-relink" hidden style="margin:-2px 0 10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px">
         <div class="sp-toggle-name" style="margin-bottom:4px">Reconnect the companion app</div>
-        <div class="sp-hint" style="margin-bottom:8px">1. Open <a id="diag-relink-link" href="#" target="_blank" rel="noopener" style="color:var(--amber)">your hub's discovery file</a> in a new tab on this device.<br>2. Copy everything on that page and paste it here.<br>3. Click Reconnect. Hestia checks it with your hub before saving anything.</div>
+        <div class="sp-hint" style="margin-bottom:8px">1. Open <a id="diag-relink-link" href="#" target="_blank" rel="noopener" style="color:var(--amber)">your hub's discovery file</a> in a new tab on this device.<br>2. Copy everything on that page and paste it here.<br>3. Click Reconnect. Hestia checks it with your hub before saving anything.<br><strong>That file contains your hub credentials.</strong> Hestia only ever asks for it here, in Diagnostics. Do not paste it into any other site or send it to anyone.</div>
         <textarea class="sp-input" id="diag-relink-input" rows="3" style="width:100%;font-family:monospace;font-size:11px;resize:vertical" placeholder='{"appId":"123","token":"…","hubIp":"192.168.1.50",…}' aria-label="Paste the contents of hestia-token.json"></textarea>
         <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
           <button class="sp-btn sp-btn-secondary" style="height:28px;padding:0 12px;font-size:11px" id="diag-relink-btn" onclick="diagRelinkCompanion()">Reconnect</button>
@@ -17451,6 +17558,14 @@ function launchOnboarding() {
     } else {
       // No HUB_STORE, no full URL params — try cloud auto-discovery
       const cloudCfg = await cloudSyncDiscover();
+      // Untrusted household: offer it, don't apply it. Boot continues to the
+      // wizard exactly as if nothing had been found.
+      if (cloudCfg && !_cloudConfigTrusted(cloudCfg)) {
+        cloudOfferConfig(cloudCfg);
+        if (_hubHint) OB.hub = _hubHint;
+        renderOnboarding();
+        return;
+      }
       if (cloudCfg) {
         const ok = applyParsedConfig(cloudCfg);
         if (ok) {
@@ -17495,7 +17610,12 @@ function launchOnboarding() {
     } else {
       if (HUB_STORE) console.log('[Boot] Companion app backed off — trying cloud config for a newer app ID');
       const cloudCfg = await cloudSyncDiscover();
-      if (cloudCfg) {
+      // A config for a household this device doesn't know must never replace
+      // the settings it already has (e.g. a laptop opened on someone else's
+      // network, or an IP reassigned to a different household).
+      if (cloudCfg && !_cloudConfigTrusted(cloudCfg)) {
+        cloudOfferConfig(cloudCfg);
+      } else if (cloudCfg) {
         applyParsedConfig(cloudCfg);
         try { localStorage.setItem('dashboard-config', JSON.stringify(cloudCfg)); } catch(e) {}
         console.log('[Boot] Applied cloud config');
