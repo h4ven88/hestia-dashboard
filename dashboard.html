@@ -9777,8 +9777,14 @@ function artemisClearTransition() {
   artemisCountdownEnd = null;
   artemisCountdownTotal = null;
   if (artemisCountdownInterval) { clearInterval(artemisCountdownInterval); artemisCountdownInterval = null; }
-  const ring = document.querySelector('.a-trans-ring');
-  if (ring) ring.remove();
+  // The gem lives inside the ring, so removing the ring outright leaves an
+  // empty slot wherever a re-render doesn't immediately follow -- the card
+  // collapses and everything below it shifts up. Put the plain gem back in
+  // its place instead, and do it for every ring on screen (the Security card
+  // and the home screen's armed card can both be showing one).
+  document.querySelectorAll('.a-trans-ring').forEach(ring => {
+    ring.outerHTML = artemisGemSVG(artemisMode, 34, 39);
+  });
 }
 
 function _artemisOnSecurityView() {
