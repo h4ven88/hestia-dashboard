@@ -499,9 +499,9 @@ html[data-display-desktop] .tb-date{display:block !important}
 .a-mb:hover{opacity:.82}
 .a-mb svg{width:100%;height:auto;aspect-ratio:28/32;display:block;max-height:52px}
 .a-mb-lbl{font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);transition:color .15s}
-.a-mb.a-ad .a-mb-lbl{color:var(--a-ok)}
-.a-mb.a-ah .a-mb-lbl{color:var(--a-blue)}
-.a-mb.a-aa .a-mb-lbl{color:var(--amber)}
+.a-mb.a-sel-disarm .a-mb-lbl{color:var(--a-ok)}
+.a-mb.a-sel-home .a-mb-lbl{color:var(--a-blue)}
+.a-mb.a-sel-away .a-mb-lbl{color:var(--amber)}
 /* Keypad */
 .a-kp{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;flex-shrink:0}
 .a-kp-lbl{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);text-align:center}
@@ -8739,9 +8739,9 @@ function artemisGemFills(m) {
     // Light/cream — jewel-tinted fills with real facet depth.
     // Crown (top): pale tint. Pavilion (bottom): progressively saturated.
     const T = {
-      disarm:{ c:['#DCFCE7','#BBF7D0','#A7F3C0'], p:['#6EE7A8','#4ADE80','#22C55E'], s:'#166534', mb:'a-ad' },
-      home:  { c:['#DBEAFE','#BFDBFE','#93C5FD'], p:['#60A5FA','#3B82F6','#2563EB'], s:'#1E40AF', mb:'a-ah' },
-      away:  { c:['#FEF3C7','#FDE68A','#FCD34D'], p:['#FBBF24','#F59E0B','#D97706'], s:'#92400E', mb:'a-aa' },
+      disarm:{ c:['#DCFCE7','#BBF7D0','#A7F3C0'], p:['#6EE7A8','#4ADE80','#22C55E'], s:'#166534', mb:'a-sel-disarm' },
+      home:  { c:['#DBEAFE','#BFDBFE','#93C5FD'], p:['#60A5FA','#3B82F6','#2563EB'], s:'#1E40AF', mb:'a-sel-home' },
+      away:  { c:['#FEF3C7','#FDE68A','#FCD34D'], p:['#FBBF24','#F59E0B','#D97706'], s:'#92400E', mb:'a-sel-away' },
       off:   { c:['#F3F4F6','#E5E7EB','#D1D5DB'], p:['#D1D5DB','#9CA3AF','#6B7280'], s:'#6B7280', mb:'' }
     };
     return T[m] || T.off;
@@ -8754,9 +8754,9 @@ function artemisGemFills(m) {
   // facets instead lifts the body from ~1.3:1 against the page to ~2:1 while
   // every glyph stays above 4:1 against the facets behind it.
   const D = {
-    disarm:{ c:['#123F13','#0E330F','#0B280C'], p:['#15501B','#116016','#0E4412'], s:'#4ADE80', mb:'a-ad' },
-    home:  { c:['#0E2C4D','#0A2340','#081B32'], p:['#123E6B','#0E3459','#0B2947'], s:'#60A5FA', mb:'a-ah' },
-    away:  { c:['#3A2200','#2C1A00','#221400'], p:['#4A2C00','#3A2200','#2C1A00'], s:'#D4891A', mb:'a-aa' },
+    disarm:{ c:['#123F13','#0E330F','#0B280C'], p:['#15501B','#116016','#0E4412'], s:'#4ADE80', mb:'a-sel-disarm' },
+    home:  { c:['#0E2C4D','#0A2340','#081B32'], p:['#123E6B','#0E3459','#0B2947'], s:'#60A5FA', mb:'a-sel-home' },
+    away:  { c:['#3A2200','#2C1A00','#221400'], p:['#4A2C00','#3A2200','#2C1A00'], s:'#D4891A', mb:'a-sel-away' },
     off:   { c:['#1E1E1E','#181818','#141414'], p:['#1A1A1A','#161616','#121212'], s:'rgba(80,80,80,.9)', mb:'' }
   };
   return D[m] || D.off;
@@ -8801,6 +8801,10 @@ function artemisGemSVG(m, w, h_, vb) {
 function artemisModeBtn(key, label, active) {
   const f  = active ? artemisGemFills(key) : artemisGemFills('off');
   const col = f.s; // off fills already have a muted s value, so no separate active/inactive branch is needed
+  // NB: the selected-mode class is a-sel-disarm, NOT a-ad. Brave and other
+  // ad blockers hide elements whose class matches generic ad patterns, and
+  // "a-ad" did exactly that: the Disarm button vanished from the mode row on
+  // Brave for Android while Home and Away slid over to fill the gap.
   // The frame stays amber only on the selected mode. Framing all three in
   // amber left the two you aren't in looking just as live, even though their
   // glyphs are already muted.
