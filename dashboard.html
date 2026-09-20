@@ -1815,6 +1815,129 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.6.9';
 const HESTIA_BUILD_DATE = '2026-09-20';
+
+/* ═══════════════════════════════════════════════════════
+   SANDBOX MODE
+   The same build, served as sandbox.html, for trying changes against a real
+   house without touching it. Detected by filename, so there is exactly one
+   source file and the sandbox can never drift from the dashboard.
+
+   Isolated, because none of this is separated by filename on its own:
+     - localStorage is per ORIGIN, so a sandbox served from the hub would
+       otherwise read and write the real dashboard's config. Keys are
+       prefixed instead.
+     - Cloud sync is keyed by public IP, so one sandbox save would overwrite
+       the household entry every device then pulls. Disabled.
+     - The hub config store and the Maker API webhook registration are shared
+       the same way. Disabled.
+     - Push registration would clobber the real device list. Disabled.
+     - Device commands go to real hardware, so they are DRY RUN by default:
+       logged and shown, never sent, until unlocked for the session.
+   Declared before anything can use it (a constant defined after boot reads
+   it is the TDZ bug this file has already shipped once).
+═══════════════════════════════════════════════════════ */
+const SANDBOX = /(^|\/)sandbox(\.html)?$/i.test(location.pathname);
+const SBX_PREFIX = 'sbx-';
+let _sbxAllowCommands = false;   // session-only; never persisted
+const _sbxLog = [];              // what would have been sent
+
+// Storage shim: same API, namespaced keys in the sandbox.
+const _LS = {
+  getItem(k)    { try { return localStorage.getItem(SANDBOX ? SBX_PREFIX + k : k); } catch(e) { return null; } },
+  setItem(k, v) { try { localStorage.setItem(SANDBOX ? SBX_PREFIX + k : k, v); } catch(e) {} },
+  removeItem(k) { try { localStorage.removeItem(SANDBOX ? SBX_PREFIX + k : k); } catch(e) {} }
+};
+
+// Every path that changes something outside this browser funnels through
+// here, so "what does the sandbox block" has one answer in one place.
+function sbxBlocked(what, detail) {
+  if (!SANDBOX) return false;
+  if (what === 'command' && _sbxAllowCommands) return false;
+  _sbxLog.unshift({ at: Date.now(), what, detail: detail || '' });
+  if (_sbxLog.length > 200) _sbxLog.pop();
+  console.log('[Sandbox] blocked ' + what + (detail ? ': ' + detail : ''));
+  _sbxRenderBanner();
+  return true;
+}
+
+// Deliberately loud and always on screen: the whole risk of a sandbox is
+// forgetting which one you are looking at.
+function _sbxRenderBanner() {
+  if (!SANDBOX) return;
+  let el = document.getElementById('sbx-banner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'sbx-banner';
+    el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:400;display:flex;align-items:center;gap:10px;' +
+      'padding:5px 12px;font:600 11px/1.4 system-ui,sans-serif;letter-spacing:.06em;' +
+      'background:repeating-linear-gradient(45deg,#3A2A00,#3A2A00 10px,#2E2100 10px,#2E2100 20px);' +
+      'color:#F59E0B;border-bottom:1px solid #6B4A08';
+    document.body.appendChild(el);
+    document.body.style.paddingTop = '26px';
+  }
+  const last = _sbxLog[0];
+  el.innerHTML =
+    '<span>SANDBOX</span>' +
+    // Which build this is. The hub never overwrites sandbox.html (the Groovy
+    // app only replaces index.html), so it stays at whatever was last
+    // uploaded -- without this you can spend an afternoon testing last week.
+    '<span style="font-weight:400;color:#C9A227">v' + HESTIA_VERSION + ' · ' + HESTIA_BUILD_DATE + '</span>' +
+    '<span style="font-weight:400;color:#C9A227">' +
+      (_sbxAllowCommands ? 'commands are REAL' : 'commands are not sent') +
+      ' · config, cloud sync and push are isolated</span>' +
+    '<button onclick="sbxCloneLive()" title="Copy the real dashboard\'s settings into this sandbox" style="background:transparent;border:1px solid #6B4A08;color:#F59E0B;font:inherit;padding:2px 9px;border-radius:5px;cursor:pointer">Clone live settings</button>' +
+    (last ? '<span style="font-weight:400;color:#8A7A4A;margin-left:auto;max-width:42%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">last: ' +
+      escapeHtml(last.what + (last.detail ? ' — ' + last.detail : '')) + '</span>' : '<span style="margin-left:auto"></span>') +
+    '<button onclick="sbxToggleCommands()" style="background:' + (_sbxAllowCommands ? '#5C1F1F' : 'transparent') +
+      ';border:1px solid #6B4A08;color:#F59E0B;font:inherit;padding:2px 9px;border-radius:5px;cursor:pointer">' +
+      (_sbxAllowCommands ? 'Stop sending' : 'Allow real commands') + '</button>';
+}
+// Session only, never persisted: a sandbox that remembers it was unlocked is
+// a dashboard with a stripe on it.
+function sbxToggleCommands() {
+  if (!_sbxAllowCommands) {
+    const ok = confirm('Allow this sandbox to send real commands to your hub?\n\n' +
+      'Devices will actually respond, including locks, alarm modes and garage doors.\n' +
+      'This lasts until you reload.');
+    if (!ok) return;
+  }
+  _sbxAllowCommands = !_sbxAllowCommands;
+  console.log('[Sandbox] real commands ' + (_sbxAllowCommands ? 'ENABLED' : 'disabled'));
+  _sbxRenderBanner();
+}
+/* Copies the real dashboard's settings into the sandbox's namespace, so you
+   test against your actual house rather than an empty onboarding wizard.
+   One-way on purpose: the sandbox reads the live keys and never writes them,
+   which is the whole isolation guarantee. Only works where both are served
+   from the same origin (the hub, or hestari.com), because localStorage is
+   per-origin. */
+function sbxCloneLive() {
+  if (!SANDBOX) return;
+  const KEYS = ['dashboard-config', 'dashboard-theme', 'dashboard-display-mode',
+                'hestia-device-id', 'hestia-device-name'];
+  const live = {};
+  KEYS.forEach(k => { try { const v = localStorage.getItem(k); if (v != null) live[k] = v; } catch(e) {} });
+  if (!live['dashboard-config']) {
+    alert('No live settings found on this origin.\n\nOpen the sandbox from the same address as your real dashboard (your hub, or hestari.com), or set it up here directly.');
+    return;
+  }
+  if (!confirm('Copy the real dashboard\'s settings into this sandbox?\n\nThis overwrites the sandbox\'s own settings. The real dashboard is not touched.')) return;
+  // A cloned device id would make this sandbox look like the real device to
+  // the push backend, so it gets its own.
+  Object.keys(live).forEach(k => { if (k !== 'hestia-device-id') _LS.setItem(k, live[k]); });
+  _LS.setItem('hestia-device-id', 'sbx-' + (Math.random().toString(36).slice(2, 10)));
+  _LS.setItem('hestia-device-name', 'Sandbox');
+  location.reload();
+}
+
+// What would have been sent, for when a flow didn't do what you expected.
+function sbxLog() { console.table(_sbxLog.map(e => ({ when: new Date(e.at).toLocaleTimeString(), what: e.what, detail: e.detail }))); return _sbxLog.length + ' entries'; }
+
+if (SANDBOX) {
+  document.title = 'SANDBOX · Hestia';
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _sbxRenderBanner);
+  else _sbxRenderBanner();
+}
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 const PUSH_API          = '/api/push';
@@ -1840,7 +1963,7 @@ function setTheme(name) {
   document.documentElement.setAttribute('data-theme', name === 'dark' ? '' : name);
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', THEME_META[name]);
-  try { localStorage.setItem('dashboard-theme', name); } catch(e) {}
+  try { _LS.setItem('dashboard-theme', name); } catch(e) {}
   document.querySelectorAll('.sp-swatch').forEach(s => s.classList.remove('active'));
   const active = document.getElementById('sw-' + name);
   if (active) active.classList.add('active');
@@ -1870,7 +1993,7 @@ function updateFabGemFills(theme) {
 
 function loadTheme() {
   let saved = 'dark';
-  try { saved = localStorage.getItem('dashboard-theme') || 'dark'; } catch(e) {}
+  try { saved = _LS.getItem('dashboard-theme') || 'dark'; } catch(e) {}
   setTheme(saved);
 }
 
@@ -1886,14 +2009,14 @@ function loadTheme() {
 let DISPLAY_MODE = 'auto';
 
 function loadDisplayMode() {
-  try { DISPLAY_MODE = localStorage.getItem('dashboard-display-mode') || 'auto'; }
+  try { DISPLAY_MODE = _LS.getItem('dashboard-display-mode') || 'auto'; }
   catch(e) { DISPLAY_MODE = 'auto'; }
   applyDisplayMode();
 }
 
 function saveDisplayMode(mode) {
   DISPLAY_MODE = mode;
-  try { localStorage.setItem('dashboard-display-mode', mode); } catch(e) {}
+  try { _LS.setItem('dashboard-display-mode', mode); } catch(e) {}
   applyDisplayMode();
 }
 
@@ -1933,16 +2056,16 @@ let DEVICE_ID = '';
 let DEVICE_NAME = '';
 function initDeviceId() {
   try {
-    DEVICE_ID = localStorage.getItem('hestia-device-id') || '';
+    DEVICE_ID = _LS.getItem('hestia-device-id') || '';
     if (!DEVICE_ID) {
       DEVICE_ID = crypto.randomUUID();
-      localStorage.setItem('hestia-device-id', DEVICE_ID);
+      _LS.setItem('hestia-device-id', DEVICE_ID);
     }
-    DEVICE_NAME = localStorage.getItem('hestia-device-name') || '';
+    DEVICE_NAME = _LS.getItem('hestia-device-name') || '';
     if (!DEVICE_NAME) {
       const w = window.innerWidth;
       DEVICE_NAME = w < 768 ? 'Mobile' : w < 1024 ? 'Tablet' : 'Desktop';
-      localStorage.setItem('hestia-device-name', DEVICE_NAME);
+      _LS.setItem('hestia-device-name', DEVICE_NAME);
     }
   } catch(e) {
     DEVICE_ID = 'fallback-' + Math.random().toString(36).slice(2);
@@ -1953,7 +2076,7 @@ initDeviceId();
 
 function setDeviceName(name) {
   DEVICE_NAME = name || 'Device';
-  try { localStorage.setItem('hestia-device-name', DEVICE_NAME); } catch(e) {}
+  try { _LS.setItem('hestia-device-name', DEVICE_NAME); } catch(e) {}
 }
 
 function isAnnounceDevice() {
@@ -2039,7 +2162,7 @@ const PIN_LOCKOUT_MS = 60000;
 function pinLockoutKey(id) { return 'hestia-pin-lockout-' + id; }
 function pinLockoutLoad(id) {
   try {
-    const raw = localStorage.getItem(pinLockoutKey(id));
+    const raw = _LS.getItem(pinLockoutKey(id));
     if (!raw) return { fails: 0, until: 0 };
     const saved = JSON.parse(raw);
     if (saved.until && saved.until <= Date.now()) return { fails: 0, until: 0 }; // lockout already elapsed
@@ -2047,10 +2170,10 @@ function pinLockoutLoad(id) {
   } catch(e) { return { fails: 0, until: 0 }; }
 }
 function pinLockoutSave(id, fails, until) {
-  try { localStorage.setItem(pinLockoutKey(id), JSON.stringify({ fails, until: until || 0 })); } catch(e) {}
+  try { _LS.setItem(pinLockoutKey(id), JSON.stringify({ fails, until: until || 0 })); } catch(e) {}
 }
 function pinLockoutClear(id) {
-  try { localStorage.removeItem(pinLockoutKey(id)); } catch(e) {}
+  try { _LS.removeItem(pinLockoutKey(id)); } catch(e) {}
 }
 
 // Migrate plain-text PIN → hash in CONFIG and return the hash.
@@ -2123,7 +2246,7 @@ function checkHttpsEnforcement() {
   if (window.location.protocol === 'https:') return;
   const hub = CONFIG.hub || '';
   if (!hub || hub.startsWith('https://')) return; // already secure
-  if (localStorage.getItem('hestia-https-dismissed') === '1') return;
+  if (_LS.getItem('hestia-https-dismissed') === '1') return;
   // Suggest the HTTPS equivalent on port 8443
   const httpsUrl = hub.replace('http://', 'https://').replace(/(:\d+)?$/, ':8443');
   const el = document.getElementById('https-banner');
@@ -2511,7 +2634,7 @@ function cacheHubStoreToConfig() {
 const HUBSTORE_BREAKER_KEY = 'hestia-hubstore-breaker';
 function _breakerRead() {
   try {
-    const b = JSON.parse(localStorage.getItem(HUBSTORE_BREAKER_KEY) || 'null');
+    const b = JSON.parse(_LS.getItem(HUBSTORE_BREAKER_KEY) || 'null');
     return (b && b.appId) ? b : null;
   } catch(e) { return null; }
 }
@@ -2531,14 +2654,14 @@ function _breakerTrip() {
   const prev = _breakerRead();
   const fails = ((prev && prev.appId === id) ? prev.fails : 0) + 1;
   try {
-    localStorage.setItem(HUBSTORE_BREAKER_KEY, JSON.stringify({
+    _LS.setItem(HUBSTORE_BREAKER_KEY, JSON.stringify({
       appId: id, fails, nextProbeAt: Date.now() + _breakerDelayFor(fails)
     }));
   } catch(e) {}
   if (fails === 3) console.warn('[HubStore] Companion app', id, 'unreachable', fails, 'times -- backing off');
 }
 function _breakerReset() {
-  try { localStorage.removeItem(HUBSTORE_BREAKER_KEY); } catch(e) {}
+  try { _LS.removeItem(HUBSTORE_BREAKER_KEY); } catch(e) {}
 }
 // Open == currently backing off for the app id we'd be calling right now.
 function _breakerIsOpen() {
@@ -2894,6 +3017,7 @@ function buildConfigPayload() {
 }
 
 async function saveConfigToHub(payload) {
+  if (sbxBlocked('hub config write')) return;
   if (!HUB_STORE) return;
   // The JSON content-type forces a CORS preflight, so against a dead app id
   // even the OPTIONS adds to the hub's log flood. Going through the breaker
@@ -2908,7 +3032,7 @@ async function saveConfigToHub(payload) {
 /* Load config from localStorage (fast cache) */
 function loadConfig() {
   try {
-    const saved = localStorage.getItem('dashboard-config');
+    const saved = _LS.getItem('dashboard-config');
     if (saved) applyParsedConfig(JSON.parse(saved));
   } catch(e) { console.warn('Config load failed:', e); }
 }
@@ -2923,7 +3047,7 @@ async function saveConfig() {
   // it -- it was only ever meant to catch a *different* device's savedAt showing
   // up here, never this one's.
   _cfgAppliedSavedAt = payload.savedAt;
-  try { localStorage.setItem('dashboard-config', JSON.stringify(payload)); }
+  try { _LS.setItem('dashboard-config', JSON.stringify(payload)); }
   catch(e) { console.warn('localStorage save failed:', e); }
 
   // Lazy discovery: if HUB_STORE wasn't found during boot (e.g. page served
@@ -2969,6 +3093,7 @@ async function _cloudDecrypt(blob, ip) {
 }
 
 function cloudSyncPush(payload) {
+  if (sbxBlocked('cloud sync push')) return;
   // An unanswered adoption prompt means the entry for this IP belongs to a
   // household this device hasn't accepted. Pushing would overwrite their
   // settings with ours -- and destroy the cross-origin recovery channel boot
@@ -3028,18 +3153,18 @@ function _cloudConfigTrusted(cfg) {
   const id = _cloudHouseholdId(cfg);
   if (!id) return false;
   if (id === _cloudLocalHouseholdId()) return true; // already this device's own hub
-  try { return localStorage.getItem(CLOUD_HOUSEHOLD_KEY) === id; } catch(e) { return false; }
+  try { return _LS.getItem(CLOUD_HOUSEHOLD_KEY) === id; } catch(e) { return false; }
 }
 function _cloudRememberHousehold(cfg) {
   const id = _cloudHouseholdId(cfg);
   if (!id) return;
-  try { localStorage.setItem(CLOUD_HOUSEHOLD_KEY, id); } catch(e) {}
+  try { _LS.setItem(CLOUD_HOUSEHOLD_KEY, id); } catch(e) {}
 }
 // Offered, not applied. Boot carries on exactly as if no cloud config existed.
 function cloudOfferConfig(cfg) {
   const id = _cloudHouseholdId(cfg);
   if (!id) return;
-  try { if (localStorage.getItem(CLOUD_DECLINED_KEY) === id) return; } catch(e) {}
+  try { if (_LS.getItem(CLOUD_DECLINED_KEY) === id) return; } catch(e) {}
   _cloudPendingConfig = cfg;
   const banner = document.getElementById('cloud-adopt-banner');
   const msg = document.getElementById('cloud-adopt-msg');
@@ -3052,7 +3177,7 @@ function cloudAdoptConfig() {
   const cfg = _cloudPendingConfig;
   if (!cfg) return;
   _cloudRememberHousehold(cfg);
-  try { localStorage.setItem('dashboard-config', JSON.stringify(cfg)); } catch(e) {}
+  try { _LS.setItem('dashboard-config', JSON.stringify(cfg)); } catch(e) {}
   _cloudPendingConfig = null;
   const banner = document.getElementById('cloud-adopt-banner');
   if (banner) banner.classList.remove('visible');
@@ -3060,7 +3185,7 @@ function cloudAdoptConfig() {
 }
 function cloudDeclineConfig() {
   const id = _cloudHouseholdId(_cloudPendingConfig);
-  if (id) { try { localStorage.setItem(CLOUD_DECLINED_KEY, id); } catch(e) {} }
+  if (id) { try { _LS.setItem(CLOUD_DECLINED_KEY, id); } catch(e) {} }
   _cloudPendingConfig = null;
   const banner = document.getElementById('cloud-adopt-banner');
   if (banner) banner.classList.remove('visible');
@@ -3471,7 +3596,7 @@ function checkAppVersion() {
           const msg    = document.getElementById('app-update-msg');
           if (banner && msg) {
             try {
-              const snoozed = localStorage.getItem('hestia-app-update-snooze');
+              const snoozed = _LS.getItem('hestia-app-update-snooze');
               if (snoozed && Date.now() < parseInt(snoozed)) return;
             } catch(e) {}
             // A hub-served copy can't update itself -- /local/index.html is
@@ -3495,7 +3620,7 @@ function dismissAppUpdateBanner() {
   const banner = document.getElementById('app-update-banner');
   if (banner) banner.classList.remove('visible');
   // Snooze for 24 hours
-  try { localStorage.setItem('hestia-app-update-snooze', Date.now() + 24 * 60 * 60 * 1000); } catch(e) {}
+  try { _LS.setItem('hestia-app-update-snooze', Date.now() + 24 * 60 * 60 * 1000); } catch(e) {}
 }
 
 // ── Companion app version check ──
@@ -3548,7 +3673,7 @@ async function checkCompanionVersion() {
     _companionCheckTimer = setTimeout(checkCompanionVersion, 6 * 60 * 60 * 1000);
     // Snooze only hides the banner; the version above is still needed.
     try {
-      const snoozed = localStorage.getItem('hestia-companion-update-snooze');
+      const snoozed = _LS.getItem('hestia-companion-update-snooze');
       if (snoozed && Date.now() < parseInt(snoozed)) return;
     } catch(e) {}
     // Don't stack a second amber bar saying the same thing -- checkAppVersion()'s
@@ -3581,7 +3706,7 @@ async function checkCompanionVersion() {
 function dismissCompanionUpdateBanner() {
   const banner = document.getElementById('companion-update-banner');
   if (banner) banner.classList.remove('visible');
-  try { localStorage.setItem('hestia-companion-update-snooze', Date.now() + 24 * 60 * 60 * 1000); } catch(e) {}
+  try { _LS.setItem('hestia-companion-update-snooze', Date.now() + 24 * 60 * 60 * 1000); } catch(e) {}
 }
 
 /* ── Config staleness check ──
@@ -4116,6 +4241,7 @@ async function fetchAllDevices() {
    awaits it so "Done" only gets spoken once the hub has actually confirmed. */
 async function cmd(id, command, arg) {
   id = realDeviceId(id);
+  if (sbxBlocked('command', id + ' ' + command + (arg !== undefined ? ' ' + arg : ''))) return true;
   const path = arg !== undefined
     ? `/devices/${id}/${command}/${encodeURIComponent(arg)}`
     : `/devices/${id}/${command}`;
@@ -6944,12 +7070,12 @@ async function athenaCallClaude(userText) {
 function athenaPushHistory(role, content) {
   athenaHistory.push({ role, content });
   if (athenaHistory.length > 20) athenaHistory.splice(0, 2);
-  try { localStorage.setItem('athena_history', JSON.stringify({ date: new Date().toDateString(), messages: athenaHistory })); } catch(e){}
+  try { _LS.setItem('athena_history', JSON.stringify({ date: new Date().toDateString(), messages: athenaHistory })); } catch(e){}
 }
 
 function athenaLoadHistory() {
   try {
-    const saved = JSON.parse(localStorage.getItem('athena_history'));
+    const saved = JSON.parse(_LS.getItem('athena_history'));
     if (saved && saved.date === new Date().toDateString() && Array.isArray(saved.messages)) {
       athenaHistory = saved.messages;
     }
@@ -6960,7 +7086,7 @@ function athenaCheckDayReset() {
   const today = new Date().toDateString();
   if (athenaSessionDate && athenaSessionDate !== today) {
     athenaHistory = [];
-    try { localStorage.removeItem('athena_history'); } catch(e){}
+    try { _LS.removeItem('athena_history'); } catch(e){}
   }
   athenaSessionDate = today;
 }
@@ -9660,6 +9786,7 @@ async function artemisHsmCmd(hsmCmd) {
 
 // HSM alone, without the Ring mirror -- for resolving a mismatch toward Ring.
 async function artemisHsmOnlyCmd(hsmCmd) {
+  if (sbxBlocked('command', 'HSM ' + hsmCmd)) return;
   if (!CONFIG.hub || !CONFIG.appId || !CONFIG.token) return;
   try {
     const url = `${CONFIG.hub}/apps/api/${CONFIG.appId}/hsm/${hsmCmd}?access_token=${CONFIG.token}`;
@@ -10852,6 +10979,7 @@ async function pushRegisterServiceWorker() {
 // boot whenever push is already enabled, so it self-heals if the URL is
 // ever cleared (e.g. someone reconfigures Maker API and it resets).
 async function pushRegisterMakerApiWebhook() {
+  if (sbxBlocked('Maker API webhook registration')) return false;
   if (!CONFIG.hub || !CONFIG.appId || !CONFIG.token) return false;
   try {
     const url = `${CONFIG.hub}/apps/api/${CONFIG.appId}/postURL/${encodeURIComponent(PUSH_WEBHOOK_URL)}?access_token=${CONFIG.token}`;
@@ -10881,6 +11009,7 @@ async function pushRegisterMakerApiWebhook() {
 // indefinitely, and Diagnostics' Push Pipeline check trusted that same list.
 // subscribe.js's PUT is idempotent, so doing this every boot is cheap and safe.
 async function pushResyncOnBoot() {
+  if (sbxBlocked('push registration')) return;
   if (!CONFIG.pushEnabled) return;
   const entry = (CONFIG.pushDevices || []).find(d => d.id === DEVICE_ID);
   if (!entry) return;
@@ -10907,6 +11036,7 @@ async function pushResyncOnBoot() {
 }
 
 async function pushSubscribeThisDevice(mode) {
+  if (sbxBlocked('push registration')) return false;
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
     alert('Push notifications are not supported on this browser.');
     return false;
@@ -11611,6 +11741,7 @@ async function diagCheckEnv() {
 // actually be armed. Broadcasts to every registered device, same as any
 // other push category -- there's no per-device targeting in dispatchPush().
 async function diagSendTestPush() {
+  if (sbxBlocked('test push')) return;
   const btn = document.getElementById('diag-test-push-btn');
   const result = document.getElementById('diag-test-push-result');
   const deviceSel = document.getElementById('diag-test-push-device');
@@ -14193,11 +14324,11 @@ function toggleAppearance() {
   wrap.classList.toggle('collapsed');
   const isOpen = !wrap.classList.contains('collapsed');
   if (arrow) arrow.classList.toggle('open', isOpen);
-  try { localStorage.setItem('hestia-appearance-open', isOpen); } catch(e) {}
+  try { _LS.setItem('hestia-appearance-open', isOpen); } catch(e) {}
 }
 function restoreAppearanceState() {
   try {
-    const open  = localStorage.getItem('hestia-appearance-open');
+    const open  = _LS.getItem('hestia-appearance-open');
     const wrap  = document.getElementById('sp-appearance-wrap');
     const arrow = document.getElementById('sp-appearance-arrow');
     if (open === 'false') {
@@ -15898,7 +16029,7 @@ function handleImport(evt) {
 
 function resetSettings() {
   if (!confirm('Reset to factory defaults? All custom configuration will be lost.')) return;
-  localStorage.removeItem('dashboard-config');
+  _LS.removeItem('dashboard-config');
   Object.assign(CONFIG, deepClone(DEFAULTS.config));
   _sharedHubUrl = null;
   thermostats.length = 0; DEFAULTS.thermostats.forEach(t => thermostats.push(deepClone(t)));
@@ -17515,7 +17646,7 @@ const OB_TYPE_ORDER  = ['switch','dimmer','fan','shade','garage','therm','lock']
 
 function needsOnboarding() {
   // No config in localStorage AND hub store hasn't supplied one
-  try { return !localStorage.getItem('dashboard-config'); }
+  try { return !_LS.getItem('dashboard-config'); }
   catch(e) { return false; }
 }
 
@@ -17838,7 +17969,7 @@ async function obTestConnection() {
       if (hubCfg) {
         res.textContent = '\u2713 Config found \u2014 loading your dashboard\u2026';
         applyParsedConfig(hubCfg);
-        try { localStorage.setItem('dashboard-config', JSON.stringify(hubCfg)); } catch(e2) {}
+        try { _LS.setItem('dashboard-config', JSON.stringify(hubCfg)); } catch(e2) {}
         applyConfig();
         // Persist companion app credentials so future loads auto-boot
         await saveConfig();
@@ -18167,7 +18298,7 @@ function launchOnboarding() {
   if (!isServedFromHub() && /^((?!chrome|android|crios|fxios|edgios|brave).)*safari/i.test(navigator.userAgent)) {
     let _safariHub = null;
     try {
-      const sc = JSON.parse(localStorage.getItem('dashboard-config') || '{}');
+      const sc = JSON.parse(_LS.getItem('dashboard-config') || '{}');
       if (sc.config && sc.config.hub) _safariHub = sc.config.hub;
     } catch(e) {}
     if (!_safariHub) {
@@ -18251,7 +18382,7 @@ function launchOnboarding() {
         const ok = applyParsedConfig(hubCfg);
         if (ok) {
           applyConfig();
-          try { localStorage.setItem('dashboard-config', JSON.stringify(hubCfg)); } catch(e) {}
+          try { _LS.setItem('dashboard-config', JSON.stringify(hubCfg)); } catch(e) {}
           // Fall through to normal boot
         } else {
           // Config parse failed — pre-fill wizard from saved Maker API credentials
@@ -18311,7 +18442,7 @@ function launchOnboarding() {
         const ok = applyParsedConfig(cloudCfg);
         if (ok) {
           applyConfig();
-          try { localStorage.setItem('dashboard-config', JSON.stringify(cloudCfg)); } catch(e) {}
+          try { _LS.setItem('dashboard-config', JSON.stringify(cloudCfg)); } catch(e) {}
           console.log('[Boot] Auto-configured from cloud sync');
           // Fall through to normal boot
         } else {
@@ -18340,7 +18471,7 @@ function launchOnboarding() {
       const hubCfg = await loadConfigFromHub();
       if (hubCfg) {
         applyParsedConfig(hubCfg);
-        try { localStorage.setItem('dashboard-config', JSON.stringify(hubCfg)); } catch(e) {}
+        try { _LS.setItem('dashboard-config', JSON.stringify(hubCfg)); } catch(e) {}
         const _athFab = document.getElementById('ath-fab');
         if (_athFab) _athFab.style.display = CONFIG.athenaEnabled ? 'flex' : 'none';
         console.log('[Boot] Applied hub config');
@@ -18358,7 +18489,7 @@ function launchOnboarding() {
         cloudOfferConfig(cloudCfg);
       } else if (cloudCfg) {
         applyParsedConfig(cloudCfg);
-        try { localStorage.setItem('dashboard-config', JSON.stringify(cloudCfg)); } catch(e) {}
+        try { _LS.setItem('dashboard-config', JSON.stringify(cloudCfg)); } catch(e) {}
         console.log('[Boot] Applied cloud config');
         // Cloud config may carry a corrected hestiaAppId. Re-run reconstruction
         // so it takes effect now rather than a boot later; if it's the same dead

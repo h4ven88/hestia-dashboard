@@ -102,6 +102,11 @@ async function build() {
 
   fs.writeFileSync(DIST, html, 'utf-8');
   fs.copyFileSync(DIST, 'app.html');
+  // Same build, different filename. The runtime detects "sandbox" in the path
+  // and isolates config, cloud sync, push and device commands. Emitting it
+  // here rather than maintaining a second source file is what stops the
+  // sandbox drifting from the dashboard it is supposed to be testing.
+  fs.copyFileSync(DIST, 'sandbox.html');
 
   const distSize = Buffer.byteLength(html, 'utf-8');
   const ratio = ((1 - distSize / srcSize) * 100).toFixed(1);

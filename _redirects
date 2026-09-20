@@ -1,3 +1,8 @@
 # Cloudflare Pages redirects
 # Pretty URLs is enabled — avoid 200 rewrites that loop.
 # Routing handled by JS in dashboard.html instead.
+
+# The sandbox build ships in the repo (so it can be uploaded to a hub) but is
+# not part of the public site.
+/sandbox.html   /   302
+/sandbox         /   302
