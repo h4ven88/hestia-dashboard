@@ -626,6 +626,7 @@ html[data-display-mobile] .ath-panel-handle{display:block}
 .ath-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:20px;font-size:10px;font-weight:500;margin:0 12px 8px;width:fit-content}
 .ath-chip-green{background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.2);color:var(--conn-ok)}
 .ath-chip-red{background:rgba(248,113,113,.07);border:1px solid rgba(248,113,113,.2);color:var(--conn-err)}
+.ath-chip-amber{background:var(--amber-dim);border:1px solid var(--amber-bdr);color:var(--amber)}
 /* Input row */
 .ath-input-row{display:flex;align-items:center;gap:7px;padding:8px 11px;border-top:1px solid var(--border);background:#0D0D0D;flex-shrink:0}
 .ath-input{flex:1;background:var(--bg-hover);border:1px solid var(--border);border-radius:18px;padding:5px 11px;font-size:11px;color:var(--t1);font-family:inherit;outline:none}
@@ -851,6 +852,31 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 .climate-sb-state.live{color:var(--t2)}
 
 /* ── SHADES — open percentage is amber, track fills with amber ── */
+/* Garage door rows */
+.garage-row{display:flex;align-items:center;gap:10px;min-height:46px;border-bottom:1px solid var(--border-s);padding:6px 0}
+.garage-row:last-child{border-bottom:none}
+.garage-row .drow-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.garage-icon{display:flex;align-items:center;flex-shrink:0}
+.garage-state{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;flex-shrink:0}
+.garage-state.g-open,.garage-state.g-opening{color:var(--conn-err)}
+.garage-state.g-closed{color:var(--t4)}
+.garage-state.g-closing{color:var(--amber)}
+.garage-state.g-unknown{color:var(--amber)}
+.garage-btn{height:28px;padding:0 12px;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:transparent;color:var(--t2);font-size:11px;font-family:inherit;transition:all .15s;flex-shrink:0;min-width:56px;text-align:center;font-weight:500}
+.garage-btn:hover{background:var(--bg-hover);color:var(--t1)}
+/* While the door is actually moving, the panel in the icon travels between
+   its shut and raised positions -- the same two positions the open and closed
+   icons already draw, so the motion is the artwork rather than a new effect.
+   Only runs while the hub reports movement, and stops the moment it doesn't. */
+.garage-icon.g-moving .g-panel{animation:g-panel-up 1.6s ease-in-out infinite}
+.garage-icon.g-moving-down .g-panel{animation-name:g-panel-down}
+@keyframes g-panel-up{0%{transform:translateY(0)}55%,100%{transform:translateY(-5.6px)}}
+@keyframes g-panel-down{0%{transform:translateY(-5.6px)}55%,100%{transform:translateY(0)}}
+@media (prefers-reduced-motion:reduce){.garage-icon.g-moving .g-panel{animation:none}}
+/* Armed confirmation: deliberately loud, and it times out on its own. */
+.garage-btn.garage-confirm{border-color:var(--amber-bdr);background:var(--amber-dim);color:var(--amber);animation:garage-pulse 1.1s ease-in-out infinite}
+@keyframes garage-pulse{0%,100%{opacity:1}50%{opacity:.62}}
+@media (prefers-reduced-motion:reduce){.garage-btn.garage-confirm{animation:none}}
 .shade-row{display:flex;flex-direction:column;padding:11px 0;border-bottom:1px solid var(--border-s);gap:8px}
 .shade-row:last-child{border-bottom:none}
 .shade-row-top{display:flex;align-items:center;gap:10px}
@@ -1787,7 +1813,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    Copyright © 2026 Haven. CC BY-NC 4.0.
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
-const HESTIA_VERSION    = '1.6.8';
+const HESTIA_VERSION    = '1.6.9';
 const HESTIA_BUILD_DATE = '2026-09-20';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
@@ -2182,7 +2208,7 @@ function getLowBatteryDevices() {
   }
   // Hestia devices
   rooms.forEach(r => {
-    ['switches','dimmers','fans','shades','colors','colortemps'].forEach(t => {
+    ['switches','dimmers','fans','shades','colors','colortemps','garages'].forEach(t => {
       (r[t] || []).forEach(d => {
         if (S[d.id] && S[d.id].bat != null && S[d.id].bat <= BAT_LOW) {
           low.push({ id: d.id, name: d.name, bat: S[d.id].bat, room: r.short });
@@ -2656,7 +2682,7 @@ async function mergeDeviceListField(fieldName, updater) {
    or already the lock — and deduplicate by ID. Called after every config load. */
 function deduplicateStaging() {
   const knownIds = new Set();
-  rooms.forEach(r => ['switches','dimmers','fans','shades','therms','colors','colortemps'].forEach(t =>
+  rooms.forEach(r => ['switches','dimmers','fans','shades','therms','colors','colortemps','garages'].forEach(t =>
     r[t] && r[t].forEach(d => knownIds.add(String(d.id)))));
   thermostats.forEach(t => knownIds.add(String(t.id)));
   (CONFIG.locks || []).forEach(lk => { if (lk.id) knownIds.add(String(lk.id)); });
@@ -2766,7 +2792,7 @@ function applyParsedConfig(parsed) {
     if (parsed.rooms) {
       rooms.length = 0;
       parsed.rooms.forEach(r => {
-        ['switches','dimmers','fans','shades','colors','colortemps','therms','placeholders'].forEach(k => { if (!r[k]) r[k] = []; });
+        ['switches','dimmers','fans','shades','colors','colortemps','therms','garages','placeholders'].forEach(k => { if (!r[k]) r[k] = []; });
         rooms.push(r);
       });
     }
@@ -3073,6 +3099,7 @@ function initState() {
     r.shades.forEach(d    => { S[d.id] = { pct: 0 };                                          DEVICE_TYPE[d.id] = 'shade';      });
     (r.colors||[]).forEach(d  => { S[d.id] = { on: false, val: 0, hue: 0, sat: 100, ct: 2700, mode: 'CT' }; DEVICE_TYPE[d.id] = 'color'; });
     (r.colortemps||[]).forEach(d => { S[d.id] = { on: false, val: 0, ct: 2700 };              DEVICE_TYPE[d.id] = 'color-temp'; });
+    (r.garages||[]).forEach(d => { S[d.id] = { door: 'unknown' };                             DEVICE_TYPE[d.id] = 'garage';     });
   });
   // Staging devices — always polled; visible flag controls dashboard appearance
   staging.forEach(d => {
@@ -3083,6 +3110,7 @@ function initState() {
     if (d.type === 'shade')      { S[d.id] = { pct: 0 };                                           DEVICE_TYPE[d.id] = 'shade';      }
     if (d.type === 'color')      { S[d.id] = { on: false, val: 0, hue: 0, sat: 100, ct: 2700, mode: 'CT' }; DEVICE_TYPE[d.id] = 'color'; }
     if (d.type === 'color-temp') { S[d.id] = { on: false, val: 0, ct: 2700 };                      DEVICE_TYPE[d.id] = 'color-temp'; }
+    if (d.type === 'garage')     { S[d.id] = { door: 'unknown' };                                   DEVICE_TYPE[d.id] = 'garage'; }
     if (d.type === 'contact')    { S[d.id] = { open: false };                                       DEVICE_TYPE[d.id] = 'contact'; }
     if (d.type === 'motion')     { S[d.id] = { active: false };                                     DEVICE_TYPE[d.id] = 'motion'; }
     if (d.type === 'smoke')      { S[d.id] = { detected: false };                                   DEVICE_TYPE[d.id] = 'smoke'; }
@@ -3127,7 +3155,7 @@ function applyConfig() {
   // Rebuild device registry from current rooms + staging
   DEVICE_REGISTRY.clear();
   rooms.forEach(r => {
-    ['switches','dimmers','fans','shades','therms','colors','colortemps'].forEach(t =>
+    ['switches','dimmers','fans','shades','therms','colors','colortemps','garages'].forEach(t =>
       r[t] && r[t].forEach(d => DEVICE_REGISTRY.add(String(d.id))));
   });
   staging.forEach(d => DEVICE_REGISTRY.add(String(d.id)));
@@ -3363,6 +3391,33 @@ function applyAttrs(id, attrs) {
     const pos = safeNum(attrs.position);
     if (pos !== null) S[id].pct = pos;
     const batSh = safeNum(attrs.battery); if (batSh !== null) S[id].bat = batSh;
+
+  } else if (type === 'garage') {
+    // Hubitat's door enum is [unknown, open, closing, closed, opening], but it
+    // is not enforced: shipping drivers also emit "stopped", "waiting" and "?",
+    // and a door that has never reported has no door key at all. Anything
+    // outside the enum is treated as unknown, never as closed.
+    // A contact sensor watches the door itself and is the ground truth at
+    // rest; door is what carries the motion states, so door wins when it is
+    // saying something real. The relay's own switch is deliberately NOT used:
+    // on a momentary opener it reads "off" while the door stands wide open,
+    // which is the false-safe reading this whole type exists to avoid.
+    const DOOR_STATES = ['open', 'closed', 'opening', 'closing'];
+    const rawDoor = attrs.door != null ? String(attrs.door).toLowerCase() : null;
+    const prevDoor = S[id].door;
+    if (rawDoor && DOOR_STATES.includes(rawDoor)) S[id].door = rawDoor;
+    else if (attrs.contact != null) S[id].door = attrs.contact === 'open' ? 'open' : 'closed';
+    else if (rawDoor) S[id].door = 'unknown';           // reported something unrecognised
+    else if (S[id].door == null) S[id].door = 'unknown';
+    // Stamp when motion started, so a driver that gets stuck in
+    // opening/closing (a common, documented Hubitat complaint) doesn't leave
+    // the tile lying about the door forever. garageState() ages it out.
+    if (/^(opening|closing)$/.test(S[id].door)) {
+      if (!/^(opening|closing)$/.test(String(prevDoor || ''))) S[id].moveAt = Date.now();
+    } else {
+      delete S[id].moveAt;
+    }
+    const batG = safeNum(attrs.battery); if (batG !== null) S[id].bat = batG;
 
   } else if (type === 'lock') {
     if (attrs.lock != null) S[id].locked = attrs.lock === 'locked';
@@ -3955,8 +4010,12 @@ async function fetchAllDevices() {
         });
       }
     }
-    // Dual-capability devices (e.g. floodlight cams): virtual IDs for each capability
-    if (isDualCapability(device.capabilities)) {
+    // Dual-capability devices (e.g. floodlight cams): virtual IDs for each capability.
+    // A garage opener stored under the bare ID is not one of these: it's a
+    // relay plus its own door sensor, one device with one job. Splitting it
+    // would also mean its door state never got applied at all, so the tile
+    // would sit on "unknown" forever.
+    if (isDualCapability(device.capabilities) && DEVICE_TYPE[id] !== 'garage') {
       const mid = id + ':motion', sid = id + ':switch';
       if (!DEVICE_TYPE[mid]) { DEVICE_TYPE[mid] = 'motion'; S[mid] = S[mid] || { active: false }; DEVICE_REGISTRY.add(mid); }
       if (!DEVICE_TYPE[sid]) { DEVICE_TYPE[sid] = 'switch'; S[sid] = S[sid] || { on: false }; DEVICE_REGISTRY.add(sid); }
@@ -4839,9 +4898,13 @@ function roomActivity(r) {
             + (r.colors||[]).filter(d => S[d.id] && S[d.id].on).length
             + (r.colortemps||[]).filter(d => S[d.id] && S[d.id].on).length;
   const fan = r.fans.filter(f => S[f.id].spd !== 'off').length;
+  // An open garage is worth saying out loud in the room's summary line --
+  // it's the one state here that matters when you're not home.
+  const gar = (r.garages || []).filter(g => S[g.id] && /^(open|opening)$/.test(garageState(g.id))).length;
   const parts = [];
   if (lit) parts.push(lit + ' light' + (lit > 1 ? 's' : ''));
   if (fan) parts.push(fan + ' fan'   + (fan > 1 ? 's' : ''));
+  if (gar) parts.push(gar + ' garage open');
   return parts.length ? parts.join(', ') : 'All off';
 }
 
@@ -5707,6 +5770,10 @@ function athenaOpenPanel() {
 }
 
 function athenaClose() {
+  // A garage waiting on "yes" dies with the conversation that asked. The
+  // panel auto-closes after ~15s idle while the gate ran for 30, which left
+  // a live confirmation lying around for whoever spoke next.
+  _athenaPendingGarage = null;
   clearInterval(athenaFollowUpTimer);
   athenaStopListening();
   athenaHelixStop();
@@ -6509,6 +6576,7 @@ function athenaSystemPrompt() {
       ...r.shades.map(d      => `    - ${d.name} [id:${d.id}] (shade, 0-100%)`),
       ...(r.colors||[]).map(d    => `    - ${d.name} [id:${d.id}] (color bulb)`),
       ...(r.colortemps||[]).map(d=> `    - ${d.name} [id:${d.id}] (CT bulb)`),
+      ...(r.garages||[]).map(d   => `    - ${d.name} [id:${d.id}] (garage door: open/close)`),
     ].join('\n');
     return `- ${r.name} [room-id:${r.id}]:\n${deviceLines || '    (no devices)'}`;
   }).join('\n');
@@ -6522,6 +6590,7 @@ function athenaSystemPrompt() {
       ...r.shades.filter(d=>S[d.id]?.pct>0).map(d=>`${d.name}[${d.id}] ${S[d.id].pct}%`),
       ...(r.colors||[]).filter(d=>S[d.id]?.on).map(d=>`${d.name}[${d.id}] on`),
       ...(r.colortemps||[]).filter(d=>S[d.id]?.on).map(d=>`${d.name}[${d.id}] on`),
+      ...(r.garages||[]).filter(d=>S[d.id]&&S[d.id].door!=='closed').map(d=>`${d.name}[${d.id}] ${S[d.id].door}`),
     ];
     return on.length ? `- ${r.name}: ${on.join(', ')}` : null;
   }).filter(Boolean).join('\n') || '- All devices off';
@@ -6695,6 +6764,8 @@ Available commands: on, off, setLevel (value 0-100), setColorTemperature (value 
 
 SECURITY RESTRICTION: You CANNOT disarm the security system — disarming requires a PIN entered manually. If asked to disarm, explain that it must be done on the panel directly.
 
+GARAGE DOORS: use command "open" or "close" on the garage door's own device ID. Closing happens immediately. For opening, answer normally with the open command — Hestia itself asks the user to confirm out loud before the door moves, so do not refuse the request or invent your own confirmation step.
+
 CRITICAL DEVICE ID RULES:
 - Device IDs are the numeric strings shown in [id:X] in the room layout above
 - ONLY use IDs that appear explicitly in the room layout — NEVER invent, guess, or combine IDs
@@ -6709,10 +6780,91 @@ RULES:
 }
 
 // ── Athena System 3 — Claude API Call ─────────────────────────────────
+/* Garage confirmation for voice.
+   A wake word can be set off by a television or someone outside a window, so
+   the one command that opens the house waits for a spoken yes. Held here
+   rather than left to the model: the model can be talked out of it, and a
+   missed confirmation means an open garage. Closing is never gated. */
+let _athenaPendingGarage = null;   // { commands, at, names }
+const ATHENA_GARAGE_CONFIRM_MS = 30000;
+
+// Deliberately an allow-list of what is SAFE, not a block-list of what is
+// dangerous. The command string comes from a language model, so a block-list
+// is only ever as good as the variants I thought of ("open ", "push",
+// "toggle", a driver's own custom command) -- and every one I miss opens a
+// door. Anything aimed at a garage that isn't a plain close on hardware with
+// a real close gets confirmed.
+function _athenaGarageCmd(c) {
+  return !!c && DEVICE_TYPE[c.deviceId] === 'garage';
+}
+function _athenaGarageIsSafeClose(c) {
+  if (!_athenaGarageCmd(c)) return false;
+  if (garageIsPulse(c.deviceId)) return false;   // one command both ways
+  return String(c.command || '').trim().toLowerCase() === 'close';
+}
+function _athenaGarageNeedsConfirm(c) {
+  return _athenaGarageCmd(c) && !_athenaGarageIsSafeClose(c);
+}
+// Garage commands from voice or a routine go through the same hardware
+// mapping the tile uses; a bare "open" would do nothing at all on a relay.
+function _athenaRunCommand(c) {
+  if (_athenaGarageCmd(c)) {
+    const action = String(c.command || '').trim().toLowerCase() === 'close' ? 'close' : 'open';
+    return garageSend(c.deviceId, action);
+  }
+  return cmd(c.deviceId, c.command, c.value !== undefined ? c.value : undefined);
+}
+function _athenaAffirmative(t) {
+  return /^\s*(yes|yeah|yep|yup|sure|confirm(ed)?|do it|go ahead|affirmative|please do|open it)\b/i.test(t);
+}
+function _athenaNegative(t) {
+  return /^\s*(no|nope|cancel|stop|nevermind|never mind|don'?t|negative|forget it)\b/i.test(t);
+}
+
 async function athenaCallClaude(userText) {
   if (!CONFIG.athenaApiKey) {
     athenaShowError('No API key configured. Add your Anthropic API key in Settings → Athena.');
     return;
+  }
+  // An armed garage-open waiting on a yes/no is answered here, before the
+  // model sees it, so "no" can't be re-interpreted as anything else.
+  if (_athenaPendingGarage) {
+    const pending = _athenaPendingGarage;
+    // Tied to the voice session it was asked in: the panel closing, or a new
+    // session starting, must not leave a live "yes" waiting for whoever
+    // speaks next. Without this, "Athena, yes turn off the lights" 20s later
+    // opened the garage instead.
+    const fresh = (Date.now() - pending.at) < ATHENA_GARAGE_CONFIRM_MS &&
+                  pending.session === _athenaSessionId;
+    _athenaPendingGarage = null;
+    if (fresh && _athenaAffirmative(userText)) {
+      athenaAddBubble('user', userText);
+      const results = await Promise.all(pending.commands.map(_athenaRunCommand));
+      setTimeout(scheduleNextPoll, 600);
+      const ok = results.every(Boolean);
+      const msg = ok ? `Opening the ${pending.names}.` : "That didn't go through — the hub didn't confirm it.";
+      athenaSetState('responding');
+      athenaAddBubble('athena', msg);
+      athenaShowChip(ok ? 'green' : 'red', ok ? 'Opening' : 'Command failed');
+      athenaSpeak(msg);
+      return;
+    }
+    if (fresh && _athenaNegative(userText)) {
+      athenaAddBubble('user', userText);
+      // "Open the garage and turn on the porch light" -- declining the door
+      // shouldn't silently swallow the light too.
+      const others = pending.commands.filter(c => !_athenaGarageNeedsConfirm(c));
+      if (others.length) await Promise.all(others.map(_athenaRunCommand));
+      athenaSetState('responding');
+      const msg = others.length
+        ? 'Cancelled the door. The rest is done.'
+        : 'Cancelled, leaving it as it is.';
+      athenaAddBubble('athena', msg);
+      athenaSpeak(msg);
+      if (others.length) setTimeout(scheduleNextPoll, 600);
+      return;
+    }
+    // Anything else: treat it as a new request and let it through.
   }
   athenaCheckDayReset();
   athenaPushHistory('user', userText);
@@ -7265,14 +7417,14 @@ function routineResolveDevice(step) {
   const room = (step.room || '').toLowerCase();
   for (const r of rooms) {
     if (room && r.name.toLowerCase() !== room) continue;
-    for (const type of ['switches','dimmers','fans','shades','colors','colortemps']) {
+    for (const type of ['switches','dimmers','fans','shades','colors','colortemps','garages']) {
       for (const d of (r[type] || [])) {
         if (d.name.toLowerCase() === name) return String(d.id);
       }
     }
   }
   for (const r of rooms) {
-    for (const type of ['switches','dimmers','fans','shades','colors','colortemps']) {
+    for (const type of ['switches','dimmers','fans','shades','colors','colortemps','garages']) {
       for (const d of (r[type] || [])) {
         if (d.name.toLowerCase() === name) return String(d.id);
       }
@@ -7293,6 +7445,16 @@ async function routineRun(id) {
       continue;
     }
     step.deviceId = devId;
+    // A routine can run unattended, on a schedule, with nobody in the house.
+    // Nothing there can confirm an intent to open a door, so a routine may
+    // close a garage but never open one. The Settings builder doesn't offer
+    // "open" either; this is the backstop for older saved routines and for
+    // anything Athena writes.
+    if (DEVICE_TYPE[devId] === 'garage' && !_athenaGarageIsSafeClose({ deviceId: devId, command: step.command })) {
+      failures.push((step.deviceName || 'Garage door') + ' (opening a garage needs confirming)');
+      console.warn('[Routine] Refused to open a garage door unattended:', step.deviceName || devId);
+      continue;
+    }
     try {
       // cmd() never throws (its own try/catch always resolves true/false),
       // so this catch alone could never detect a hub-rejected command --
@@ -7873,11 +8035,28 @@ async function athenaHandleResponse(rawText) {
       // before the hub actually confirmed is a real trust problem, not just
       // a cosmetic one. Await every command and only speak/show success once
       // the hub has genuinely accepted all of them.
+      // Anything aimed at a garage that isn't a plain close waits for a
+      // spoken yes. A plain close on hardware with a real close goes through.
+      const gated = Array.isArray(parsed.commands) ? parsed.commands.filter(_athenaGarageNeedsConfirm) : [];
+      if (gated.length) {
+        const names = gated.map(c => {
+          for (const r of rooms) {
+            const g = (r.garages || []).find(x => String(x.id) === String(c.deviceId));
+            if (g) return g.name;
+          }
+          return 'garage door';
+        }).join(' and ');
+        _athenaPendingGarage = { commands: parsed.commands, at: Date.now(), names, session: _athenaSessionId };
+        const ask = `Open the ${names}? Say yes to confirm.`;
+        athenaSetState('responding');
+        athenaAddBubble('athena', ask);
+        athenaShowChip('amber', 'Waiting for confirmation');
+        athenaSpeak(ask);
+        break;
+      }
       let allOk = true;
       if (Array.isArray(parsed.commands) && parsed.commands.length) {
-        const results = await Promise.all(parsed.commands.map(c =>
-          cmd(c.deviceId, c.command, c.value !== undefined ? c.value : undefined)
-        ));
+        const results = await Promise.all(parsed.commands.map(_athenaRunCommand));
         allOk = results.every(Boolean);
         setTimeout(scheduleNextPoll, 400);
       }
@@ -8082,6 +8261,8 @@ function athenaShowChip(type, text) {
   chip.className = `ath-chip ath-chip-${type}`;
   const icon = type === 'green'
     ? `<svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6L5 9L10 3" stroke="var(--conn-ok)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+    : type === 'amber'
+    ? `<svg width="9" height="9" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="var(--amber)" stroke-width="1.2"/><line x1="6" y1="3.5" x2="6" y2="6.5" stroke="var(--amber)" stroke-width="1.2" stroke-linecap="round"/><circle cx="6" cy="8.5" r=".6" fill="var(--amber)"/></svg>`
     : `<svg width="9" height="9" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="var(--conn-err)" stroke-width="1.2"/><line x1="6" y1="3.5" x2="6" y2="6.5" stroke="var(--conn-err)" stroke-width="1.2" stroke-linecap="round"/><circle cx="6" cy="8.5" r=".6" fill="var(--conn-err)"/></svg>`;
   chip.innerHTML = icon + h(text);
   area.appendChild(chip);
@@ -8521,7 +8702,7 @@ function announceDeviceName(id, fallback) {
     if (s && s.name) return _announceCleanSensorName(s.name);
   }
   for (const r of rooms) {
-    for (const t of ['switches','dimmers','fans','shades','colors','colortemps','therms']) {
+    for (const t of ['switches','dimmers','fans','shades','colors','colortemps','therms','garages']) {
       const d = (r[t] || []).find(d => String(d.id) === sid);
       if (d && d.name) return _announceCleanSensorName(d.name);
     }
@@ -8907,9 +9088,13 @@ function aIconWindow(c, isOpen) {
   if (isOpen) return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="5" y="4" width="5.5" height="4.5" rx="1" fill="${c}" opacity=".12"/><rect x="13.5" y="4" width="5.5" height="4.5" rx="1" fill="${c}" opacity=".12"/><rect x="3.5" y="2.5" width="17" height="17.5" rx="2.2" stroke="${c}" stroke-width="2" fill="none" opacity=".4"/><rect x="3.5" y="9" width="17" height="2" rx=".4" fill="${c}" opacity=".75"/><rect x="10.9" y="2.5" width="2.2" height="8.5" rx=".4" fill="${c}" opacity=".75"/><rect x="4" y="12" width="16" height="2" rx=".6" fill="${c}" opacity=".8"/><rect x="5" y="14.8" width="14" height="4.2" rx=".8" fill="${c}" opacity=".05"/><rect x="2.5" y="21" width="19" height="2" rx="1" fill="${c}" opacity=".5"/></svg>`;
   return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="5" y="4" width="5.5" height="5.5" rx="1" fill="${c}" opacity=".12"/><rect x="13.5" y="4" width="5.5" height="5.5" rx="1" fill="${c}" opacity=".12"/><rect x="5" y="13" width="5.5" height="5.5" rx="1" fill="${c}" opacity=".12"/><rect x="13.5" y="13" width="5.5" height="5.5" rx="1" fill="${c}" opacity=".12"/><rect x="3.5" y="2.5" width="17" height="17.5" rx="2.2" stroke="${c}" stroke-width="2" fill="none" opacity=".8"/><rect x="3.5" y="10.2" width="17" height="2.2" rx=".4" fill="${c}" opacity=".8"/><rect x="10.9" y="2.5" width="2.2" height="17.5" rx=".4" fill="${c}" opacity=".8"/><rect x="2.5" y="21" width="19" height="2" rx="1" fill="${c}" opacity=".5"/></svg>`;
 }
-function aIconGarage(c, isOpen) {
-  if (isOpen) return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 12 L12 4 L21 12" stroke="${c}" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" fill="none" opacity=".7"/><rect x="4.5" y="12" width="15" height="10" stroke="${c}" stroke-width="1.2" fill="none" opacity=".4" rx=".3"/><rect x="7" y="15.5" width="10" height="6" fill="#000" opacity=".2"/><rect x="7" y="12.5" width="10" height="3.2" rx=".4" fill="${c}" opacity=".6"/><line x1="7" y1="14" x2="17" y2="14" stroke="${c}" stroke-width=".5" opacity=".25"/></svg>`;
-  return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 12 L12 4 L21 12" stroke="${c}" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" fill="none" opacity=".7"/><rect x="4.5" y="12" width="15" height="10" stroke="${c}" stroke-width="1.2" fill="none" opacity=".4" rx=".3"/><rect x="7" y="12.5" width="10" height="9" rx=".4" fill="${c}" opacity=".72"/><line x1="7" y1="15" x2="17" y2="15" stroke="${c}" stroke-width=".5" opacity=".3"/><line x1="7" y1="17.3" x2="17" y2="17.3" stroke="${c}" stroke-width=".5" opacity=".3"/><line x1="7" y1="19.6" x2="17" y2="19.6" stroke="${c}" stroke-width=".5" opacity=".3"/><rect x="10.5" y="19.8" width="3" height="1.2" rx=".4" fill="${c}" opacity=".25"/></svg>`;
+// The garage icon from the original Artemis icon set. sz lets the garage tile
+// reuse it at its own size; the door panel and its seams carry a class so the
+// tile can slide them up and down while the door is actually moving.
+function aIconGarage(c, isOpen, sz) {
+  const s = sz || 20;
+  if (isOpen) return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none"><path d="M3 12 L12 4 L21 12" stroke="${c}" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" fill="none" opacity=".7"/><rect x="4.5" y="12" width="15" height="10" stroke="${c}" stroke-width="1.2" fill="none" opacity=".4" rx=".3"/><rect x="7" y="15.5" width="10" height="6" fill="#000" opacity=".2"/><g class="g-panel"><rect x="7" y="12.5" width="10" height="3.2" rx=".4" fill="${c}" opacity=".6"/><line x1="7" y1="14" x2="17" y2="14" stroke="${c}" stroke-width=".5" opacity=".25"/></g></svg>`;
+  return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none"><path d="M3 12 L12 4 L21 12" stroke="${c}" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" fill="none" opacity=".7"/><rect x="4.5" y="12" width="15" height="10" stroke="${c}" stroke-width="1.2" fill="none" opacity=".4" rx=".3"/><rect x="7" y="15.5" width="10" height="6" fill="#000" opacity=".2"/><g class="g-panel"><rect x="7" y="12.5" width="10" height="9" rx=".4" fill="${c}" opacity=".72"/><line x1="7" y1="15" x2="17" y2="15" stroke="${c}" stroke-width=".5" opacity=".3"/><line x1="7" y1="17.3" x2="17" y2="17.3" stroke="${c}" stroke-width=".5" opacity=".3"/><line x1="7" y1="19.6" x2="17" y2="19.6" stroke="${c}" stroke-width=".5" opacity=".3"/><rect x="10.5" y="19.8" width="3" height="1.2" rx=".4" fill="${c}" opacity=".25"/></g></svg>`;
 }
 function aIconMotion(c, isActive) {
   if (isActive) return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="13.5" cy="6.5" r="3" fill="${c}" opacity=".85"/><path d="M7.5 21 C7.5 16.2 9.5 13.2 13.5 13.2 C17.5 13.2 19.5 16.2 19.5 21 Z" fill="${c}" opacity=".62"/><path d="M5.5 10.5 Q3 14 5.5 17.5" stroke="${c}" stroke-width="1.6" fill="none" stroke-linecap="round" opacity=".6"/><path d="M3 8.5 Q-.2 14 3 19.5" stroke="${c}" stroke-width="1.3" fill="none" stroke-linecap="round" opacity=".28"/></svg>`;
@@ -8934,25 +9119,10 @@ function aIconLock(locked) {
 }
 
 
-// ── Sensor row builder ────────────────────────────────────────────────
-function artemisSensorRow(d, type, alertState) {
-  const isAlert = alertState;
-  const siCls   = isAlert ? 'a-warn' : (type === 'motion' ? 'a-ok' : 'a-ok');
-  const dtCls   = isAlert ? 'a-alert' : (type === 'motion' && artemisSensorState(d, 'active') ? 'a-active' : 'a-clear');
-  const icons   = { contact: aIconContact, window: aIconWindow, garage: aIconGarage, motion: aIconMotion, glass: aIconGlass };
-  const iconFn  = icons[type] || aIconContact;
-  const icoColor = isAlert ? '#D4891A' : aOkColor();
-  const dtText  = isAlert
-    ? (type === 'motion' ? 'Active' : 'Open')
-    : (type === 'motion' ? 'Idle' : 'Closed');
-  const bat = batBadge(d.id);
-  return `<div class="a-row">
-    <div class="a-si ${isAlert?'a-warn':'a-ok'}">${iconFn(icoColor, isAlert)}</div>
-    <div class="a-inf" style="flex:1;min-width:0"><div class="a-nm">${h(d.name)}</div></div>
-    ${bat}
-    <span class="a-dt ${dtCls}">${dtText}</span>
-  </div>`;
-}
+// (An artemisSensorRow() builder lived here and had no callers: the Security
+// card builds its rows with its own typeRow(), and Settings uses sensorRow().
+// Removed with the garage work, which is what surfaced it -- its icon map was
+// the last reference to aIconGarage, and that icon is now the garage tile's.)
 
 // ── Entry sensors card HTML ───────────────────────────────────────────
 function artemisEntrySensorsHTML() {
@@ -9052,6 +9222,23 @@ function artemisLocksHTML() {
   }).join('');
   return `<div class="a-card"><div class="a-card-hdr">Locks
     <span class="a-cnt ${allLocked?'a-secure':'a-alert'}">${allLocked?'All Locked':'Unlocked'}</span></div>${rows}</div>`;
+}
+
+// ── Garage doors card ─────────────────────────────────────────────────
+// A garage door is an entry point, so it belongs beside the locks rather
+// than only in whichever room it was filed under. The room card keeps its
+// copy; garageRender() repaints every copy by data-garage-id, so the two
+// stay in step without either owning the state.
+function artemisGaragesHTML() {
+  const doors = [];
+  rooms.forEach(r => (r.garages || []).forEach(g => doors.push(g)));
+  if (!doors.length) return '';
+  const openCount = doors.filter(g => /^(open|opening)$/.test(garageState(g.id))).length;
+  const unknown = doors.filter(g => garageState(g.id) === 'unknown').length;
+  const status = openCount ? (openCount + ' Open') : unknown ? 'Unknown' : 'All Closed';
+  const cls = openCount ? 'a-alert' : unknown ? 'a-alert' : 'a-secure';
+  return `<div class="a-card"><div class="a-card-hdr">Garage
+    <span class="a-cnt ${cls}">${status}</span></div>${doors.map(garageRowHTML).join('')}</div>`;
 }
 
 // ── Cameras summary row — mobile only, desktop has its own sidebar view ──
@@ -9304,6 +9491,7 @@ function renderSecurity() {
     <div class="artemis-left">
       ${artemisEntrySensorsHTML()}
       ${artemisLocksHTML()}
+      ${artemisGaragesHTML()}
       ${artemisEnvHTML()}
     </div>`;
 
@@ -9335,6 +9523,7 @@ function renderSecurity() {
         ${artemisCamerasHTML()}
         ${artemisEntrySensorsHTML()}
         ${artemisLocksHTML()}
+        ${artemisGaragesHTML()}
         ${artemisEnvHTML()}
         <div class="a-brand-ftr">
           <div style="text-align:right">
@@ -11994,7 +12183,7 @@ async function artemisCreateAndAssign(id, cat) {
   const name = inp ? inp.value.trim() : '';
   if (!name) { if (inp) inp.focus(); return; }
   const roomId = name.toLowerCase().replace(/[^a-z0-9]/g,'_').replace(/_+/g,'_') + '_' + Date.now().toString(36);
-  rooms.push({ id: roomId, name, short: name.split(' ')[0], switches:[], dimmers:[], fans:[], shades:[], colors:[], colortemps:[], therms:[], placeholders:[] });
+  rooms.push({ id: roomId, name, short: name.split(' ')[0], switches:[], dimmers:[], fans:[], shades:[], colors:[], colortemps:[], garages:[], therms:[], placeholders:[] });
   artemisSetRoom(id, cat, roomId);
   applyConfig();
 }
@@ -12292,6 +12481,218 @@ function shadeRowHTML(sh) {
         style="--pct:${pct}%"
         oninput="setShadeSlider('${sh.id}',this.value)">
     </div>`;
+}
+
+/* ── Garage doors ──────────────────────────────────────────────────────
+   The only control in Hestia that moves something heavy and opens a whole
+   side of the house, so Open asks first and Close doesn't: closing is the
+   safe direction and the common one. The confirmation lives in the button
+   rather than a native confirm() dialog, because kiosk browsers (Fully
+   Kiosk, used by at least one user here) can suppress dialogs outright,
+   which would leave the door unopenable.
+*/
+const _garagePending = {};        // id -> timeout handle for an armed confirmation
+const _garagePendingAction = {};  // id -> which action that confirmation would run
+const _garagePendingAt = {};      // id -> when it was armed, so a re-render doesn't restart the pulse
+const GARAGE_CONFIRM_MS = 5000;
+
+function _garageDev(id) {
+  const rid = realDeviceId(id);
+  return (lastPollDevices || []).find(x => String(x.id) === String(rid)) || null;
+}
+function garageDevCmds(id) {
+  const d = _garageDev(id);
+  // Duplicates are normal: a driver declaring two capabilities that both
+  // provide a command gets it listed twice.
+  return d ? Array.from(new Set((d.commands || []).map(c => String(c.command || c)))) : [];
+}
+function _garageDevCaps(id) {
+  const d = _garageDev(id);
+  return d ? (Array.isArray(d.capabilities) ? d.capabilities.join(',') : String(d.capabilities || '')) : '';
+}
+/* How this particular opener is driven, decided from its declared
+   capabilities rather than from guessing at its command list:
+     'door'   GarageDoorControl or DoorControl -> open / close
+     'pulse'  a bare relay -> one command moves the door, and it reverses
+              whichever way the door was last going. There is no separate
+              "close": Zooz's own garage app drives the door with on() and
+              uses off() only to release the relay.
+     'push'   Momentary -> push
+     null     unknown hardware, or the poll hasn't arrived yet
+   Never guess open/close for a device that doesn't declare it: sending a
+   command the device doesn't implement moves nothing and reports nothing. */
+function garageCmdStyle(id) {
+  const caps = _garageDevCaps(id);
+  if (!caps) return null;
+  if (/GarageDoorControl|DoorControl/i.test(caps)) return 'door';
+  const cmds = garageDevCmds(id);
+  // Momentary before Switch: a relay that declares Momentary is telling us
+  // push() is how it's meant to be operated, and such devices usually expose
+  // on() as well, so checking Switch first would silently pick the wrong one.
+  if (/Momentary/i.test(caps) && cmds.includes('push')) return 'push';
+  if (/\bSwitch\b/i.test(caps) && cmds.includes('on')) return 'pulse';
+  return null;
+}
+// True when the device reports the door's real position, rather than just
+// the state of a relay. Only those can honestly show "Opening"/"Closing".
+function garageReportsDoor(id) {
+  const d = _garageDev(id);
+  if (!d) return false;
+  const raw = d.attributes || {};
+  // Maker API injects dataType/values into the attributes object; looking for
+  // a literal 'door' key is unaffected by them.
+  const names = Array.isArray(raw) ? raw.map(x => x && x.name) : Object.keys(raw);
+  return names.includes('door');
+}
+// A pulse opener has one command for both directions, so "close" can just as
+// easily open the door. Those get confirmed in both directions.
+function garageIsPulse(id) {
+  const style = garageCmdStyle(id);
+  return style === 'pulse' || style === 'push';
+}
+function garageSend(id, action) {
+  const style = garageCmdStyle(id);
+  if (!style) {
+    // Either the poll hasn't landed yet or this device doesn't declare a way
+    // to be operated. Fail loudly rather than firing a command into the void.
+    showDeviceToast(lastPollDevices && lastPollDevices.length
+      ? "This opener doesn't report a way to operate it — check it's authorized in Maker API"
+      : 'Waiting for the hub — try again in a moment');
+    return Promise.resolve(false);
+  }
+  if (style === 'door')  return cmd(id, action === 'open' ? 'open' : 'close');
+  if (style === 'push')  return cmd(id, 'push');
+  return cmd(id, 'on');   // pulse: the same command moves it either way
+}
+// Hubitat's door attribute is [unknown, open, closing, closed, opening], and
+// "unknown" is a real value a door reports -- never flatten it to "closed".
+// Saying a door is shut when the hub doesn't know is the same false-safe
+// reading that once showed an armed house as Disarmed.
+// A door typically travels in about 15 seconds (5-30s across real drivers).
+// Well-known Hubitat drivers get stuck reporting opening/closing forever, and
+// polling never clears it because the hub itself is stuck, so motion ages out
+// here at roughly 3x the usual travel time.
+const GARAGE_MOTION_MAX_MS = 45000;
+
+function garageState(id) {
+  const st = (S[id] && S[id].door) ? String(S[id].door).toLowerCase() : 'unknown';
+  if (!['open', 'closed', 'opening', 'closing'].includes(st)) return 'unknown';
+  if (/^(opening|closing)$/.test(st) && S[id].moveAt && (Date.now() - S[id].moveAt) > GARAGE_MOTION_MAX_MS) {
+    return 'unknown';
+  }
+  return st;
+}
+function garageLabel(id) {
+  const st = garageState(id);
+  return st === 'open' ? 'Open' : st === 'closed' ? 'Closed'
+       : st === 'opening' ? 'Opening' : st === 'closing' ? 'Closing' : 'Unknown';
+}
+// Only a door the hub says is closed (or on its way there) counts as shut.
+// An unknown door is not assumed shut, so it never gets the one-tap Open.
+function garageIsShut(id) {
+  const st = garageState(id);
+  return st === 'closed' || st === 'closing';
+}
+function garageIsUnknown(id) { return garageState(id) === 'unknown'; }
+function garageClearPending(id) {
+  if (_garagePending[id]) { clearTimeout(_garagePending[id]); delete _garagePending[id]; }
+  delete _garagePendingAction[id];
+  delete _garagePendingAt[id];
+}
+// The Security panel rebuilds its cards on every poll, which would restart the
+// confirm pulse once a second. A negative delay resumes it where it was.
+function _garageConfirmStyle(id) {
+  const at = _garagePendingAt[id];
+  if (!at) return '';
+  return ` style="animation-delay:-${((Date.now() - at) / 1000).toFixed(2)}s"`;
+}
+// action is optional: omitted means "do the opposite of what it is now",
+// which is what the single toggle button does. The unknown state passes an
+// explicit action instead, because there is no opposite to infer.
+function garageTap(id, action) {
+  const wantOpen = action ? action === 'open' : garageIsShut(id);
+  // A pulse opener sends one command whichever button was pressed, so
+  // "Close" can just as easily open the door. Confirm both directions there.
+  const needsConfirm = wantOpen || garageIsPulse(id);
+  const want = wantOpen ? 'open' : 'close';
+  if (needsConfirm) {
+    // Only a second tap on the SAME action counts as confirming it; tapping
+    // the other direction arms that one instead of firing what was armed.
+    if (_garagePending[id] && _garagePendingAction[id] === want) {
+      garageClearPending(id);
+      if (garageReportsDoor(id)) { S[id].door = wantOpen ? 'opening' : 'closing'; S[id].moveAt = Date.now(); }
+      garageSend(id, want);
+      setTimeout(scheduleNextPoll, 600);
+    } else {
+      garageClearPending(id);
+      _garagePending[id] = setTimeout(() => { garageClearPending(id); garageRender(id); }, GARAGE_CONFIRM_MS);
+      _garagePendingAction[id] = want;
+      _garagePendingAt[id] = Date.now();
+    }
+  } else {
+    garageClearPending(id);
+    if (garageReportsDoor(id)) { S[id].door = 'closing'; S[id].moveAt = Date.now(); }
+    garageSend(id, 'close');
+    setTimeout(scheduleNextPoll, 600);
+  }
+  garageRender(id);
+  // The Security card's own header ("All Closed" / "1 Open") is summary text
+  // outside the row, so it needs its own nudge rather than waiting a poll.
+  if (CONFIG.artemisEnabled && _artemisOnSecurityView()) patchSecurityView();
+}
+// Repaints every copy of one garage's row (a room card and the mobile view
+// can both be showing it). Rebuilt rather than patched in place, because the
+// unknown state has two buttons and the others have one.
+function garageRender(id) {
+  document.querySelectorAll(`[data-garage-id="${id}"]`).forEach(el => {
+    const nameEl = el.querySelector('.drow-name');
+    const name = nameEl ? nameEl.textContent : '';
+    const hadFocus = el.contains(document.activeElement);
+    el.innerHTML = garageRowInner({ id, name });
+    // Keyboard users shouldn't lose their place because the hub reported in.
+    if (hadFocus) { const b = el.querySelector('.garage-btn'); if (b) b.focus(); }
+  });
+}
+function garageRowHTML(g) {
+  return `<div class="garage-row" data-garage-id="${g.id}">${garageRowInner(g)}</div>`;
+}
+function garageRowInner(g) {
+  const st = garageState(g.id);
+  const armed = a => !!_garagePending[g.id] && _garagePendingAction[g.id] === a;
+  const btn = (action, label) =>
+    `<button class="garage-btn${armed(action) ? ' garage-confirm' : ''}"${armed(action) ? _garageConfirmStyle(g.id) : ''} onclick="garageTap('${g.id}','${action}')">${armed(action) ? 'Confirm ' + action : label}</button>`;
+  let buttons;
+  if (garageIsPulse(g.id)) {
+    // One command does both. Pretending there are two buttons would be a lie
+    // about the hardware, and either of them could open the door.
+    buttons = `<button class="garage-btn${_garagePending[g.id] ? ' garage-confirm' : ''}"${_garagePending[g.id] ? _garageConfirmStyle(g.id) : ''} onclick="garageTap('${g.id}','${garageIsShut(g.id) ? 'open' : 'close'}')">${_garagePending[g.id] ? 'Confirm' : 'Move door'}</button>`;
+  } else if (st === 'unknown') {
+    // The hub doesn't know where the door is, so offer both rather than
+    // guessing which one the user needs.
+    buttons = btn('open', 'Open') + btn('close', 'Close');
+  } else {
+    buttons = garageIsShut(g.id) ? btn('open', 'Open') : btn('close', 'Close');
+  }
+  const moveCls = st === 'opening' ? ' g-moving' : st === 'closing' ? ' g-moving g-moving-down' : '';
+  return `
+      <span class="garage-icon${moveCls}">${garageSVG(st)}</span>
+      <span class="drow-name">${h(g.name)}</span>
+      <span class="garage-state g-${st}">${garageLabel(g.id)}</span>
+      ${buttons}`;
+}
+// Reuses aIconGarage from the original Artemis icon set rather than drawing a
+// second garage: same filled 20px language as every other sensor icon, and its
+// open variant already shows the panel raised over a recess, which is what the
+// motion states animate between. An unknown door keeps the artwork and adds a
+// question mark, so it reads as "we don't know" rather than as shut.
+function garageSVG(state) {
+  const open = state === 'open' || state === 'opening';
+  if (state === 'unknown') {
+    const svg = aIconGarage('#D4891A', false, 22);
+    return svg.replace('</svg>',
+      `<text x="12" y="19.5" text-anchor="middle" font-size="8.5" font-weight="700" fill="var(--amber)">?</text></svg>`);
+  }
+  return aIconGarage(open ? aRedColor() : aOkColor(), open, 22);
 }
 
 const shadeSliderTimers = {};
@@ -13030,7 +13431,7 @@ function renderSidebar() {
 
 function renderRoom(r) {
   const ma  = document.getElementById('main-area');
-  const all = [...r.switches, ...r.dimmers, ...(r.colors||[]), ...(r.colortemps||[]), ...r.fans, ...r.therms, ...r.shades];
+  const all = [...r.switches, ...r.dimmers, ...(r.colors||[]), ...(r.colortemps||[]), ...r.fans, ...r.therms, ...r.shades, ...(r.garages||[])];
 
   if (all.length === 0) {
     ma.innerHTML = `
@@ -13165,6 +13566,11 @@ function renderRoom(r) {
       </div>`;
     const rows = r.shades.map(sh => shadeRowHTML(sh)).join('');
     cards.push(`<div class="dcard" style="grid-column:span 2"><div class="dcard-lbl">Shades</div>${bulk}${rows}</div>`);
+  }
+
+  if ((r.garages || []).length) {
+    const rows = r.garages.map(g => garageRowHTML(g)).join('');
+    cards.push(`<div class="dcard"><div class="dcard-lbl">Garage</div>${rows}</div>`);
   }
 
   ma.innerHTML =
@@ -13845,7 +14251,7 @@ function spGetAvailableDevices(ri, type) {
   // Build a set of all IDs already assigned anywhere (rooms + staging + therms + lock)
   const used = new Set();
   rooms.forEach((r, rIdx) => {
-    ['switches','dimmers','fans','shades','therms','colors','colortemps'].forEach(t =>
+    ['switches','dimmers','fans','shades','therms','colors','colortemps','garages'].forEach(t =>
       r[t] && r[t].forEach(d => {
         if (rIdx !== ri) used.add(String(d.id));
       }));
@@ -13853,11 +14259,20 @@ function spGetAvailableDevices(ri, type) {
   thermostats.forEach(t => used.add(String(t.id)));
   (CONFIG.locks || []).forEach(lk => { if (lk.id) used.add(String(lk.id)); });
 
-  const typeMap = { switches:'switch', dimmers:'dimmer', fans:'fan', shades:'shade', therms:'therm', colors:'color', colortemps:'color-temp' };
+  const typeMap = { switches:'switch', dimmers:'dimmer', fans:'fan', shades:'shade', therms:'therm', colors:'color', colortemps:'color-temp', garages:'garage' };
   const wantType = typeMap[type];
 
   const results = (lastPollDevices || [])
-    .filter(d => capToType(d.capabilities) === wantType && !used.has(String(d.id)) && !isDualCapability(d.capabilities))
+    .filter(d => {
+      const name = d.label || d.name || '';
+      // Pass the name: a relay garage opener is only recognisable by it.
+      if (capToType(d.capabilities, name) !== wantType) return false;
+      if (used.has(String(d.id))) return false;
+      // A garage opener is Switch + its own door sensor, which looks like a
+      // dual-capability device; without this it could never be picked here.
+      if (isDualCapability(d.capabilities) && wantType !== 'garage') return false;
+      return true;
+    })
     .map(d => ({ id: String(d.id), name: d.label || d.name || ('Device ' + d.id) }));
 
   // Ring floodlights: security sensor + switch → :switch virtual ID
@@ -13967,7 +14382,7 @@ function spRemoveFanLight(ri, di) {
 }
 
 function spRerenderRoomDevices(ri) {
-  ['switches','dimmers','fans','shades','colors','colortemps'].forEach(t => {
+  ['switches','dimmers','fans','shades','colors','colortemps','garages'].forEach(t => {
     const list = document.getElementById('sp-devlist-' + ri + '-' + t);
     if (list) list.innerHTML = rooms[ri][t].map((d, i) => spDevicePickRow(ri, t, i, d)).join('');
   });
@@ -14081,7 +14496,7 @@ let _devGroupBy = 'type'; // 'type' | 'room'
 function spDevicesSection() {
   // Build master device list: rooms + staging
   const allDevices = [];
-  const typeMap = { switches:'switch', dimmers:'dimmer', fans:'fan', shades:'shade', therms:'therm', colors:'color', colortemps:'color-temp' };
+  const typeMap = { switches:'switch', dimmers:'dimmer', fans:'fan', shades:'shade', therms:'therm', colors:'color', colortemps:'color-temp', garages:'garage' };
   const inRoom = new Set();
 
   rooms.forEach(r => {
@@ -14125,6 +14540,7 @@ function spDevicesSection() {
     { v:'shade',      l:'Shade'     },
     { v:'color',      l:'Color Bulb'},
     { v:'color-temp', l:'CT Bulb'   },
+    { v:'garage',     l:'Garage Door'},
   ];
 
   function deviceRow(d) {
@@ -14315,7 +14731,7 @@ async function spDevAssignRoom(devId, devType, roomId) {
   if (!roomId) {
     // Moving to unassigned — remove from any room, add to staging
     rooms.forEach(r => {
-      ['switches','dimmers','fans','shades','colors','colortemps'].forEach(t => {
+      ['switches','dimmers','fans','shades','colors','colortemps','garages'].forEach(t => {
         if (!r[t]) return;
         const idx = r[t].findIndex(d => String(d.id) === String(devId));
         if (idx > -1) r[t].splice(idx, 1);
@@ -14329,7 +14745,7 @@ async function spDevAssignRoom(devId, devType, roomId) {
     const devName = spGetDeviceName(devId);
     // Remove from any current room
     rooms.forEach(r => {
-      ['switches','dimmers','fans','shades','colors','colortemps'].forEach(t => {
+      ['switches','dimmers','fans','shades','colors','colortemps','garages'].forEach(t => {
         if (!r[t]) return;
         const idx = r[t].findIndex(d => String(d.id) === String(devId));
         if (idx > -1) r[t].splice(idx, 1);
@@ -14340,7 +14756,7 @@ async function spDevAssignRoom(devId, devType, roomId) {
     if (si > -1) staging.splice(si, 1);
     // Add to correct room array
     const entry = { id: devId, name: devName };
-    const typeKey = { switch:'switches', dimmer:'dimmers', fan:'fans', shade:'shades', garage:'switches', color:'colors', 'color-temp':'colortemps' }[devType];
+    const typeKey = { switch:'switches', dimmer:'dimmers', fan:'fans', shade:'shades', garage:'garages', color:'colors', 'color-temp':'colortemps' }[devType];
     if (typeKey) {
       if (!room[typeKey]) room[typeKey] = [];
       room[typeKey].push(entry);
@@ -14381,7 +14797,7 @@ async function spDevCreateAndAssign(devId, devType) {
   if (!name) { if (inp) inp.focus(); return; }
   // Create the room
   const id = name.toLowerCase().replace(/[^a-z0-9]/g,'_').replace(/_+/g,'_') + '_' + Date.now().toString(36);
-  rooms.push({ id, name, short: name.split(' ')[0], switches:[], dimmers:[], fans:[], shades:[], colors:[], colortemps:[], therms:[], placeholders:[] });
+  rooms.push({ id, name, short: name.split(' ')[0], switches:[], dimmers:[], fans:[], shades:[], colors:[], colortemps:[], garages:[], therms:[], placeholders:[] });
   // Now assign the device to it
   await spDevAssignRoom(devId, devType, id);
   // applyConfig to register new room
@@ -14391,7 +14807,7 @@ async function spDevCreateAndAssign(devId, devType) {
 function spGetDeviceName(devId) {
   // Check rooms first
   for (const r of rooms) {
-    for (const t of ['switches','dimmers','fans','shades','colors','colortemps']) {
+    for (const t of ['switches','dimmers','fans','shades','colors','colortemps','garages']) {
       const d = r[t].find(d => String(d.id) === String(devId));
       if (d) return d.name;
     }
@@ -14406,7 +14822,7 @@ function spGetDeviceName(devId) {
 
 async function spDevRetype(devId, currentRoomId, newType) {
   // Remove from current room array
-  const typeArrayMap = { switch:'switches', dimmer:'dimmers', fan:'fans', shade:'shades', garage:'switches', color:'colors', 'color-temp':'colortemps' };
+  const typeArrayMap = { switch:'switches', dimmer:'dimmers', fan:'fans', shade:'shades', garage:'garages', color:'colors', 'color-temp':'colortemps' };
   rooms.forEach(r => {
     Object.values(typeArrayMap).forEach(arr => {
       if (!r[arr]) return;
@@ -14436,8 +14852,10 @@ async function spDevRetype(devId, currentRoomId, newType) {
     fan:          { spd: 'off' },
     shade:        { pct: 0 },
     color:        { on: false, val: 0, hue: 0, sat: 100, ct: 2700, mode: 'CT' },
-    'color-temp': { on: false, val: 0, ct: 2700 }
+    'color-temp': { on: false, val: 0, ct: 2700 },
+    garage:       { door: 'unknown' }
   };
+  garageClearPending(devId);   // don't leave an armed confirm on a retyped device
   S[devId] = Object.assign({}, initMap[newType] || { on: false });
   await saveConfig();
   initState(); snapshotState(); updateStats();
@@ -14448,7 +14866,7 @@ async function spDevRemove(devId) {
   const name = spGetDeviceName(devId);
   if (!confirm('Remove "' + name + '" from sync? It will no longer be tracked.')) return;
   rooms.forEach(r => {
-    ['switches','dimmers','fans','shades','colors','colortemps'].forEach(t => {
+    ['switches','dimmers','fans','shades','colors','colortemps','garages'].forEach(t => {
       const idx = r[t].findIndex(d => String(d.id) === String(devId));
       if (idx > -1) r[t].splice(idx, 1);
     });
@@ -14558,7 +14976,8 @@ async function spAssignFromStaging(si) {
   if (!dev) return;
 
   // Guard: don't add if the device is already in that room
-  const allInRoom = [...room.switches,...room.dimmers,...room.fans,...room.shades];
+  const allInRoom = [...room.switches,...room.dimmers,...room.fans,...room.shades,
+                     ...(room.colors||[]),...(room.colortemps||[]),...(room.garages||[])];
   if (allInRoom.some(d => d.id === dev.id)) {
     staging.splice(si, 1); // remove duplicate from staging
     await saveConfig();
@@ -14568,10 +14987,16 @@ async function spAssignFromStaging(si) {
 
   // Add to the correct room array
   const entry = { id: dev.id, name: dev.name };
+  // Every type that can reach staging needs a home here: anything missing is
+  // spliced out of staging below and then belongs to no array at all, which
+  // silently deletes the device on save.
   if (dev.type === 'switch') room.switches.push(entry);
   if (dev.type === 'dimmer') room.dimmers.push(entry);
   if (dev.type === 'fan')    room.fans.push(entry);
   if (dev.type === 'shade')  room.shades.push(entry);
+  if (dev.type === 'color')      { if (!room.colors) room.colors = []; room.colors.push(entry); }
+  if (dev.type === 'color-temp') { if (!room.colortemps) room.colortemps = []; room.colortemps.push(entry); }
+  if (dev.type === 'garage')     { if (!room.garages) room.garages = []; room.garages.push(entry); }
 
   // Remove from staging — device is now in a room
   staging.splice(si, 1);
@@ -15064,7 +15489,7 @@ function spAddRoom() {
   if (_spAddRoomBusy) return;
   _spAddRoomBusy = true;
   setTimeout(() => _spAddRoomBusy = false, 400);
-  rooms.push({ id: 'room' + Date.now(), name: 'New Room', short: 'New', switches: [], dimmers: [], fans: [], shades: [], colors: [], colortemps: [], therms: [], placeholders: [] });
+  rooms.push({ id: 'room' + Date.now(), name: 'New Room', short: 'New', switches: [], dimmers: [], fans: [], shades: [], colors: [], colortemps: [], garages: [], therms: [], placeholders: [] });
   const sec = document.getElementById('sp-sec-rooms');
   if (sec) {
     sec.innerHTML = spRoomEditor();
@@ -15445,7 +15870,17 @@ function handleImport(evt) {
         });
       }
       if (parsed.thermostats) { thermostats.length = 0; parsed.thermostats.forEach(t => thermostats.push(t)); }
-      if (parsed.rooms)       { rooms.length = 0; parsed.rooms.forEach(r => rooms.push(r)); }
+      if (parsed.rooms)       {
+        rooms.length = 0;
+        // Backfill every device array the way applyParsedConfig does. An
+        // export taken before a type existed has no key for it, and Settings
+        // then throws the first time it enumerates that room.
+        parsed.rooms.forEach(r => {
+          ['switches','dimmers','fans','shades','colors','colortemps','therms','garages','placeholders']
+            .forEach(k => { if (!r[k]) r[k] = []; });
+          rooms.push(r);
+        });
+      }
       const importedPushDevices = parsed.config && Array.isArray(parsed.config.pushDevices) && parsed.config.pushDevices.length > 0;
       saveConfig();
       applyConfig();
@@ -15700,6 +16135,8 @@ const _spRtnCmdMap = {
   shades: ['open','close','setPosition'],
   colors: ['on','off','setLevel','setColor','setColorTemperature'],
   colortemps: ['on','off','setLevel','setColorTemperature'],
+  garages: ['close'],   // never 'open': a routine can run with nobody home
+
   thermostat: ['setThermostatMode','setHeatingSetpoint','setCoolingSetpoint','setThermostatFanMode'],
   lock: ['lock','unlock']
 };
@@ -15708,7 +16145,7 @@ function spRoutineDeviceOpts(roomName) {
   const room = rooms.find(r => r.name === roomName);
   const devices = [];
   if (room) {
-    ['switches','dimmers','fans','shades','colors','colortemps'].forEach(type => {
+    ['switches','dimmers','fans','shades','colors','colortemps','garages'].forEach(type => {
       (room[type] || []).forEach(d => devices.push({ name: d.name, type }));
     });
   }
@@ -15981,7 +16418,10 @@ function renderRoomsMobile() {
         <span>Shades</span>
         ${room.shades.length > 1 ? `<div class="m-agg-btns"><button class="m-agg-btn" onclick="bulkShades('${room.id}',true)">Open all</button><button class="m-agg-btn" onclick="bulkShades('${room.id}',false)">Close all</button></div>` : ''}
       </div>
-      ${shadeRows}</div>` : ''
+      ${shadeRows}</div>` : '',
+    (room.garages || []).length ? `<div class="m-device-card">
+      <div class="m-device-card-lbl"><span>Garage</span></div>
+      ${room.garages.map(g => garageRowHTML(g)).join('')}</div>` : ''
   ].filter(Boolean).join('');
 
   document.getElementById('main-area').innerHTML = `
@@ -16231,6 +16671,19 @@ function patchView() {
         if (prev.locked !== curr.locked) statsDirty = true;
       }
 
+      else if (type === 'garage') {
+        // The hub is the authority on where the door actually is, so a real
+        // report always wins over the optimistic Opening/Closing shown at tap
+        // time. An armed "Confirm open" is dropped too: if the door just
+        // moved, the tap the user was about to confirm is no longer the one
+        // they meant.
+        if (prev.door !== curr.door) {
+          garageClearPending(id);
+          garageRender(id);
+          statsDirty = true;
+        }
+      }
+
       else if (type === 'switch') {
         if (prev.on !== curr.on) {
           const inp = el('tog-inp-' + id);
@@ -16375,6 +16828,7 @@ function patchSecurityView() {
     leftEl.innerHTML =
       artemisEntrySensorsHTML() +
       artemisLocksHTML() +
+      artemisGaragesHTML() +
       artemisEnvHTML();
   } catch(e) {}
 }
@@ -16548,12 +17002,72 @@ function migrateColorDevices(pollDevices) {
   }
 }
 
+/* ═══════════════════════════════════════
+   GARAGE DOOR MIGRATION
+   Before garage doors had their own type they were stored as switches, which
+   made them render as lights, count as lights, and -- worst of it -- receive
+   on/off from "all lights on/off". On a relay-style opener that is the exact
+   command that moves the door.
+
+   Only a device whose live Hubitat capabilities actually say
+   GarageDoorControl is moved. A device that merely has "garage" in its name
+   is left alone on purpose: "garage light" is a real and common device, and
+   silently turning someone's light into a door is worse than leaving it for
+   them to reclassify in Settings.
+════════════════════════════════════════ */
+let _garageMigrationDone = false;
+
+function migrateGarageDevices(pollDevices) {
+  if (_garageMigrationDone) return;
+  if (!pollDevices || !pollDevices.length) return;
+  _garageMigrationDone = true;
+
+  const capMap = {};
+  pollDevices.forEach(d => { capMap[String(d.id)] = (d.capabilities || []).join(','); });
+  // Same capability test the classifier uses, DoorControl included -- the two
+  // must agree, or a device gets called a garage in one place and a light in
+  // the other depending on which code path saw it first.
+  const isRealGarage = id => /GarageDoorControl|DoorControl/i.test(capMap[String(realDeviceId(id))] || '');
+
+  let changed = false;
+
+  rooms.forEach(r => {
+    const move = [];
+    (r.switches || []).forEach((d, i) => { if (isRealGarage(d.id)) move.push({ d, i }); });
+    move.slice().reverse().forEach(({ d, i }) => {
+      r.switches.splice(i, 1);
+      if (!r.garages) r.garages = [];
+      r.garages.push({ id: d.id, name: d.name });
+      changed = true;
+      console.log('[Migration] Moved', d.name, '(#' + d.id + ') from switch → garage');
+    });
+  });
+
+  staging.forEach(d => {
+    if (d.type === 'switch' && isRealGarage(d.id)) {
+      d.type = 'garage';
+      changed = true;
+      console.log('[Migration] Retyped staging', d.name, '→ garage');
+    }
+  });
+
+  if (changed) {
+    console.log('[Migration] Garage door migration complete — saving config');
+    saveConfig();
+    initState();
+    snapshotState();
+    refreshActiveView();
+    updateStats();
+    showDeviceToast('Garage door moved out of Lights — it has its own control now');
+  }
+}
+
 function detectNewDevices(devices) {
   if (!registrySeeded) return;
   if (!devices || !devices.length) return;
   // Build set of all currently assigned/staged IDs
   const assigned = new Set();
-  rooms.forEach(r => ['switches','dimmers','fans','shades','colors','colortemps','therms'].forEach(t =>
+  rooms.forEach(r => ['switches','dimmers','fans','shades','colors','colortemps','therms','garages'].forEach(t =>
     r[t] && r[t].forEach(d => assigned.add(String(d.id)))));
   staging.forEach(d => assigned.add(String(d.id)));
   thermostats.forEach(t => assigned.add(String(t.id)));
@@ -16567,8 +17081,15 @@ function detectNewDevices(devices) {
   let found = 0;
   devices.forEach(d => {
     const id = String(d.id);
+    const dName0 = d.label || d.name || ('Device ' + id);
+    // Classify BEFORE the dual-capability split. A relay garage opener is
+    // Switch + ContactSensor on one device -- exactly the shape that split
+    // treats as "a light with a sensor attached" -- so it used to be staged
+    // as a light, land in switches, and take on/off from "all lights on".
+    // That is the bug this whole device type exists to remove.
+    const type0 = capToType(d.capabilities, dName0);
     // Dual-capability: security sensor + switch (e.g. Ring floodlights)
-    if (isDualCapability(d.capabilities)) {
+    if (isDualCapability(d.capabilities) && type0 !== 'garage') {
       const sid = id + ':switch';
       if (!assigned.has(sid)) {
         staging.push({ id: sid, name: (d.label || d.name || 'Device ' + id) + ' (Light)', type: 'switch' });
@@ -16577,8 +17098,8 @@ function detectNewDevices(devices) {
       }
       return;
     }
-    const dName = d.label || d.name || ('Device ' + id);
-    const type = capToType(d.capabilities, dName);
+    const dName = dName0;
+    const type = type0;
     // Locks and garage doors are legitimately dual-purpose (security-relevant
     // but user-controllable) — don't let a security capability on the same
     // device (e.g. a relay's paired contact input) hide it from staging.
@@ -16669,7 +17190,7 @@ function showDeviceToast(msg) {
 }
 function updateGearBadge() {
   const inRoom = new Set();
-  rooms.forEach(r => ['switches','dimmers','fans','shades','colors','colortemps'].forEach(t =>
+  rooms.forEach(r => ['switches','dimmers','fans','shades','colors','colortemps','garages'].forEach(t =>
     r[t] && r[t].forEach(d => inRoom.add(String(d.id)))));
   const unassignedCount = staging.filter(d => !inRoom.has(String(d.id))).length;
   const removedCount = (state_removedDevices || []).length;
@@ -16720,7 +17241,7 @@ async function spDismissRemoved(devId, btn) {
   state_missCounts[String(devId)] = 0;
   // Also remove from rooms and staging since it's gone from the hub
   rooms.forEach(r => {
-    ['switches','dimmers','fans','shades','colors','colortemps'].forEach(t => {
+    ['switches','dimmers','fans','shades','colors','colortemps','garages'].forEach(t => {
       if (!r[t]) return;
       const idx = r[t].findIndex(d => String(d.id) === String(devId));
       if (idx > -1) r[t].splice(idx, 1);
@@ -16757,7 +17278,7 @@ function detectRemovedDevices(devices) {
     if (skipTypes.has(DEVICE_TYPE[id])) return; // skip therms/lock
     // Find the name from rooms or staging
     let name = id;
-    rooms.forEach(r => ['switches','dimmers','fans','shades','colors','colortemps'].forEach(t => {
+    rooms.forEach(r => ['switches','dimmers','fans','shades','colors','colortemps','garages'].forEach(t => {
       const d = (r[t]||[]).find(d => String(d.id) === id);
       if (d) name = d.name;
     }));
@@ -16806,6 +17327,7 @@ function scheduleNextPoll() {
       _pollFailCount = 0;
       pollDelay  = CONFIG.poll;
       migrateColorDevices(lastPollDevices);
+      migrateGarageDevices(lastPollDevices);
       detectNewDevices(lastPollDevices);
       detectNewSecurityDevices(lastPollDevices);
       detectRemovedDevices(lastPollDevices);
@@ -17002,7 +17524,9 @@ function capToType(caps, label) {
   if (!caps) return null;
   const c = Array.isArray(caps) ? caps.join(',') : String(caps);
   if (/FanControl/i.test(c))                  return 'fan';
-  if (/GarageDoorControl/i.test(c))            return 'garage';
+  // DoorControl is a separate Hubitat capability with the identical surface
+  // (same door attribute, same open/close). Some MyQ drivers declare only it.
+  if (/GarageDoorControl|DoorControl/i.test(c)) return 'garage';
   if (/WindowBlind|WindowShade/i.test(c))     return 'shade';
   if (/Thermostat/i.test(c))                  return 'therm';
   if (/Lock/i.test(c))                        return 'lock';
@@ -17010,8 +17534,14 @@ function capToType(caps, label) {
   // relay drivers (Zooz Zen17 etc.) pair a physical door sensor onto the same
   // child device, reporting Switch + ContactSensor together. Without this check
   // running first, that combo would be misclassified as a plain contact sensor.
-  if (label && /\bgarage\b/i.test(label)) {
-    if (/Switch/i.test(c)) return 'garage';
+  // "Garage" in the name is not enough on its own: "Garage Light" and
+  // "Garage Fan" are ordinary devices, and calling one a door would put an
+  // Open button on a lamp. Require the name to actually say door/opener, and
+  // rule out the words that mean it's something else in the garage.
+  if (label && /\bgarage\b/i.test(label) && /Switch/i.test(c)) {
+    const isDoorName = /\b(door|opener|gate)\b/i.test(label);
+    const isSomethingElse = /\b(light|lamp|bulb|fan|heater|outlet|plug|freezer|fridge|radio|sensor)\b/i.test(label);
+    if (isDoorName && !isSomethingElse) return 'garage';
   }
   // Artemis sensor types
   if (/SmokeDetector|CarbonMonoxideDetector/i.test(c)) return 'smoke';
@@ -17571,6 +18101,7 @@ function obFinish() {
       shades:     rDevices.filter(d => d.type==='shade').map(d=>({id:d.id,name:d.name})),
       colors:     rDevices.filter(d => d.type==='color').map(d=>({id:d.id,name:d.name})),
       colortemps: rDevices.filter(d => d.type==='color-temp').map(d=>({id:d.id,name:d.name})),
+      garages:    rDevices.filter(d => d.type==='garage').map(d=>({id:d.id,name:d.name})),
       therms:     [], placeholders: []
     });
   });
@@ -17860,7 +18391,7 @@ function launchOnboarding() {
     // Rebuild DEVICE_REGISTRY before first fetch so all devices (including Artemis) are tracked
     DEVICE_REGISTRY.clear();
     rooms.forEach(r => {
-      ['switches','dimmers','fans','shades','therms','colors','colortemps'].forEach(t =>
+      ['switches','dimmers','fans','shades','therms','colors','colortemps','garages'].forEach(t =>
         r[t] && r[t].forEach(d => DEVICE_REGISTRY.add(String(d.id))));
     });
     staging.forEach(d => DEVICE_REGISTRY.add(String(d.id)));
