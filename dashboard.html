@@ -502,6 +502,18 @@ html[data-display-desktop] .tb-date{display:block !important}
 .a-mb.a-sel-disarm .a-mb-lbl{color:var(--a-ok)}
 .a-mb.a-sel-home .a-mb-lbl{color:var(--a-blue)}
 .a-mb.a-sel-away .a-mb-lbl{color:var(--amber)}
+/* The mode being armed into during an exit delay: selected, but breathing
+   until the alarm system confirms it. */
+.a-mb.a-mb-pending svg{animation:a-mb-pend 1.6s ease-in-out infinite}
+@keyframes a-mb-pend{0%,100%{opacity:1}50%{opacity:.5}}
+@media (prefers-reduced-motion:reduce){.a-mb.a-mb-pending svg{animation:none}}
+/* Keyboard focus. Only on :focus-visible, so mouse and touch users never see
+   it; the toggle's real checkbox is invisible, so its ring goes on the track. */
+button:focus-visible,a:focus-visible,[role="button"]:focus-visible,[role="switch"]:focus-visible,
+input[type=range]:focus-visible,input[type=checkbox]:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+.sp-toggle input:focus-visible~.sp-toggle-track{outline:2px solid var(--amber);outline-offset:2px}
+.sp-nav-item:focus-visible{outline-offset:-2px}
+#sp-content:focus{outline:none}
 /* Keypad */
 .a-kp{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;flex-shrink:0}
 .a-kp-lbl{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);text-align:center}
@@ -1589,7 +1601,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
                onkeydown="if(event.key==='Enter')athenaSubmitText(this.value)"
                oninput="athenaResetFollowUp()"
                onfocus="athenaResetFollowUp()">
-        <div class="ath-mic-btn active" id="ath-mic-btn" onclick="athenaMicTap()">
+        <div class="ath-mic-btn active" id="ath-mic-btn" onclick="athenaMicTap()" aria-label="Microphone">
           <svg width="11" height="14" viewBox="0 0 12 16" fill="none">
             <rect x="3.5" y=".5" width="5" height="9" rx="2.5" stroke="#F59E0B" stroke-width="1.2"/>
             <path d="M1 8c0 2.76 2.24 5 5 5s5-2.24 5-5" stroke="#F59E0B" stroke-width="1.2" stroke-linecap="round"/>
@@ -1685,9 +1697,9 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
 
 <!-- ── SETTINGS PANEL ── -->
 <div class="settings-overlay" id="settings-overlay" onclick="closeSettings()"></div>
-<div class="settings-panel" id="settings-panel">
+<div class="settings-panel" id="settings-panel" role="dialog" aria-modal="true" aria-labelledby="sp-title">
   <div class="sp-header">
-    <div class="sp-title">Settings</div>
+    <div class="sp-title" id="sp-title">Settings</div>
     <button class="sp-close" onclick="closeSettings()" aria-label="Close settings">✕</button>
   </div>
   <!-- Appearance — above the two-column area, always visible -->
@@ -1722,7 +1734,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
   <!-- Two-column body -->
   <div class="sp-body-wrap">
     <!-- Left nav -->
-    <div class="sp-nav" id="sp-nav">
+    <div class="sp-nav" id="sp-nav" role="navigation" aria-label="Settings sections">
       <div class="sp-nav-group">Configuration</div>
       <div class="sp-nav-item active" id="spn-hub"      onclick="spShowSection('hub')">      <span class="sp-nav-icon">🔗</span>Hub Connection</div>
       <div class="sp-nav-item"        id="spn-panel"    onclick="spShowSection('panel')">    <span class="sp-nav-icon">🎛</span>Panel Behavior</div>
@@ -1746,7 +1758,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
       <div class="sp-nav-item"        id="spn-diag"     onclick="spShowSection('diag')">     <span class="sp-nav-icon">🩺</span>Diagnostics</div>
     </div>
     <!-- Right content — filled by spShowSection() -->
-    <div class="sp-content" id="sp-content"></div>
+    <div class="sp-content" id="sp-content" tabindex="-1"></div>
   </div>
   <div class="sp-footer">
     <div style="display:flex;align-items:center;gap:8px;padding-bottom:10px;border-bottom:1px solid var(--border);margin-bottom:4px">
@@ -1776,7 +1788,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '1.6.7';
-const HESTIA_BUILD_DATE = '2026-09-17';
+const HESTIA_BUILD_DATE = '2026-09-19';
 const HESTIA_COPYRIGHT  = '© 2026 Haven';
 const CLOUD_SYNC_API    = '/api/config';
 const PUSH_API          = '/api/push';
@@ -3583,6 +3595,24 @@ function cfgStartStaleCheck() {
   if (_cfgStaleCheckTimer) return;
   _cfgStaleCheckTimer = setInterval(_cfgCheckStale, CFG_STALE_CHECK_MS);
 }
+// A browser can't tell us WHY the hub didn't answer (an untrusted certificate,
+// a blocked mixed-content request and a powered-off hub all reject the same
+// way), so the banner names the likeliest cause for this device's setup.
+function _offlineBannerHTML() {
+  const hub = CONFIG.hub || '';
+  const link = (href, text) =>
+    `<a href="${escapeHtml(href)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline">${text}</a>`;
+  let origin = '';
+  try { origin = new URL(hub).origin; } catch(e) {}
+  if (origin && hub.startsWith('https://') && !isServedFromHub()) {
+    return `Hub unreachable. If this device hasn't accepted the hub's certificate yet, ${link(origin, 'open ' + escapeHtml(origin))}, accept it, then come back.`;
+  }
+  if (origin && hub.startsWith('http://') && window.location.protocol === 'https:') {
+    const httpsUrl = origin.replace('http://', 'https://').replace(/(:\d+)?$/, ':8443');
+    return `Hub unreachable. This page is secure (HTTPS) and your hub address is not, so the browser blocks it. Set the hub address to ${escapeHtml(httpsUrl)} in Settings, and ${link(httpsUrl, 'accept its certificate')} on this device.`;
+  }
+  return 'Hub unreachable, showing last known state. Check that the hub is powered on and on the same network.';
+}
 function setConn(state) {
   const cls = 'conn-dot' + (state === 'ok' ? '' : state === 'err' ? ' err' : ' loading');
   const dot  = document.getElementById('conn-dot');
@@ -3590,7 +3620,10 @@ function setConn(state) {
   if (dot)  dot.className  = cls;
   if (dotM) dotM.className = cls;
   const banner = document.getElementById('offline-banner');
-  if (banner) banner.classList.toggle('visible', state === 'err');
+  if (banner) {
+    if (state === 'err') banner.innerHTML = _offlineBannerHTML();
+    banner.classList.toggle('visible', state === 'err');
+  }
   if (state === 'ok') {
     lastFetchTime = Date.now();
     const lbl  = document.getElementById('last-updated');
@@ -3645,8 +3678,10 @@ function _ringNum(v) {
   return isFinite(n) ? n : null;
 }
 
-// Ring's driver sends countdownTimeLeft once, when the delay starts; it does
-// not tick. So subtract however long ago it could have started. The device's
+// Ring's driver updates countdownTimeLeft once a second (confirmed in hub logs;
+// an older driver read suggested it was sent only once), and this runs only
+// when a delay starts. Either way, subtract how long ago it could have been
+// set, so a value read a poll late isn't taken as fresh. The device's
 // last-activity time is the best estimate, but it's hub clock vs this device's
 // clock, so it's capped: on a normal poll the delay can't have started before
 // the previous poll we saw, which also covers a tab the browser throttled or
@@ -4475,7 +4510,7 @@ function renderHome() {
 
   // ── Armed status banner — uses the exact same a-status card from the security panel ──
   function armedStatusCard(clickFn) {
-    if (!CONFIG.artemisEnabled || artemisMode === 'disarm') return '';
+    if (!CONFIG.artemisEnabled || (artemisMode === 'disarm' && artemisTransition !== 'arming')) return '';
     const gemMode = artemisTransition === 'arming' ? (artemisArmingTarget || 'away') : artemisMode;
     const gemHTML = artemisTransition ? artemisGemWithRing(gemMode) : artemisGemSVG(artemisMode, 34, 39);
     return `<div class="a-status" onclick="${clickFn}" style="cursor:pointer;margin-bottom:10px" id="home-armed-card">
@@ -7088,7 +7123,7 @@ function reminderFired(id) {
 function reminderShowToast(text) {
   const el = document.getElementById('ath-reminder-toast');
   if (!el) return;
-  el.innerHTML = `<div class="ath-reminder-toast-dot"></div><div class="ath-reminder-toast-text">${h(text)}</div><div class="ath-reminder-toast-dismiss" onclick="reminderDismissToast()">✕</div>`;
+  el.innerHTML = `<div class="ath-reminder-toast-dot"></div><div class="ath-reminder-toast-text">${h(text)}</div><div class="ath-reminder-toast-dismiss" onclick="reminderDismissToast()" aria-label="Dismiss reminder">✕</div>`;
   el.classList.add('show');
   clearTimeout(el._dismissTimeout);
   el._dismissTimeout = setTimeout(() => reminderDismissToast(), 30000);
@@ -8701,27 +8736,31 @@ function artemisModeName() {
 // Update all armed status indicators whenever mode changes:
 // - Topbar pill (desktop/tablet)
 // - Home tab banner (if visible)
+// Topbar pill (desktop/tablet only). Shown while armed and during an exit
+// delay, so the countdown is visible from any screen, not only Security.
+function _artemisUpdatePill() {
+  const pill = document.getElementById('tb-arm-status');
+  if (!pill) return;
+  const arming = artemisTransition === 'arming';
+  if ((artemisMode !== 'disarm' || arming) && !isMobile()) {
+    const isAway = !arming && artemisMode === 'away';
+    const col = isAway ? 'var(--conn-err)' : '#F59E0B';
+    const bg  = isAway ? 'rgba(248,113,113,.1)' : 'rgba(245,158,11,.1)';
+    const bdr = isAway ? 'rgba(248,113,113,.25)' : 'rgba(245,158,11,.25)';
+    pill.style.cssText = `display:flex;align-items:center;gap:6px;border-radius:8px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:600;letter-spacing:.04em;font-variant-numeric:tabular-nums;background:${bg};border:1px solid ${bdr};color:${col}`;
+    pill.innerHTML = `<svg width="10" height="11" viewBox="0 0 14 16" fill="none"><path d="M7 1L2 3.5V8C2 11.5 4.5 14.5 7 15.5C9.5 14.5 12 11.5 12 8V3.5Z" stroke="${col}" stroke-width="1.3" stroke-linejoin="round"/></svg> ${artemisModeName()}`;
+    pill.title = arming ? 'Arming — click to open Security' : 'System armed — click to open Security';
+  } else {
+    pill.style.display = 'none';
+    pill.innerHTML = '';
+  }
+}
+
 function updateArmedStatus() {
   if (!CONFIG.artemisEnabled) return;
-  const armed = artemisMode !== 'disarm';
   const isM = isMobile();
 
-  // Topbar pill — desktop/tablet only
-  const pill = document.getElementById('tb-arm-status');
-  if (pill) {
-    if (armed && !isM) {
-      const isAway = artemisMode === 'away';
-      const col = isAway ? 'var(--conn-err)' : '#F59E0B';
-      const bg  = isAway ? 'rgba(248,113,113,.1)' : 'rgba(245,158,11,.1)';
-      const bdr = isAway ? 'rgba(248,113,113,.25)' : 'rgba(245,158,11,.25)';
-      pill.style.cssText = `display:flex;align-items:center;gap:6px;border-radius:8px;padding:5px 12px;cursor:pointer;font-size:11px;font-weight:600;letter-spacing:.04em;background:${bg};border:1px solid ${bdr};color:${col}`;
-      pill.innerHTML = `<svg width="10" height="11" viewBox="0 0 14 16" fill="none"><path d="M7 1L2 3.5V8C2 11.5 4.5 14.5 7 15.5C9.5 14.5 12 11.5 12 8V3.5Z" stroke="${col}" stroke-width="1.3" stroke-linejoin="round"/></svg> ${artemisModeName()}`;
-      pill.title = 'System armed — click to open Security';
-    } else {
-      pill.style.display = 'none';
-      pill.innerHTML = '';
-    }
-  }
+  _artemisUpdatePill();
 
   // Surgical update of the mode label in the security panel if it's mounted
   const modeVal = document.getElementById('a-mode-val');
@@ -8798,7 +8837,21 @@ function artemisGemSVG(m, w, h_, vb) {
   </svg>`;
 }
 
-function artemisModeBtn(key, label, active) {
+// Which mode button reads as selected. During an exit delay that's the mode
+// being armed into, not "Disarm" -- the house is technically still disarmed,
+// but the card already says "Arming Away" and the row has to agree with it.
+function _artemisSelectedMode() {
+  return artemisTransition === 'arming' ? (artemisArmingTarget || 'away') : artemisMode;
+}
+function artemisModeRow() {
+  const sel = _artemisSelectedMode();
+  const pending = artemisTransition === 'arming';
+  return artemisModeBtn('disarm','Disarm', sel === 'disarm') +
+    artemisModeBtn('home', 'Home', sel === 'home', pending && sel === 'home') +
+    artemisModeBtn('away', 'Away', sel === 'away', pending && sel === 'away');
+}
+
+function artemisModeBtn(key, label, active, pending) {
   const f  = active ? artemisGemFills(key) : artemisGemFills('off');
   const col = f.s; // off fills already have a muted s value, so no separate active/inactive branch is needed
   // NB: the selected-mode class is a-sel-disarm, NOT a-ad. Brave and other
@@ -8811,7 +8864,7 @@ function artemisModeBtn(key, label, active) {
   const theme = document.documentElement.getAttribute('data-theme') || 'dark';
   const isLight = theme === 'light' || theme === 'cream';
   const outline = active ? 'var(--amber)' : (isLight ? 'rgba(120,120,120,.55)' : 'rgba(90,90,90,.85)');
-  return `<button class="a-mb${active?' '+artemisGemFills(key).mb:''}" onclick="artemisSetMode('${key}')">
+  return `<button class="a-mb${active?' '+artemisGemFills(key).mb:''}${pending?' a-mb-pending':''}" onclick="artemisSetMode('${key}')" aria-pressed="${active?'true':'false'}">
     <svg viewBox="0 0 28 32" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
       <polygon points="14,1.5 24,7 19,11.5 9,11.5 4,7" fill="${f.c[0]}"/>
       <polygon points="14,1.5 4,7 9,11.5" fill="${f.c[1]}"/>
@@ -9212,9 +9265,7 @@ function renderSecurity() {
         </div>
       </div>
       <div class="a-mode-row">
-        ${artemisModeBtn('disarm','Disarm', artemisMode==='disarm')}
-        ${artemisModeBtn('home',  'Home',   artemisMode==='home')}
-        ${artemisModeBtn('away',  'Away',   artemisMode==='away')}
+        ${artemisModeRow()}
       </div>
       ${!isM ? artemisKeypadHTML() : `<div style="padding:10px 0;font-size:11px;color:var(--t3);text-align:center">Tap Disarm to open PIN entry</div>`}
       <div class="a-brand-ftr">
@@ -9279,9 +9330,7 @@ function renderSecurity() {
           </div>
         </div>
         <div class="a-mode-row">
-          ${artemisModeBtn('disarm','Disarm', artemisMode==='disarm')}
-          ${artemisModeBtn('home',  'Home',   artemisMode==='home')}
-          ${artemisModeBtn('away',  'Away',   artemisMode==='away')}
+          ${artemisModeRow()}
         </div>`}
         ${artemisCamerasHTML()}
         ${artemisEntrySensorsHTML()}
@@ -9745,7 +9794,7 @@ function artemisShowAlarm(type) {
       <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:${isEnv?'#D4891A':'#F87171'}">${titles[type]||'Security alert'}</div>
       <div style="font-size:10px;color:rgba(255,255,255,.45);margin-top:2px">Tap to open Security</div>
     </div>
-    <div style="font-size:18px;color:rgba(255,255,255,.3);line-height:1" onclick="this.parentElement.style.display='none';event.stopPropagation()">✕</div>`;
+    <div style="font-size:18px;color:rgba(255,255,255,.3);line-height:1" onclick="this.parentElement.style.display='none';event.stopPropagation()" aria-label="Dismiss alert">✕</div>`;
   toast.style.display = 'flex';
   toast.style.borderColor = isEnv ? 'rgba(212,138,26,.35)' : 'rgba(248,113,113,.35)';
   toast.style.background  = isEnv ? 'rgba(26,15,0,.97)' : 'rgba(26,5,5,.97)';
@@ -9859,7 +9908,13 @@ function artemisEscalateAlarm(source, type) {
 function artemisTickCountdown() {
   if (!artemisTransition || !artemisCountdownEnd) return;
   const remaining = Math.max(0, Math.ceil((artemisCountdownEnd - Date.now()) / 1000));
-  document.querySelectorAll('.a-mode-val, #a-mode-val').forEach(el => el.textContent = artemisModeName());
+  const name = artemisModeName();
+  document.querySelectorAll('.a-mode-val, #a-mode-val').forEach(el => el.textContent = name);
+  // The sidebar and topbar pill show the same countdown; without this they
+  // froze at whatever second the last full render happened to land on.
+  const navStatus = document.querySelector(`.room-btn[onclick="selectRoom('security')"] .rb-status`);
+  if (navStatus) navStatus.textContent = name;
+  _artemisUpdatePill();
   const homeGem = document.getElementById('home-armed-gem');
   if (homeGem && !homeGem.querySelector('.a-trans-ring')) {
     const gemMode = artemisTransition === 'arming' ? (artemisArmingTarget || 'away') : artemisMode;
@@ -9966,7 +10021,7 @@ function spWallPanelBody() {
       </div>
       <div style="position:relative">
         <div id="sp-wp-url" style="background:var(--bg-card);border:1px solid var(--border);border-radius:7px;padding:10px 44px 10px 12px;font-size:12px;color:var(--amber);font-family:monospace;word-break:break-all;line-height:1.5;cursor:text;user-select:all">${h(displayUrl)}</div>
-        <div onclick="spWallPanelCopy()" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);width:30px;height:30px;border-radius:6px;border:1px solid var(--border);background:var(--bg-panel);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--t2);font-size:16px;transition:all .15s" id="sp-wp-copy">⎘</div>
+        <div onclick="spWallPanelCopy()" aria-label="Copy Wall Panel link" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);width:30px;height:30px;border-radius:6px;border:1px solid var(--border);background:var(--bg-panel);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--t2);font-size:16px;transition:all .15s" id="sp-wp-copy">⎘</div>
       </div>
       <span class="sp-hint">This URL contains your API credentials. Do not share it publicly.</span>
     </div>` : `
@@ -13649,7 +13704,18 @@ function _doOpenSettings() {
 
   document.getElementById('settings-overlay').classList.add('open');
   document.getElementById('settings-panel').classList.add('open');
+  // Move focus into the dialog (and remember where to send it back), so a
+  // keyboard or screen-reader user lands in Settings instead of behind it.
+  _spReturnFocus = document.activeElement;
+  // setTimeout, not requestAnimationFrame: rAF never fires while the tab is
+  // hidden (or a WebView is backgrounded), which would strand focus outside
+  // the dialog. Focus doesn't need a paint.
+  setTimeout(() => {
+    const target = document.querySelector('.sp-nav-item.active') || document.querySelector('.sp-close');
+    if (target) target.focus();
+  }, 0);
 }
+let _spReturnFocus = null;
 
 function spMobileBack() {
   const nav  = document.getElementById('sp-nav');
@@ -13660,6 +13726,8 @@ function spMobileBack() {
   if (back) back.remove();
   const wrap = document.querySelector('.sp-body-wrap');
   if (wrap) wrap.scrollTop = 0;
+  const cur = document.querySelector('.sp-nav-item.active');
+  if (cur) cur.focus();
 }
 
 function showPINOverlay(callback) {
@@ -13667,15 +13735,18 @@ function showPINOverlay(callback) {
   if (!overlay) {
     overlay = document.createElement('div');
     overlay.id = 'pin-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'Settings locked. Enter your PIN');
     overlay.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center';
     overlay.innerHTML = `
       <div style="background:var(--bg-panel);border:1px solid var(--border);border-radius:16px;padding:28px 24px;width:280px;text-align:center">
         <div style="font-size:13px;font-weight:600;color:var(--t1);margin-bottom:6px">Settings Locked</div>
         <div style="font-size:11px;color:var(--t3);margin-bottom:16px">Enter your 6-digit PIN</div>
         <input id="pin-overlay-input" type="password" inputmode="numeric" pattern="[0-9]*"
-          maxlength="6" autocomplete="off"
+          maxlength="6" autocomplete="off" aria-label="PIN" aria-describedby="pin-overlay-err"
           style="width:100%;text-align:center;letter-spacing:.3em;font-size:22px;font-weight:500;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--t1);font-family:inherit;outline:none;margin-bottom:8px">
-        <div id="pin-overlay-err" style="font-size:11px;color:var(--conn-err);min-height:16px;margin-bottom:12px"></div>
+        <div id="pin-overlay-err" role="alert" style="font-size:11px;color:var(--conn-err);min-height:16px;margin-bottom:12px"></div>
         <div style="display:flex;gap:8px">
           <button onclick="dismissPINOverlay()"
             style="flex:1;height:38px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--t3);font-family:inherit;font-size:12px;cursor:pointer">
@@ -13735,14 +13806,16 @@ function closeSettings() {
   document.getElementById('settings-overlay').classList.remove('open');
   document.getElementById('settings-panel').classList.remove('open');
   if (document.getElementById('cal-card') || document.getElementById('m-cal-card')) _calRefresh();
+  if (_spReturnFocus && _spReturnFocus.isConnected && _spReturnFocus.focus) _spReturnFocus.focus();
+  _spReturnFocus = null;
 }
 
 function spSection(id, title, bodyHTML, startOpen) {
   return `
     <div class="sp-section">
-      <div class="sp-section-hdr" onclick="spToggle('${id}')">
+      <div class="sp-section-hdr" onclick="spToggle('${id}')" aria-expanded="${startOpen ? 'true' : 'false'}" aria-controls="sp-sec-${id}">
         <span class="sp-section-name">${title}</span>
-        <span class="sp-section-arrow ${startOpen ? 'open' : ''}" id="sp-arr-${id}">▼</span>
+        <span class="sp-section-arrow ${startOpen ? 'open' : ''}" id="sp-arr-${id}" aria-hidden="true">▼</span>
       </div>
       <div class="sp-section-body ${startOpen ? 'open' : ''}" id="sp-sec-${id}">${bodyHTML}</div>
     </div>`;
@@ -13764,6 +13837,8 @@ function spToggle(id) {
   const arr  = document.getElementById('sp-arr-' + id);
   if (body) body.classList.toggle('open');
   if (arr)  arr.classList.toggle('open');
+  const hdr = arr && arr.closest('.sp-section-hdr');
+  if (hdr && body) hdr.setAttribute('aria-expanded', body.classList.contains('open') ? 'true' : 'false');
 }
 
 function spGetAvailableDevices(ri, type) {
@@ -14595,6 +14670,8 @@ function spShowSection(id, force) {
   // Update nav active state
   document.querySelectorAll('.sp-nav-item').forEach(el => {
     el.classList.toggle('active', el.id === 'spn-' + id);
+    if (el.id === 'spn-' + id) el.setAttribute('aria-current', 'page');
+    else el.removeAttribute('aria-current');
   });
   // Build content HTML
   const content = document.getElementById('sp-content');
@@ -14612,10 +14689,15 @@ function spShowSection(id, force) {
       const back = document.createElement('div');
       back.id        = 'sp-mob-back';
       back.className = 'sp-mob-back';
-      back.innerHTML = `‹ Settings`;
+      back.innerHTML = `<span aria-hidden="true">‹</span> Settings`;
       back.onclick   = spMobileBack;
+      back.setAttribute('role', 'button');
+      back.setAttribute('aria-label', 'Back to Settings sections');
+      back.tabIndex  = 0;
       content.parentNode.insertBefore(back, content);
     }
+    // The nav item that had focus just got hidden; don't strand focus on it.
+    if (!force) setTimeout(() => { const b = document.getElementById('sp-mob-back'); if (b) b.focus(); }, 0);
     if (wrap) wrap.scrollTop = 0;
   }
 
@@ -15402,7 +15484,7 @@ function spReminderListHtml() {
       <div class="sp-rem-card-hdr">
         <div class="sp-rem-dot ${dot}"></div>
         <div class="sp-rem-label">${h(r.label)}</div>
-        <div class="sp-rem-toggle ${r.enabled ? 'on' : ''}" onclick="spReminderToggle('${r.id}')"><div class="sp-rem-toggle-knob"></div></div>
+        <div class="sp-rem-toggle ${r.enabled ? 'on' : ''}" onclick="spReminderToggle('${r.id}')" aria-label="Reminder on: ${h(r.label)}"><div class="sp-rem-toggle-knob"></div></div>
       </div>
       <div class="sp-rem-schedule">${sched}</div>
       <div class="sp-rem-next">${next}</div>
@@ -15574,7 +15656,7 @@ function spRoutineShowForm() {
     <div class="sp-sep" style="margin:10px 0"></div>
     <div class="sp-field"><label class="sp-label">Schedule (optional)</label>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <div class="sp-rem-toggle" id="sp-rtn-sched-toggle" onclick="this.classList.toggle('on');document.getElementById('sp-rtn-sched-fields').style.display=this.classList.contains('on')?'block':'none'"><div class="sp-rem-toggle-knob"></div></div>
+        <div class="sp-rem-toggle" id="sp-rtn-sched-toggle" aria-label="Run on a schedule" onclick="this.classList.toggle('on');document.getElementById('sp-rtn-sched-fields').style.display=this.classList.contains('on')?'block':'none'"><div class="sp-rem-toggle-knob"></div></div>
         <span style="font-size:11px;color:var(--t2)">Run on a schedule</span>
       </div>
       <div id="sp-rtn-sched-fields" style="display:none">
@@ -15749,7 +15831,7 @@ function spRoutineEdit(id) {
     <div class="sp-sep" style="margin:10px 0"></div>
     <div class="sp-field"><label class="sp-label">Schedule (optional)</label>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <div class="sp-rem-toggle${hasSched ? ' on' : ''}" id="sp-rtn-sched-toggle" onclick="this.classList.toggle('on');document.getElementById('sp-rtn-sched-fields').style.display=this.classList.contains('on')?'block':'none'"><div class="sp-rem-toggle-knob"></div></div>
+        <div class="sp-rem-toggle${hasSched ? ' on' : ''}" id="sp-rtn-sched-toggle" aria-label="Run on a schedule" onclick="this.classList.toggle('on');document.getElementById('sp-rtn-sched-fields').style.display=this.classList.contains('on')?'block':'none'"><div class="sp-rem-toggle-knob"></div></div>
         <span style="font-size:11px;color:var(--t2)">Run on a schedule</span>
       </div>
       <div id="sp-rtn-sched-fields" style="display:${hasSched ? 'block' : 'none'}">
@@ -16772,6 +16854,111 @@ function scheduleNextPoll() {
 /* ── Auto-detect hub from URL if served from File Manager ── */
 // Returns true when the dashboard is loaded directly from a hub (private IP or .local).
 // Returns false when loaded from a cloud host like hestari.com.
+/* ═══════════════════════════════════════════════════════
+   ACCESSIBILITY LAYER
+   Most controls are <div onclick> built from template strings and re-rendered
+   constantly, so fixing them one at a time would regress with every new one.
+   Instead, whatever lands in the DOM is given what a keyboard or screen reader
+   needs: a role, a tab stop, Enter/Space activation, a name, and labels tied
+   to their fields. Styling is untouched.
+═══════════════════════════════════════════════════════ */
+function _a11yIsBackdrop(el) {
+  // Full-screen dismiss layers: Escape and the close buttons cover them, and
+  // a tab stop covering the whole screen would only confuse.
+  return el.id === 'settings-overlay' || el.classList.contains('ath-overlay') ||
+    el.classList.contains('global-menu-backdrop');
+}
+function _a11yAll(root, sel) {
+  const out = root.matches && root.matches(sel) ? [root] : [];
+  return root.querySelectorAll ? out.concat(Array.from(root.querySelectorAll(sel))) : out;
+}
+function a11yEnhance(root) {
+  if (!root || root.nodeType !== 1) return;
+  _a11yAll(root, '[onclick]:not(button):not(a):not(input):not(select):not(textarea):not(label):not(option)').forEach(el => {
+    if (_a11yIsBackdrop(el)) return;
+    if (!el.hasAttribute('role')) el.setAttribute('role', el.classList.contains('sp-rem-toggle') ? 'switch' : 'button');
+    if (!el.hasAttribute('tabindex')) el.tabIndex = 0;
+    if (el.getAttribute('role') === 'switch') el.setAttribute('aria-checked', el.classList.contains('on') ? 'true' : 'false');
+    if (!el.hasAttribute('aria-label') && !el.textContent.trim() && el.title) el.setAttribute('aria-label', el.title);
+  });
+  // Settings toggles: a real checkbox, but hidden and with nothing to name it.
+  _a11yAll(root, '.sp-toggle input[type=checkbox]').forEach(inp => {
+    if (!inp.hasAttribute('role')) inp.setAttribute('role', 'switch');
+    if (!inp.hasAttribute('aria-label')) {
+      const row = inp.closest('.sp-toggle-row');
+      const name = row && row.querySelector('.sp-toggle-name');
+      if (name) inp.setAttribute('aria-label', name.textContent.trim());
+    }
+  });
+  // "Label above field" pairs that were never linked. Only when the field
+  // holds exactly one control, so a group label can't be pinned on the wrong one.
+  _a11yAll(root, '.sp-field').forEach(f => {
+    const lbl = f.querySelector(':scope > label.sp-label');
+    const ctls = f.querySelectorAll('input:not([type=hidden]),select,textarea');
+    if (!lbl || ctls.length !== 1 || lbl.htmlFor) return;
+    const ctl = ctls[0];
+    if (ctl.id) lbl.htmlFor = ctl.id;
+    else if (!ctl.hasAttribute('aria-label')) ctl.setAttribute('aria-label', lbl.textContent.trim());
+  });
+  // Decorative emoji in front of section names would otherwise be read aloud.
+  _a11yAll(root, '.sp-nav-icon, .sp-content-icon').forEach(i => i.setAttribute('aria-hidden', 'true'));
+}
+
+function _a11yFocusables(container) {
+  return Array.from(container.querySelectorAll(
+    'button, a[href], input:not([type=hidden]), select, textarea, [tabindex]:not([tabindex="-1"])'))
+    .filter(el => !el.disabled && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
+}
+
+function _a11ySettingsOpen() {
+  const p = document.getElementById('settings-panel');
+  return !!(p && p.classList.contains('open'));
+}
+
+function a11yInit() {
+  a11yEnhance(document.body);
+  new MutationObserver(records => {
+    for (const r of records) {
+      if (r.type === 'childList') {
+        r.addedNodes.forEach(n => { if (n.nodeType === 1) a11yEnhance(n); });
+      } else if (r.target.getAttribute && r.target.getAttribute('role') === 'switch' && r.target.tagName !== 'INPUT') {
+        // A switch that flips its own class in place (no re-render).
+        r.target.setAttribute('aria-checked', r.target.classList.contains('on') ? 'true' : 'false');
+      }
+    }
+  }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+
+  document.addEventListener('keydown', e => {
+    const el = e.target;
+    // Enter/Space activate anything we gave a button or switch role.
+    if ((e.key === 'Enter' || e.key === ' ') && el && el.getAttribute &&
+        /^(button|switch)$/.test(el.getAttribute('role') || '') &&
+        !/^(BUTTON|A|INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) {
+      e.preventDefault();
+      el.click();
+      return;
+    }
+    const pinOpen = document.getElementById('pin-overlay');
+    if (pinOpen && getComputedStyle(pinOpen).display !== 'none') {
+      if (e.key === 'Escape') { e.preventDefault(); dismissPINOverlay(); }
+      return;
+    }
+    if (!_a11ySettingsOpen()) return;
+    if (e.key === 'Escape') { e.preventDefault(); closeSettings(); return; }
+    // Keep Tab inside the dialog while it's open.
+    if (e.key === 'Tab') {
+      const items = _a11yFocusables(document.getElementById('settings-panel'));
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      const inside = document.getElementById('settings-panel').contains(document.activeElement);
+      if (e.shiftKey && (document.activeElement === first || !inside)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && (document.activeElement === last || !inside)) { e.preventDefault(); first.focus(); }
+    }
+  });
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', a11yInit);
+else a11yInit();
+
 function isServedFromHub() {
   const h = window.location.hostname;
   return /^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\.|^localhost$|\.local$/.test(h);
