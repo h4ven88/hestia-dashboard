@@ -1,11 +1,66 @@
-﻿node_modules/
+node_modules/
+
+# Build/validation scratch (see CLAUDE.md's Build & Validation Pattern)
 check.js
 check_min.js
+
+# Internal working notes, not for the public repo
+CLAUDE.md
+ROLLBACK.md
+
+# ── Wake word training material ──────────────────────────────────────────
+# Deliberately local and never committed: the scraped clips and per-word
+# datasets are large and reproducible from the url lists, which ARE tracked.
+# Listed here so `git clean -fd` skips them -- without an entry, a single
+# clean deletes ~5 GB of scraped training data that took real effort to build.
+archive/
+scripts/training_data_*/
 scripts/Samples/
-scripts/training_date/
 scripts/_temp_*/
-scripts/athena_trained.onnx
+scripts/*.log
 scripts/clips.txt
 scripts/clips2.txt
+scripts/athena_trained.onnx
+# The training environment itself: datasets downloaded by setup_training.py
+# (audioset, genres, mit_rirs, ACAV features), per-word configs and model
+# outputs. Large and reproducible -- TRAINING_PROCESS.md rebuilds it.
+scripts/oww_training/
+scripts/training_athena_control.zip
+
+# Model-training tooling and its documentation. The nine wake words are
+# trained and shipped; this is finished work kept for reference, not part of
+# the dashboard. Ignored rather than left untracked so `git clean -fd` cannot
+# delete it. (Some older training scripts are already in git history from
+# before this rule; they are harmless there and were left alone.)
+scripts/TRAINING_PROCESS.md
+scripts/benchmark_all.py
+scripts/benchmark_compare.py
+scripts/benchmark_matrix.py
+scripts/build_benchmark_set.py
+scripts/clean_clips.py
+scripts/copy_of_automatic_model_training_simple.py
+scripts/embed_onnx.py
+scripts/replicate_clips.py
+scripts/split_dataset.py
+scripts/train_colab_local.py
+
+# Rejected/experimental models. The eleven SHIPPED models/*.onnx stay tracked.
 models/athena_backup.onnx
-CLAUDE.md
+models/artemis_online_test.onnx
+models/athena_experiment/
+
+# ── Local working material, not part of the product ──────────────────────
+# mediamtx.exe plus a self-signed cert AND PRIVATE KEY -- must never be
+# committed to a public repo.
+RTSP Streaming/
+# Forum screenshots, community drivers, mockups, reference sources.
+Troubleshooting/
+reference/
+
+# Release notes and community posts ARE tracked -- they were, for every
+# release through v1.6.3, and the gap from v1.6.4 on was a lapse rather than a
+# decision. Only the one-off forum reply drafts stay local.
+release-notes/*reply*.md
+
+# Agent/session config, including local permissions.
+.claude/
