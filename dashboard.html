@@ -429,6 +429,34 @@ html[data-display-desktop] .tb-date{display:block !important}
 .main{flex:1;overflow:hidden;display:flex;flex-direction:column}
 .offline-banner{display:none;align-items:center;justify-content:center;gap:8px;padding:7px 22px;background:rgba(248,113,113,.08);border-bottom:1px solid rgba(248,113,113,.2);font-size:12px;color:var(--conn-err);flex-shrink:0}
 .offline-banner.visible{display:flex}
+
+/* ── Lost-connection screen ───────────────────────────────────────────
+   Escalated from the banner after the hub has been unreachable long
+   enough that it is not a blip. Every colour comes from a theme token so
+   it reads correctly in all five palettes. */
+.disconn{display:none;position:fixed;inset:0;z-index:260;background:var(--bg);
+  align-items:center;justify-content:center;padding:24px;overflow-y:auto}
+.disconn.visible{display:flex}
+.disconn-inner{display:flex;flex-direction:column;align-items:center;gap:20px;
+  max-width:440px;width:100%;text-align:center}
+.disconn-msg{width:100%;box-sizing:border-box;padding:11px 16px;border-radius:9px;
+  background:rgba(248,113,113,.07);border:1px solid rgba(248,113,113,.22);
+  color:var(--conn-err);font-size:12.5px;line-height:1.5}
+.disconn-msg a{color:inherit}
+.disconn-gem{opacity:.62;filter:saturate(.75)}
+.disconn-title{margin:0;font-family:'Outfit',system-ui,sans-serif;font-weight:300;
+  font-size:20px;letter-spacing:.02em;color:var(--t1)}
+.disconn-btn{font:inherit;font-size:14px;padding:11px 34px;border-radius:9px;cursor:pointer;
+  background:var(--amber-dim);border:1px solid var(--amber-bdr);color:var(--amber)}
+.disconn-btn:hover{background:var(--bg-hover)}
+.disconn-btn[disabled]{opacity:.55;cursor:default}
+.disconn-dismiss{font:inherit;font-size:12.5px;background:none;border:0;
+  color:var(--t3);cursor:pointer;text-decoration:underline;padding:4px}
+.disconn-dismiss:hover{color:var(--t2)}
+@media(max-width:520px){
+  .disconn-gem{width:66px;height:75px}
+  .disconn-title{font-size:17px}
+}
 .https-banner{display:none;align-items:center;gap:10px;padding:8px 22px;background:rgba(245,158,11,.07);border-bottom:1px solid rgba(245,158,11,.22);font-size:12px;color:var(--amber);flex-shrink:0}
 .https-banner.visible{display:flex}
 .integrity-banner{display:none;align-items:center;gap:10px;padding:8px 22px;background:rgba(220,38,38,.09);border-bottom:2px solid rgba(220,38,38,.35);font-size:12px;color:var(--conn-err);flex-shrink:0}
@@ -1521,6 +1549,37 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
   <div class="offline-banner" id="offline-banner">
     Hub unreachable — showing last known state
   </div>
+  <!-- Escalation from the banner above, after the hub has been unreachable
+       long enough that it is not a blip. Deliberately dismissible: every tile
+       still shows last known state, and someone checking whether they left a
+       door open should not be locked out of that by a connection error. -->
+  <div class="disconn" id="disconn-screen" role="alertdialog" aria-modal="true"
+       aria-labelledby="disconn-title" aria-describedby="disconn-msg">
+    <div class="disconn-inner">
+      <div class="disconn-msg" id="disconn-msg"></div>
+      <!-- The real logo mark, not a monochrome redraw: the silver crown over
+           the dark base is what makes it read as Hestia's gem at all. Dimmed
+           rather than recoloured, so it looks dormant instead of alarming. -->
+      <svg viewBox="0 0 28 32" width="84" height="96" class="disconn-gem" aria-hidden="true">
+        <polygon points="14,1.5 24,7 24,20 14,25.5 4,20 4,7" fill="none" stroke="#F59E0B" stroke-width="1.2" stroke-linejoin="miter"/>
+        <polygon points="14,1.5 24,7 19,11.5 9,11.5 4,7" fill="#F0EEE8"/>
+        <polygon points="14,1.5 4,7 9,11.5" fill="#E4E2DA"/>
+        <polygon points="14,1.5 24,7 19,11.5" fill="#D0CEC6"/>
+        <line x1="14" y1="1.5" x2="14" y2="9.5" stroke="#C8C6BE" stroke-width=".55" opacity=".5"/>
+        <line x1="9"  y1="5"   x2="14" y2="9.5" stroke="#C8C6BE" stroke-width=".48" opacity=".38"/>
+        <line x1="19" y1="5"   x2="14" y2="9.5" stroke="#C8C6BE" stroke-width=".48" opacity=".38"/>
+        <line x1="9" y1="11.5" x2="19" y2="11.5" stroke="#F59E0B" stroke-width="1.8" opacity=".96" stroke-linecap="square"/>
+        <polygon points="9,11.5 19,11.5 24,20 14,25.5 4,20" fill="#141C26"/>
+        <polygon points="9,11.5 4,20 14,25.5"  fill="#0C1218"/>
+        <polygon points="19,11.5 24,20 14,25.5" fill="#1A2332"/>
+        <line x1="14" y1="11.5" x2="14" y2="25.5" stroke="#94A3B8" stroke-width=".7" opacity=".3"/>
+        <line x1="4"  y1="20"   x2="24" y2="20"   stroke="#94A3B8" stroke-width=".55" opacity=".18"/>
+      </svg>
+      <h2 class="disconn-title" id="disconn-title">Lost connection to your hub</h2>
+      <button class="disconn-btn" id="disconn-retry" onclick="disconnRetry()">Try again</button>
+      <button class="disconn-dismiss" onclick="disconnDismiss()">Continue with last known state</button>
+    </div>
+  </div>
   <div class="https-banner" id="https-banner">
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="3" y="7" width="10" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M5.5 7V5.5a2.5 2.5 0 015 0V7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="8" cy="11" r="1.3" fill="currentColor"/></svg>
     <span>Hub connection is using HTTP — lock and disarm commands are unencrypted.
@@ -1813,8 +1872,8 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    Copyright © 2026 Haven. CC BY-NC 4.0.
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
-const HESTIA_VERSION    = '1.6.9';
-const HESTIA_BUILD_DATE = '2026-09-20';
+const HESTIA_VERSION    = '2.0.0';
+const HESTIA_BUILD_DATE = '2026-09-26';
 
 /* ═══════════════════════════════════════════════════════
    SANDBOX MODE
@@ -2982,6 +3041,7 @@ function _cleanOrphanedVirtualIds() {
 function buildConfigPayload() {
   return {
     config:      { hub: _hubUrlToShare(), appId: CONFIG.appId, token: CONFIG.token, poll: CONFIG.poll,
+                   cloudSecret: CONFIG.cloudSecret,
                    defaultRoom: CONFIG.defaultRoom, returnTimeout: CONFIG.returnTimeout, roomSort: CONFIG.roomSort, tempUnit: CONFIG.tempUnit,
                    locks: CONFIG.locks, cameras: CONFIG.cameras || [], cameraRefreshSec: CONFIG.cameraRefreshSec, weather: CONFIG.weather, settingsPin: CONFIG.settingsPin, pinInstallSalt: CONFIG.pinInstallSalt,
                    artemisEnabled: CONFIG.artemisEnabled, artemisPin: CONFIG.artemisPin,
@@ -3017,16 +3077,66 @@ function buildConfigPayload() {
 }
 
 async function saveConfigToHub(payload) {
-  if (sbxBlocked('hub config write')) return;
-  if (!HUB_STORE) return;
+  if (sbxBlocked('hub config write')) return false;
+
+  /* No companion app. This is a supported setup -- the Maker-API-only path and
+     the `mid`/`mtk` URL flow both reach it -- and the early return used to sit
+     above the mint below, so these households never got a household secret at
+     all. cloudSyncPush() then refused forever and their push notifications
+     died silently when the pre-split record hit its 30-day TTL.
+
+     They have no hub config store, so there is no shared channel and the
+     secret lives on this device plus whatever the setup link carries. That is
+     strictly better than no secret: the first device to write the cloud record
+     claims it, and a second device that cannot decrypt says so out loud. */
+  if (!HUB_STORE) {
+    if (payload && payload.config && !payload.config.cloudSecret &&
+        payload.config.token && payload.config.appId && !SANDBOX) {
+      CONFIG.cloudSecret = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+      payload.config.cloudSecret = CONFIG.cloudSecret;
+      console.log('[CloudSync] Generated a cloud secret (no companion app — this device holds it)');
+    }
+    return false;
+  }
+
+  /* The one place the household secret is ever generated, and only once the
+     hub has actually accepted the write. The hub is what makes it shared:
+     every device on the LAN reads it back with the config, so nobody pairs
+     anything. Minting it anywhere else -- at boot, on demand, on a device that
+     cannot reach the hub -- produces two secrets for one household, two
+     records encrypted under different keys, and a silent write-war.
+
+     Mint-then-write would break that: hubStoreFetch() never throws (it returns
+     {ok:false} on failure and on an open breaker), so a device whose hub write
+     silently failed would still be holding a secret nobody else has. */
+  const minting = !!(payload && payload.config && !payload.config.cloudSecret);
+  const candidate = minting
+    ? Array.from(crypto.getRandomValues(new Uint8Array(32))).map(b => b.toString(16).padStart(2, '0')).join('')
+    : null;
+  if (minting) payload.config.cloudSecret = candidate;
+
   // The JSON content-type forces a CORS preflight, so against a dead app id
   // even the OPTIONS adds to the hub's log flood. Going through the breaker
   // suppresses the preflight too, not just the POST.
-  await hubStoreFetch('config', {
+  const res = await hubStoreFetch('config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
+
+  const ok = !!(res && res.ok);
+  if (minting) {
+    if (ok) {
+      CONFIG.cloudSecret = candidate;
+      console.log('[CloudSync] Generated this household\'s cloud secret');
+    } else {
+      // Roll it back out of the payload so the caller does not persist or
+      // publish a secret the hub never accepted.
+      delete payload.config.cloudSecret;
+    }
+  }
+  return ok;
 }
 
 /* Load config from localStorage (fast cache) */
@@ -3058,7 +3168,24 @@ async function saveConfig() {
     if (HUB_STORE) console.log('[HubStore] Late discovery succeeded — config will sync to hub');
   }
 
+  const hadSecretBefore = _cloudHasSecret();
   await saveConfigToHub(payload); // await so hub is up to date before next load
+
+  /* saveConfigToHub() mints the household secret, and it runs AFTER the
+     localStorage write above -- so the save that creates a secret dropped it
+     (JSON.stringify omits the then-undefined key) and the next boot minted a
+     second one.
+
+     Compare against a snapshot taken BEFORE the call. An earlier version of
+     this guard compared payload.config.cloudSecret with CONFIG.cloudSecret,
+     which saveConfigToHub sets to the same value before returning -- so the
+     branch was always false and the bug it claimed to fix was still live. */
+  if (!hadSecretBefore && _cloudHasSecret()) {
+    payload.config.cloudSecret = CONFIG.cloudSecret;
+    try { _LS.setItem('dashboard-config', JSON.stringify(payload)); }
+    catch(e) { console.warn('localStorage save failed:', e); }
+  }
+
   cloudSyncPush(payload);
 }
 
@@ -3084,6 +3211,21 @@ async function _cloudEncrypt(obj, ip) {
   return { iv: btoa(String.fromCharCode(...iv)), data: btoa(String.fromCharCode(...new Uint8Array(ct))) };
 }
 
+// Key-taking variants. The ip-seeded pair below is TRANSITIONAL, kept only to
+// read records written before the household secret existed; delete both one
+// release after this ships.
+async function _cloudEncryptWithKey(obj, key) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(obj)));
+  return { iv: btoa(String.fromCharCode(...iv)), data: btoa(String.fromCharCode(...new Uint8Array(ct))) };
+}
+async function _cloudDecryptWithKey(blob, key) {
+  const iv = Uint8Array.from(atob(blob.iv), c => c.charCodeAt(0));
+  const ct = Uint8Array.from(atob(blob.data), c => c.charCodeAt(0));
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+
 async function _cloudDecrypt(blob, ip) {
   const key = await _cloudDeriveKey(ip);
   const iv = Uint8Array.from(atob(blob.iv), c => c.charCodeAt(0));
@@ -3091,6 +3233,101 @@ async function _cloudDecrypt(blob, ip) {
   const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
   return JSON.parse(new TextDecoder().decode(pt));
 }
+
+/* ── Household secret ─────────────────────────────────────────────────
+   The cloud record's encryption key used to be SHA-256(publicIP + a constant
+   in this repo), so every device behind one NAT derived the same key. Under
+   CGNAT that is many unrelated households, and any of them could read the
+   Maker API token, both PIN hashes and the Anthropic and Google keys.
+
+   The key now derives from a 256-bit secret that lives in the hub's config.
+   A device on the LAN inherits it with the config it already fetches, so
+   there is nothing to pair and nothing to type. A device that has never been
+   on the network gets it from the Wall Panel URL, which already carries
+   credentials for exactly this reason.
+
+   The secret is readable by anyone on the LAN, deliberately: the hub already
+   publishes the Maker API token at /local/hestia-token.json, so LAN access
+   has always meant full control. The threat this closes is the neighbour who
+   shares the public IP and is NOT on the network.
+
+   Named cloudSecret, not S -- `S` is already the device-state map. */
+const _CLOUD_INFO_ENC = 'hestia-enc';
+
+async function _cloudKey(secret, usage) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), 'HKDF', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: new TextEncoder().encode(_CLOUD_INFO_ENC) },
+    base, { name: 'AES-GCM', length: 256 }, false, usage);
+}
+
+/* Minting lives inside saveConfigToHub(), gated on the hub actually accepting
+   the write. This only reports whether a usable secret is already held.
+   A device that cannot reach the hub must never invent one: two devices each
+   minting their own would encrypt the shared record under different keys and
+   overwrite each other forever, with neither able to read the other's writes
+   and nothing reporting it. */
+function _cloudHasSecret() {
+  return !!(CONFIG.cloudSecret && /^[0-9a-f]{64}$/.test(CONFIG.cloudSecret));
+}
+
+/* Persists a config that came from the CLOUD, keeping this device's household
+   secret.
+
+   cloudSyncPush() strips cloudSecret before encrypting (the key is derived
+   from it, so shipping it inside would be circular). Writing that stripped
+   object straight over `dashboard-config` therefore deleted the secret on the
+   next reload, and the device minted a second one -- the same
+   write-the-projection-over-the-real-config shape that broke an earlier
+   attempt, one field narrower. */
+function _persistConfigKeepingSecret(cfg) {
+  try {
+    if (cfg && cfg.config && !cfg.config.cloudSecret && _cloudHasSecret()) {
+      cfg = { ...cfg, config: { ...cfg.config, cloudSecret: CONFIG.cloudSecret } };
+    }
+    _LS.setItem('dashboard-config', JSON.stringify(cfg));
+  } catch(e) { console.warn('[CloudSync] persist failed:', e.message); }
+}
+
+/* The half the Cloudflare Workers read. They must categorise a door event at
+   3am with no browser running, so this cannot be encrypted.
+
+   An ALLOW-LIST on purpose: a field added to the config later is private by
+   default and has to be named here deliberately to ever leave the house. The
+   reverse -- a list of things to strip -- leaks every future field by
+   omission, which is how the Anthropic API key ended up syncing.
+
+   tests/projection-equivalence.mjs derives the required field list from the
+   Worker sources and fails if this drops one. */
+function buildServiceHalf(c, tokenHash) {
+  const pick = (arr) => (arr || []).map(d => ({ id: d.id, subtype: d.subtype, name: d.name }));
+  const s = c.artemisSensors || {};
+  return {
+    tokenHash,
+    artemisSensors: { contacts: pick(s.contacts), motions: pick(s.motions),
+                      smokes: pick(s.smokes), waters: pick(s.waters) },
+    locks: (c.locks || []).map(l => ({ id: l.id, label: l.label })),
+    pushEnabled: c.pushEnabled,
+    pushDoors: c.pushDoors, pushWindows: c.pushWindows, pushLocks: c.pushLocks,
+    pushMotion: c.pushMotion, pushMotionDevices: c.pushMotionDevices || [],
+    pushSmoke: c.pushSmoke, pushWater: c.pushWater,
+    pushOpen: c.pushOpen, pushClose: c.pushClose,
+  };
+}
+
+// The Workers only ever COMPARE the Maker token (armed.js, send.js), never use
+// it to call anything -- so they get proof of it, and the token itself moves
+// into the encrypted half where the neighbour cannot reach it.
+async function _cloudTokenHash(token) {
+  if (!token) return null;
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(token)));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Last reason a cloud write did not land, surfaced by Diagnostics. Until this
+// existed, a rejected write produced no console line, no banner and no
+// diagnostic -- which is how several outages stayed invisible for days.
+let _cloudLastPushError = null;
 
 function cloudSyncPush(payload) {
   if (sbxBlocked('cloud sync push')) return;
@@ -3104,15 +3341,67 @@ function cloudSyncPush(payload) {
     _cloudSyncDebounce = setTimeout(() => cloudSyncPush(payload), 30000);
     return;
   }
-  const inner = { config: payload, savedAt: Date.now(), version: HESTIA_VERSION };
-  _cloudGetIp().then(ip => {
+  // No secret means this device has never completed a hub write. It must not
+  // invent one (see _cloudEnsureSecret) -- a second minter would encrypt the
+  // shared record under a different key and neither device could read the
+  // other's writes.
+  const secret = CONFIG.cloudSecret;
+  if (!secret) {
+    _cloudLastPushError = 'no household secret yet — save settings while the hub is reachable';
+    console.warn('[CloudSync] ' + _cloudLastPushError);
+    return;
+  }
+
+  _cloudGetIp().then(async ip => {
     if (!ip) return;
-    return _cloudEncrypt(inner, ip).then(encrypted => {
-      const body = JSON.stringify({ encrypted: true, payload: encrypted });
-      if (body.length > 65536) return;
+    // The secret must never ride inside the record it protects: the key is
+    // derived FROM it, so carrying it would be circular, and a device could
+    // adopt a foreign household's secret by applying a discovered config.
+    const priv = deepClone(payload);
+    if (priv.config) delete priv.config.cloudSecret;
+
+    const inner = { config: priv, savedAt: Date.now(), version: HESTIA_VERSION };
+    const key = await _cloudKey(secret, ['encrypt']);
+    const service = buildServiceHalf((payload.config) || {}, await _cloudTokenHash(payload.config && payload.config.token));
+    return _cloudEncryptWithKey(inner, key).then(async encrypted => {
+      // The raw token proves write authority. It is verified against the
+      // stored sha256 and then discarded server-side, never persisted -- the
+      // token itself lives only in the encrypted half. Sending a hash instead
+      // would make the hash the credential, and the neighbour can read the
+      // record, so they could replay it straight back.
+      // secretProof survives a Maker API token rotation, so it is the path
+      // back in when the token one no longer matches. It is a hash, never the
+      // secret itself, and the server stores it where no endpoint returns it.
+      const secretProof = await _cloudTokenHash(secret);
+      const body = JSON.stringify({ encrypted: true, payload: encrypted, service,
+                                    token: payload.config && payload.config.token,
+                                    secretProof });
+      // Bare `return` here logged nothing, so a household whose config grew
+      // past the limit silently stopped syncing with no signal anywhere.
+      if (body.length > 65536) {
+        _cloudLastPushError = `config too large to sync (${body.length} bytes, limit 65536)`;
+        console.warn('[CloudSync] ' + _cloudLastPushError);
+        return;
+      }
       return fetch(CLOUD_SYNC_API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
-    }).then(r => { if (r && r.ok) { _lastCloudPushAt = Date.now(); console.log('[CloudSync] Encrypted push to cloud'); } });
-  }).catch(e => console.warn('[CloudSync] Push failed:', e.message));
+    }).then(r => {
+      if (!r) return;
+      if (r.ok) {
+        _cloudLastPushError = null;
+        _lastCloudPushAt = Date.now();
+        console.log('[CloudSync] Encrypted push to cloud');
+      } else {
+        // There was no else branch at all. Every rejected write -- 400 on a
+        // shape change, 413 on size, 401 once writes are authenticated -- was
+        // completely invisible, on both the console and the Diagnostics panel.
+        _cloudLastPushError = `backend rejected the write (HTTP ${r.status})`;
+        console.warn('[CloudSync] ' + _cloudLastPushError);
+      }
+    });
+  }).catch(e => {
+    _cloudLastPushError = e.message;
+    console.warn('[CloudSync] Push failed:', e.message);
+  });
 }
 
 /* ── Adopting a cloud config: confirm before trusting it ──────────────────
@@ -3177,7 +3466,7 @@ function cloudAdoptConfig() {
   const cfg = _cloudPendingConfig;
   if (!cfg) return;
   _cloudRememberHousehold(cfg);
-  try { _LS.setItem('dashboard-config', JSON.stringify(cfg)); } catch(e) {}
+  _persistConfigKeepingSecret(cfg);
   _cloudPendingConfig = null;
   const banner = document.getElementById('cloud-adopt-banner');
   if (banner) banner.classList.remove('visible');
@@ -3200,7 +3489,43 @@ async function cloudSyncDiscover() {
     const data = await res.json();
     if (!data || !data.found) return null;
     if (data.encrypted && data.payload) {
-      const decrypted = await _cloudDecrypt(data.payload, ip);
+      /* INVARIANT: this returns the decrypted PRIVATE half -- the full
+         buildConfigPayload() shape -- or null. It must never return the
+         service half. Five call sites persist this result straight over
+         `dashboard-config`, so handing them a 10-field projection would empty
+         the hub URL, token and PIN hashes on the next reload. Keeping the
+         invariant here means none of those sites need to change. */
+      let decrypted = null;
+      if (CONFIG.cloudSecret) {
+        try {
+          decrypted = await _cloudDecryptWithKey(data.payload, await _cloudKey(CONFIG.cloudSecret, ['decrypt']));
+        } catch (e) {}
+        /* Deliberately NO legacy fallback here.
+
+           The legacy key is SHA-256(publicIP + a constant in the public repo),
+           so anyone sharing this public address can forge a record that
+           decrypts cleanly. Falling back on a device that HOLDS a secret would
+           mean a neighbour's forged record gets decrypted, passed to
+           _cloudConfigTrusted() -- which only compares hub hostname and appId,
+           both guessable -- and blind-assigned over CONFIG by
+           applyParsedConfig(), PIN hashes included.
+
+           A device with a secret has a hub or a Wall Panel link behind it and
+           does not need the legacy path. Only a device with no secret at all
+           may use it, and only to migrate itself. */
+      } else {
+        // TRANSITIONAL: a device that predates the household secret, reading
+        // its own pre-split record so it can migrate. Delete with the rest of
+        // the legacy path one release after this ships.
+        try { decrypted = await _cloudDecrypt(data.payload, ip); } catch (e) {}
+      }
+      if (!decrypted) {
+        // Three very different situations that used to read identically.
+        console.warn('[CloudSync] ' + (CONFIG.cloudSecret
+          ? 'A record exists for this network but this device cannot read it — it belongs to a different household sharing this public address.'
+          : 'A record exists for this network but this device holds no household secret yet.'));
+        return null;
+      }
       console.log('[CloudSync] Encrypted config discovered from cloud');
       return decrypted.config || null;
     }
@@ -3793,7 +4118,72 @@ function _offlineBannerHTML() {
   }
   return 'Hub unreachable, showing last known state. Check that the hub is powered on and on the same network.';
 }
+/* ── Lost-connection screen ───────────────────────────────────────────
+   The banner alone was easy to miss on a wall panel across the room, and it
+   left every tile showing stale state with no hint that it was stale.
+
+   Escalates only after the hub has been unreachable continuously for
+   DISCONN_AFTER_MS. Time-based rather than a count of failed polls, because
+   the poll interval is user-configurable (CONFIG.poll) -- counting would fire
+   in 5 seconds on one household and 30 on another. A brief blip never reaches
+   the screen at all; the banner already covers that.
+
+   Dismissible on purpose: last known state is still useful. Someone checking
+   whether they left the garage open should not be blocked from seeing it by a
+   connection error. */
+const DISCONN_AFTER_MS = 20000;
+let _connErrSince = 0;
+let _disconnDismissed = false;
+
+function _disconnEl() { return document.getElementById('disconn-screen'); }
+
+function _disconnShow() {
+  const el = _disconnEl();
+  if (!el || el.classList.contains('visible')) return;
+  /* Never cover an entry-delay countdown or a live alarm. The screen is
+     opaque and full-viewport, so it would replace the countdown ring and the
+     PIN pad with a modal at exactly the moment someone is walking in to
+     disarm. A stale reading is far better than a hidden one. */
+  if (typeof artemisTransition !== 'undefined' && artemisTransition) return;
+  if (typeof artemisAlarmType !== 'undefined' && artemisAlarmType) return;
+  const msg = document.getElementById('disconn-msg');
+  // Reuse the banner's cause-specific text: a browser cannot tell an untrusted
+  // certificate from a blocked mixed-content request from an unplugged hub, so
+  // this names the likeliest cause for THIS device's setup.
+  if (msg) msg.innerHTML = _offlineBannerHTML();
+  el.classList.add('visible');
+  const btn = document.getElementById('disconn-retry');
+  if (btn) { btn.disabled = false; btn.textContent = 'Try again'; setTimeout(() => btn.focus(), 0); }
+}
+
+function _disconnHide() {
+  const el = _disconnEl();
+  if (el) el.classList.remove('visible');
+}
+
+function disconnDismiss() {
+  _disconnDismissed = true;   // until the next time connection is regained
+  _disconnHide();
+}
+
+function disconnRetry() {
+  const btn = document.getElementById('disconn-retry');
+  if (btn) { btn.disabled = true; btn.textContent = 'Reconnecting…'; }
+  // A full reload is the honest retry: it re-runs discovery, the companion-app
+  // breaker and the hub-URL resolution, not just one poll that would fail the
+  // same way for the same reason.
+  location.reload();
+}
+
 function setConn(state) {
+  if (state === 'err') {
+    if (!_connErrSince) _connErrSince = Date.now();
+    if (!_disconnDismissed && Date.now() - _connErrSince >= DISCONN_AFTER_MS) _disconnShow();
+  } else if (state === 'ok') {
+    _connErrSince = 0;
+    _disconnDismissed = false;   // a fresh outage earns a fresh screen
+    _disconnHide();
+  }
   const cls = 'conn-dot' + (state === 'ok' ? '' : state === 'err' ? ' err' : ' loading');
   const dot  = document.getElementById('conn-dot');
   const dotM = document.getElementById('conn-dot-m');
@@ -10136,6 +10526,14 @@ function artemisSetTransition(type, targetMode, opts) {
   const configured = type === 'arming' ? (CONFIG.artemisExitDelay || 60) : (CONFIG.artemisEntryDelay || 60);
   const totalSec = opts.totalSec > 0 ? opts.totalSec : configured;
   const remainingSec = opts.remainingSec != null ? Math.max(0, Math.min(totalSec, opts.remainingSec)) : totalSec;
+  /* Get the lost-connection screen out of the way. _disconnShow() refuses to
+     open during a transition, but nothing dismissed one that was ALREADY open
+     when a countdown started -- and that is reachable: device polling can fail
+     (a revoked Maker token 401s) while the companion app's /security poll, on
+     separate credentials, still reports an entry delay. The opaque full-screen
+     overlay would then cover the countdown ring and the PIN pad at exactly the
+     moment someone is walking in to disarm. */
+  if (typeof _disconnHide === 'function') _disconnHide();
   artemisTransition = type;
   artemisArmingTarget = targetMode || null;
   artemisTransitionSource = opts.source || 'local';
@@ -10315,7 +10713,13 @@ function spWallPanelBody() {
     try { hubParam = new URL(hubUrl).host; } catch(e) {}
     kioskUrl = 'https://hestari.com?hub=' + encodeURIComponent(hubParam) +
                '&hid=' + encodeURIComponent(HUB_STORE.appId) +
-               '&htk=' + encodeURIComponent(HUB_STORE.token);
+               '&htk=' + encodeURIComponent(HUB_STORE.token) +
+               // Carries the household secret to a device that will never reach
+               // the hub -- a phone on cellular, a laptop away from home. A LAN
+               // device inherits it from the hub config and needs nothing; this
+               // link is the only path for everything else, and it already
+               // carries the companion app's own credentials.
+               (CONFIG.cloudSecret ? '&hs=' + encodeURIComponent(CONFIG.cloudSecret) : '');
   }
 
   // Fallback: Maker API setup URL (works without companion app)
@@ -10325,7 +10729,12 @@ function spWallPanelBody() {
     try { hubParam = new URL(hubUrl).host; } catch(e) {}
     makerUrl = 'https://hestari.com?hub=' + encodeURIComponent(hubParam) +
                '&mid=' + encodeURIComponent(CONFIG.appId) +
-               '&mtk=' + encodeURIComponent(CONFIG.token);
+               '&mtk=' + encodeURIComponent(CONFIG.token) +
+               // Households without the companion app have no hub config store,
+               // so this link is their ONLY way to give another device the
+               // household secret. Omitting it here left them unable to share
+               // one at all.
+               (CONFIG.cloudSecret ? '&hs=' + encodeURIComponent(CONFIG.cloudSecret) : '');
   }
 
   const displayUrl = kioskUrl || makerUrl;
@@ -11679,17 +12088,83 @@ async function diagCheckGroovy() {
   }
 }
 
+/* Reachability alone proved nothing. /whoami touches no storage and always
+   returns 200 with the caller's IP, so this check reported "Reachable"
+   through every backend failure this project has had -- including ones where
+   no household record had been written in weeks. It now round-trips the
+   household's own record: reachable, present, and readable by THIS device are
+   three different things and the failures look identical without checking all
+   three. */
 async function diagCheckCloud() {
+  let ip = null;
   try {
     const res = await fetch(CLOUD_SYNC_API + '/whoami');
     const data = await res.json();
-    if (data && data.ip) {
-      diagSetStatus('cloud', 'green', 'Reachable', `hestari.com sees this device as ${data.ip}.`);
-    } else {
-      diagSetStatus('cloud', 'amber', 'Unexpected response');
-    }
+    ip = data && data.ip;
   } catch (e) {
     diagSetStatus('cloud', 'red', 'Unreachable', 'Could not reach the hestari.com backend. Cloud config sync, cross-device sync, and push notifications all depend on this.');
+    return;
+  }
+  if (!ip) { diagSetStatus('cloud', 'amber', 'Unexpected response', 'hestari.com answered but did not report this device\'s address.'); return; }
+
+  try {
+    const res = await fetch(CLOUD_SYNC_API + '/discover');
+    if (!res.ok) {
+      diagSetStatus('cloud', 'red', 'Backend error',
+        `hestari.com is reachable (sees ${ip}) but returned HTTP ${res.status} for this household's record.`);
+      return;
+    }
+    const data = await res.json();
+    if (!data || !data.found) {
+      diagSetStatus('cloud', 'amber', 'No saved record',
+        `hestari.com is reachable (sees ${ip}) but has nothing saved for this network. It is written on the next settings save. If this persists after saving, settings are not reaching the cloud.`);
+      return;
+    }
+    // Must try the household key FIRST. Using only the legacy IP key here made
+    // every correctly-migrated household read amber "unreadable", and left the
+    // rejected-write branch below permanently unreachable -- so the one signal
+    // this work added was dead on arrival.
+    let readable = false;
+    let legacyOnly = false;
+    if (data.encrypted && data.payload) {
+      if (CONFIG.cloudSecret) {
+        try { await _cloudDecryptWithKey(data.payload, await _cloudKey(CONFIG.cloudSecret, ['decrypt'])); readable = true; } catch (e) {}
+      }
+      /* Falling back to the legacy IP key and then reporting green was a false
+         all-clear on the one condition this check exists to catch. That key is
+         SHA-256(publicIP + a constant in this repo), so a neighbour's forged
+         record decrypts cleanly -- and a device HOLDING a secret would have
+         read "Synced" while its own writes went somewhere it could not read.
+         cloudSyncDiscover() refuses the same fallback for the same reason.
+
+         Still attempted, because a device that has just received its secret
+         but has not pushed yet legitimately faces a legacy-shaped record, and
+         calling that "unreadable" would be a false alarm. It is reported as
+         its own state rather than folded into either green or the neighbour
+         case. */
+      if (!readable) {
+        try { await _cloudDecrypt(data.payload, ip); legacyOnly = true; } catch (e) {}
+      }
+    } else if (data.config) {
+      readable = true;
+    }
+    if (legacyOnly) {
+      diagSetStatus('cloud', 'amber', 'Not migrated yet',
+        `A record exists for this network in the older format, which this device can still read but no longer writes. It is rewritten in the new format on the next settings save.`);
+    } else if (readable && _cloudLastPushError) {
+      // Reads succeeding says nothing about whether this device can still
+      // WRITE. A locked-out household would otherwise read green forever.
+      diagSetStatus('cloud', 'amber', 'Reading, but not writing',
+        `This device can read the record for this network, but the last save did not land: ${_cloudLastPushError}.`);
+    } else if (readable) {
+      diagSetStatus('cloud', 'green', 'Synced',
+        `hestari.com is reachable (sees ${ip}), a record exists for this network, and this device can read it.`);
+    } else {
+      diagSetStatus('cloud', 'amber', 'Record present but unreadable',
+        `A record exists for this network but this device could not decrypt it. That usually means it belongs to a different household sharing this public address, or this device has lost its key.`);
+    }
+  } catch (e) {
+    diagSetStatus('cloud', 'red', 'Record check failed', `Could not read this household's record: ${e.message}`);
   }
 }
 
@@ -11702,10 +12177,43 @@ async function diagCheckPush() {
     swActive = !!(reg && reg.active);
   } catch (e) {}
 
-  const detail = `Push: ${CONFIG.pushEnabled ? 'on' : 'off'} · This device: ${registered ? 'registered' : 'not registered'} · Permission: ${perm} · Service worker: ${swActive ? 'active' : 'not active'}`;
+  /* Every check above is local. "Registered" reads CONFIG.pushDevices, which
+     is this device's own copy and stays true forever after a backend prune or
+     a 401 -- so this panel reported "Healthy" through every push outage this
+     project has had. Confirm with the backend by re-registering, which is
+     idempotent and exactly what pushResyncOnBoot() already does at every
+     boot, then report what the backend actually said. */
+  let backend = '';
+  if (CONFIG.pushEnabled && perm === 'granted' && swActive && !SANDBOX) {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration('/sw.js');
+      const sub = reg && await reg.pushManager.getSubscription();
+      if (!sub) {
+        backend = 'no local subscription to confirm';
+      } else {
+        const entry = (CONFIG.pushDevices || []).find(d => d.id === DEVICE_ID);
+        const res = await fetch(PUSH_API + '/subscribe', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ deviceId: DEVICE_ID, deviceName: DEVICE_NAME,
+                                 mode: (entry && entry.mode) || 'always', subscription: sub.toJSON() })
+        });
+        backend = res.ok ? 'confirmed with backend' : `backend rejected registration (HTTP ${res.status})`;
+      }
+    } catch (e) {
+      backend = 'could not reach the backend';
+    }
+  }
+
+  const detail = `Push: ${CONFIG.pushEnabled ? 'on' : 'off'} · This device: ${registered ? 'registered' : 'not registered'} · Permission: ${perm} · Service worker: ${swActive ? 'active' : 'not active'}${backend ? ' · ' + backend : ''}`;
+
+  const backendBad = backend && backend !== 'confirmed with backend';
 
   if (!CONFIG.pushEnabled) {
     diagSetStatus('push', 'green', 'Disabled', detail);
+  } else if (backendBad) {
+    diagSetStatus('push', 'red', 'Not reaching the backend',
+      detail + ' — this device looks correct locally but the backend is not accepting it, so notifications will not arrive.');
   } else if (registered && perm === 'granted' && swActive) {
     diagSetStatus('push', 'green', 'Healthy', detail);
   } else if (perm === 'denied') {
@@ -17969,7 +18477,7 @@ async function obTestConnection() {
       if (hubCfg) {
         res.textContent = '\u2713 Config found \u2014 loading your dashboard\u2026';
         applyParsedConfig(hubCfg);
-        try { _LS.setItem('dashboard-config', JSON.stringify(hubCfg)); } catch(e2) {}
+        _persistConfigKeepingSecret(hubCfg);
         applyConfig();
         // Persist companion app credentials so future loads auto-boot
         await saveConfig();
@@ -18338,13 +18846,24 @@ function launchOnboarding() {
   const _urlHtk = _urlParams.get('htk');
   const _urlMid = _urlParams.get('mid');
   const _urlMtk = _urlParams.get('mtk');
+  const _urlHs  = _urlParams.get('hs');   // household secret, for off-LAN devices
   // Scrub credentials from the visible URL/history immediately -- the
   // values above are already captured in these consts, so clearing what's
   // displayed doesn't affect anything that reads them below. Without this,
   // a Wall Panel token sits in the address bar and browser history
   // indefinitely (visible in a screenshot, synced history, shoulder-surfed).
-  if (_urlHid || _urlHtk || _urlMid || _urlMtk) {
+  // `hs` MUST be in this condition: a link carrying only the secret would
+  // otherwise leave it in the address bar permanently.
+  if (_urlHid || _urlHtk || _urlMid || _urlMtk || _urlHs) {
     try { history.replaceState(null, '', location.pathname); } catch(e) {}
+  }
+  // Adopted before any cloud read, so a device arriving by Wall Panel link can
+  // decrypt the household's record on its very first boot. Never overwrites a
+  // secret this device already holds -- that would silently move it to a
+  // different household.
+  if (_urlHs && /^[0-9a-f]{64}$/.test(_urlHs) && !CONFIG.cloudSecret) {
+    CONFIG.cloudSecret = _urlHs;
+    console.log('[Boot] Household secret adopted from Wall Panel link');
   }
   let _hubHint = null;
   if (_urlHub) {
@@ -18375,14 +18894,31 @@ function launchOnboarding() {
     // ── New device / no local config ──────────────────────────────────
     if (HUB_STORE) {
       // Try to load full saved config from the hub first
-      const hubCfg = await loadConfigFromHub();
+      let hubCfg = await loadConfigFromHub();
+
+      /* A Wall Panel link gives this device HUB_STORE credentials AND the
+         household secret, but a device that is genuinely off-LAN -- a phone on
+         cellular, a laptop away from home -- cannot reach the hub at all, so
+         the load above returns null and this used to fall straight through to
+         the setup wizard. The secret was the whole point of the link, and it
+         was never used. Try the cloud with it before giving up. */
+      if (!hubCfg && _cloudHasSecret()) {
+        // Already the full buildConfigPayload() shape -- see the invariant in
+        // cloudSyncDiscover(). Re-wrapping it would nest config one level too
+        // deep and silently produce an empty configuration.
+        const cloudCfg = await cloudSyncDiscover();
+        if (cloudCfg) {
+          console.log('[Boot] Hub unreachable — configured from cloud using the household secret');
+          hubCfg = cloudCfg;
+        }
+      }
 
       if (hubCfg) {
         // Best case: hub has a saved config — apply and boot directly
         const ok = applyParsedConfig(hubCfg);
         if (ok) {
           applyConfig();
-          try { _LS.setItem('dashboard-config', JSON.stringify(hubCfg)); } catch(e) {}
+          _persistConfigKeepingSecret(hubCfg);
           // Fall through to normal boot
         } else {
           // Config parse failed — pre-fill wizard from saved Maker API credentials
@@ -18442,7 +18978,7 @@ function launchOnboarding() {
         const ok = applyParsedConfig(cloudCfg);
         if (ok) {
           applyConfig();
-          try { _LS.setItem('dashboard-config', JSON.stringify(cloudCfg)); } catch(e) {}
+          _persistConfigKeepingSecret(cloudCfg);
           console.log('[Boot] Auto-configured from cloud sync');
           // Fall through to normal boot
         } else {
@@ -18471,7 +19007,7 @@ function launchOnboarding() {
       const hubCfg = await loadConfigFromHub();
       if (hubCfg) {
         applyParsedConfig(hubCfg);
-        try { _LS.setItem('dashboard-config', JSON.stringify(hubCfg)); } catch(e) {}
+        _persistConfigKeepingSecret(hubCfg);
         const _athFab = document.getElementById('ath-fab');
         if (_athFab) _athFab.style.display = CONFIG.athenaEnabled ? 'flex' : 'none';
         console.log('[Boot] Applied hub config');
@@ -18489,7 +19025,7 @@ function launchOnboarding() {
         cloudOfferConfig(cloudCfg);
       } else if (cloudCfg) {
         applyParsedConfig(cloudCfg);
-        try { _LS.setItem('dashboard-config', JSON.stringify(cloudCfg)); } catch(e) {}
+        _persistConfigKeepingSecret(cloudCfg);
         console.log('[Boot] Applied cloud config');
         // Cloud config may carry a corrected hestiaAppId. Re-run reconstruction
         // so it takes effect now rather than a boot later; if it's the same dead

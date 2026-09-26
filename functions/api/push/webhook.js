@@ -120,7 +120,13 @@ export async function onRequestPost({ request, env }) {
     const shortHash = hash.substring(0, 16);
 
     const household = await getHouseholdConfig(env, ip, shortHash);
-    if (!household) return Response.json({ status: 'ok', skipped: 'unknown household' });
+    if (!household) {
+      // Returned a bare 200 with no server-side log, so a household whose
+      // record was missing or unreadable had push and the Activity Log die in
+      // complete silence -- Maker API sees success and never retries.
+      console.error('[push/webhook] no readable record for household', shortHash);
+      return Response.json({ status: 'ok', skipped: 'unknown household' });
+    }
     const config = household.config || {};
 
     const info = categorize(config, evt.deviceId);

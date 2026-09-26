@@ -55,7 +55,7 @@ preferences {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
-@Field static final String APP_VERSION        = "1.6.9"
+@Field static final String APP_VERSION        = "2.0.0"
 @Field static final String TOKEN_FILENAME      = "hestia-token.json"
 @Field static final String CONFIG_FILENAME     = "hestia-config.json"
 @Field static final String DASHBOARD_FILENAME  = "index.html"
@@ -541,7 +541,39 @@ def saveConfig() {
                    data: '{"status":"error","message":"empty body"}'
             return
         }
-        new groovy.json.JsonSlurper().parseText(body)
+        // Carry the household cloud secret forward when an incoming save omits
+        // it. This store is the household's distribution point for it: every
+        // device on the LAN reads it back with the config. A dashboard older
+        // than v2.0.0 has no such field in its payload, so a stale tab or a
+        // hub-served build still on the previous version would replace the
+        // whole config and erase it -- after which devices holding the old
+        // secret and devices that mint a new one write records neither can
+        // read, silently and permanently.
+        //
+        // Deliberately ALL best-effort, parse included: preserving the secret
+        // is a convenience, and must never be able to stop a save. Before this
+        // existed, saveConfig() stored whatever string it was handed without
+        // looking at it, so anything JsonSlurper dislikes has to fall through
+        // to that same behaviour rather than reject the user's config.
+        if (state.config) {
+            try {
+                def parsed = new groovy.json.JsonSlurper().parseText(body)
+                def incoming = (parsed instanceof Map) ? parsed.config : null
+                if (incoming instanceof Map && incoming.cloudSecret == null) {
+                    def prev = new groovy.json.JsonSlurper().parseText(state.config)
+                    def prevCfg = (prev instanceof Map) ? prev.config : null
+                    def keep = (prevCfg instanceof Map) ? prevCfg.cloudSecret : null
+                    if (keep) {
+                        incoming.cloudSecret = keep
+                        body = new groovy.json.JsonBuilder(parsed).toString()
+                        log.info "Hestia: preserved household cloud secret across an older client's save"
+                    }
+                }
+            } catch(e) {
+                log.warn "Hestia: could not preserve cloud secret: ${e.message}"
+            }
+        }
+
         try { uploadHubFile(CONFIG_FILENAME, body.getBytes("UTF-8")) } catch(e) {
             log.warn "Hestia: hub file write failed: ${e.message}"
         }
