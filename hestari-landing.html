@@ -544,6 +544,8 @@ footer{border-top:1px solid var(--border);padding:40px 0}
       <div class="mod-feat"><span class="mfd" style="background:var(--amber)"></span>Five visual themes to match your space</div>
       <div class="mod-feat"><span class="mfd" style="background:var(--amber)"></span>Real-time device state updates</div>
       <div class="mod-feat"><span class="mfd" style="background:var(--amber)"></span>Built-in calendar with reminders and scheduled routines</div>
+      <div class="mod-feat"><span class="mfd" style="background:var(--amber)"></span>Live camera feeds and snapshots, any brand</div>
+      <div class="mod-feat"><span class="mfd" style="background:var(--amber)"></span>Push notifications and spoken announcements</div>
     </div>
 
     <!-- Athena -->
@@ -690,6 +692,26 @@ footer{border-top:1px solid var(--border);padding:40px 0}
         <div class="feat-num">08</div>
         <h3>Built-in calendar</h3>
         <p>Your reminders and scheduled routines visualized on a calendar. Desktop shows a full mini-month with today's events and upcoming. Mobile shows a swipeable week strip. Add reminders right from the home screen — no setup, no external accounts.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-num">09</div>
+        <h3>Camera monitoring</h3>
+        <p>Live streams and still snapshots from any camera that outputs an image or MJPEG feed — Ring, RTSP-to-MJPEG, or anything else. No vendor lock-in, no separate camera app.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-num">10</div>
+        <h3>Push notifications</h3>
+        <p>Real browser and OS notifications for doors, locks, motion, smoke, water, and alarms — delivered even when the dashboard isn't open. Per-device delivery modes, end-to-end encrypted.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-num">11</div>
+        <h3>Spoken announcements</h3>
+        <p>Athena speaks device events aloud as they happen — a door opening, a window left ajar, the alarm arming. Configurable per category, per device, and per event type.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-num">12</div>
+        <h3>Built-in diagnostics</h3>
+        <p>Eight on-demand connection checks and a running activity log, right in Settings. See exactly what's working and what isn't, without digging through browser consoles.</p>
       </div>
     </div>
   </div>
@@ -932,36 +954,20 @@ footer{border-top:1px solid var(--border);padding:40px 0}
       <div class="tl-phase-label now">Just Shipped</div>
       <div class="tl-items">
         <div class="tl-item">
-          <h3>Reminders and routines</h3>
-          <p>Persistent recurring reminders (daily, weekly, monthly, and more) and named routines you create by voice. "Create a movie mode routine" — then "run movie mode" anytime. Routines can run on a schedule too.</p>
+          <h3>Encrypted sync, rebuilt from the ground up</h3>
+          <p>Every household now gets its own 256-bit key, generated on your own device and never sent to our servers. Synced settings are split so the sensitive half has no decryption path on the server side at all. Nothing to pair and nothing to type: your hub hands the key to your devices.</p>
         </div>
         <div class="tl-item">
-          <h3>Timers, memory, and conversation mode</h3>
-          <p>Set timers by voice with live countdowns. Athena remembers your conversation across page refreshes and keeps listening for follow-ups without re-waking.</p>
+          <h3>Garage door control</h3>
+          <p>Garage doors are their own device type now, with real open, closed and in-motion states. Closing takes one tap and opening asks first, by touch and by voice, because the one command that opens your house should never fire by accident.</p>
         </div>
         <div class="tl-item">
-          <h3>Full device control and personality</h3>
-          <p>Thermostats, color bulbs, shades, and every device type now controllable by voice. Choose from four personality presets to match your style.</p>
+          <h3>Entry and exit countdowns</h3>
+          <p>A live countdown ring and keypad the moment your alarm starts its entry delay, driven by what your alarm system actually reports rather than guessed from a sensor opening. Works with Hubitat Safety Monitor and Ring panels, and keeps the two in step.</p>
         </div>
         <div class="tl-item">
-          <h3>Selectable wake words</h3>
-          <p>Choose between Athena, Artemis, and Hestia — each with a custom-trained detection model. Seven more mythology-inspired options coming soon.</p>
-        </div>
-        <div class="tl-item">
-          <h3>Artemis security system</h3>
-          <p>Hubitat Safety Monitor integration with arm/disarm modes, PIN protection, real-time sensor alerts, and intrusion detection.</p>
-        </div>
-        <div class="tl-item">
-          <h3>Companion app for Hubitat</h3>
-          <p>One-click install via HPM. Auto-downloads the dashboard, handles CORS, and keeps you on the latest version.</p>
-        </div>
-        <div class="tl-item">
-          <h3>Built-in calendar</h3>
-          <p>A calendar widget on the home screen visualizing your reminders and scheduled routines. Desktop shows a mini-month with event dots, today's events, and a 7-day upcoming view. Mobile shows a swipeable week strip. Add reminders directly from the calendar — no external accounts needed.</p>
-        </div>
-        <div class="tl-item">
-          <h3>Adaptive silence detection</h3>
-          <p>Athena now calibrates to ambient noise in real time. Music, TV, conversations — she adapts her listening threshold so voice commands work reliably in noisy environments.</p>
+          <h3>Keyboard and screen reader support</h3>
+          <p>Settings is fully reachable by keyboard, with proper focus handling, labelled controls and announced toggles, so the dashboard is usable without a mouse or a screen.</p>
         </div>
       </div>
     </div>
@@ -972,12 +978,8 @@ footer{border-top:1px solid var(--border);padding:40px 0}
       <div class="tl-phase-label next">In Progress</div>
       <div class="tl-items">
         <div class="tl-item">
-          <h3>Wake word accuracy improvements</h3>
-          <p>Training all wake word models with diverse real-world audio to achieve single-attempt reliability across accents and environments.</p>
-        </div>
-        <div class="tl-item">
-          <h3>More wake word models</h3>
-          <p>Apollo, Achilles, Andromeda, Hermes, Odin, Osiris, and Anubis. Each requires individual training and validation.</p>
+          <h3>Native apps</h3>
+          <p>Dedicated apps for Windows, macOS, Android and iOS, built around the same dashboard, with background wake word listening and no browser tab required. A full security and readiness pass across the codebase was the last thing standing in the way, and that work is now complete.</p>
         </div>
       </div>
     </div>
@@ -992,8 +994,8 @@ footer{border-top:1px solid var(--border);padding:40px 0}
           <p>Choose your preferred AI provider. ChatGPT by OpenAI and Gemini by Google will join Claude as options — use whichever you prefer or already have an API key for.</p>
         </div>
         <div class="tl-item">
-          <h3>Native apps</h3>
-          <p>Dedicated apps for Windows, macOS, Android, and iOS. Background wake word listening, seamless local connectivity, and push notifications.</p>
+          <h3>Reminders that catch up</h3>
+          <p>Reminders currently need a dashboard open to fire. The plan is to move scheduling server side so anything you miss while every screen is closed still reaches you when you come back.</p>
         </div>
       </div>
     </div>
