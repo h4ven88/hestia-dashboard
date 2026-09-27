@@ -115,6 +115,36 @@ async function build() {
   const verMatch = src.match(/const HESTIA_VERSION\s*=\s*'([^']*)'/);
   const version = verMatch ? verMatch[1] : 'unknown';
 
+  /* The version string lives in four places that nothing used to compare.
+     They drift, and the drift is expensive: packageManifest.json was missed
+     when v1.6.5 shipped, so HPM reported "up to date" to every user for three
+     days and no hub-served install received anything. The Groovy's own header
+     comment then sat at v1.6.7 through two further releases -- the first thing
+     a user sees when pasting the app, and the release instructions tell them
+     to watch it change.
+
+     A human checklist did not catch either. So the build refuses instead. */
+  const mismatches = [];
+  const checkVersion = (label, file, re) => {
+    let text;
+    try { text = fs.readFileSync(file, 'utf-8'); } catch { return; }  // optional file
+    const m = text.match(re);
+    if (!m) { mismatches.push(`${label}: no version found in ${file}`); return; }
+    if (m[1] !== version) mismatches.push(`${label}: ${m[1]} (expected ${version})`);
+  };
+
+  checkVersion('packageManifest.json', 'packageManifest.json', /"version"\s*:\s*"([^"]+)"/);
+  checkVersion('Groovy APP_VERSION', 'HestiaDashboard.groovy', /APP_VERSION\s*=\s*"([^"]+)"/);
+  checkVersion('Groovy header comment', 'HestiaDashboard.groovy', /Hestia™ Home Dashboard v([0-9][^\s*]*)/);
+
+  if (mismatches.length) {
+    throw new Error(
+      `version mismatch against dashboard.html's HESTIA_VERSION (${version}):\n` +
+      mismatches.map(m => `    ${m}`).join('\n') +
+      `\n  Fix these, or the release ships claiming a version it is not.`
+    );
+  }
+
   // Compute SHA-256 of dist output
   const sha256 = crypto.createHash('sha256')
     .update(fs.readFileSync(DIST))
