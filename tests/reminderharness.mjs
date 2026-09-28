@@ -49,11 +49,14 @@ function world(nowMs, reminders = []) {
     ${fn('computeNextFire')}
     ${fn('reminderNextFire')}
     ${fn('reminderSchedule')}
+    const REMINDER_QUEUE_MAX = 60;
+    ${fn('reminderOccurrences')}
     ${fn('reminderFormatNext')}
     ${fn('reminderUpdate')}
     return {
       fmt:    (r) => reminderFormatNext(r),
-      next:   (r) => reminderNextFire(r),
+      next:   (r, from) => reminderNextFire(r, from),
+      occ:    (r, n, from) => reminderOccurrences(r, n, from),
       update: (id, l, s) => reminderUpdate(id, l, s),
       get:    (id) => CONFIG.reminders.find(r => r.id === id),
     };
@@ -156,6 +159,75 @@ console.log('\n=== 4. Editing a spent one-time reminder re-arms it. A switched-o
   const usr = w.get('usr');
   check('a user-disabled reminder stays disabled through an edit', usr.enabled === false,
     'editing must not undo a deliberate switch-off');
+}
+
+console.log('\n=== 5. A reminder keeps its wall-clock time across a DST change ===');
+{
+  /* This is the guarantee users actually care about: a 9am reminder stays at
+     9am in March and in November. It has had NO regression test until now --
+     the DST work was verified in Tier 2 against a synthetic suite that lived
+     in a scratchpad and is long gone, which means the hard part of this file
+     has been unprotected ever since. An early version of that fix was correct
+     for negative-offset zones and silently wrong for positive-offset ones, so
+     both hemispheres are tested deliberately, not for symmetry. */
+  const w = world(Date.UTC(2026, 0, 1), []);
+  const localTime = (ms, tz) =>
+    new Date(ms).toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
+
+  const spans = [
+    ['America/New_York  spring forward', 'America/New_York', Date.UTC(2026, 2, 5), '09:00'],
+    ['America/New_York  fall back',      'America/New_York', Date.UTC(2026, 9, 29), '09:00'],
+    ['Australia/Sydney  DST ends',       'Australia/Sydney', Date.UTC(2026, 3, 2),  '09:00'],
+    ['Australia/Sydney  DST starts',     'Australia/Sydney', Date.UTC(2026, 9, 1),  '09:00'],
+    ['Asia/Tokyo        no DST at all',  'Asia/Tokyo',       Date.UTC(2026, 2, 5),  '09:00'],
+  ];
+
+  for (const [label, tz, fromMs, time] of spans) {
+    const rem = { id: 'd', label: 'x', enabled: true, timezone: tz, schedule: { type: 'daily', time } };
+    const days = w.occ(rem, 8, fromMs);
+    const times = days.map(ms => localTime(ms, tz));
+    const allSame = times.every(t => t === time);
+    check(`${label}: 8 days all land at ${time} local`, allSame, times.join(' '));
+    const ascending = days.every((ms, i) => i === 0 || ms > days[i - 1]);
+    check(`${label}: instants stay strictly ascending`, ascending);
+    // A transition really did happen in that window, otherwise the test above
+    // proves nothing -- the UTC gap between consecutive fires shifts by an hour.
+    const gaps = new Set(days.slice(1).map((ms, i) => ms - days[i]));
+    const shifted = tz === 'Asia/Tokyo' ? gaps.size === 1 : gaps.size > 1;
+    check(`${label}: ${tz === 'Asia/Tokyo' ? 'no shift, as expected' : 'a real transition was crossed'}`,
+      shifted, [...gaps].map(g => g / 3600000 + 'h').join(','));
+  }
+}
+
+console.log('\n=== 6. The precomputed queue the hub fires from ===');
+{
+  const w = world(Date.UTC(2026, 5, 15, 13, 46), []);
+  const FROM = Date.UTC(2026, 5, 15, 13, 46);
+  const daily = { id: 'd', label: 'x', enabled: true, timezone: TZ, schedule: { type: 'daily', time: '09:00' } };
+
+  const ten = w.occ(daily, 10, FROM);
+  check('asks for 10, gets 10', ten.length === 10, String(ten.length));
+  check('every instant is in the future', ten.every(ms => ms > FROM));
+  check('strictly ascending, so walking forward always terminates',
+    ten.every((ms, i) => i === 0 || ms > ten[i - 1]));
+
+  check('the queue is capped even when more are requested',
+    w.occ(daily, 5000, FROM).length <= 60, 'unbounded growth rides into CONFIG and the hub state');
+  check('asking for none gives none', w.occ(daily, 0, FROM).length === 0);
+
+  const once = { id: 'o', label: 'x', enabled: true, timezone: TZ,
+                 schedule: { type: 'once', date: '2026-06-20', time: '09:00' } };
+  check('a one-time reminder yields exactly one instant and stops',
+    w.occ(once, 10, FROM).length === 1);
+
+  const ending = { id: 'e', label: 'x', enabled: true, timezone: TZ,
+                   schedule: { type: 'daily', time: '09:00', endDate: '2026-06-18' } };
+  const bounded = w.occ(ending, 10, FROM);
+  check('an end date stops the queue rather than being ignored',
+    bounded.length === 3, `${bounded.length} occurrences: ${bounded.map(m => new Date(m).toISOString().slice(0,10)).join(' ')}`);
+
+  const off = { ...daily, enabled: false };
+  check('a disabled reminder produces nothing to fire', w.occ(off, 10, FROM).length === 0);
 }
 
 console.log(`\n${PASS} passed, ${FAIL} failed`);
