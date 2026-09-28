@@ -8000,6 +8000,32 @@ function reminderCreate(label, schedule) {
   return rem;
 }
 
+/* Editing was impossible until now: a typo in a label, or a daily reminder set
+   to the wrong time, could only be fixed by deleting and recreating it. */
+function reminderUpdate(id, label, schedule) {
+  const rem = (CONFIG.reminders || []).find(r => r.id === id);
+  if (!rem) return null;
+  rem.label = label;
+  rem.schedule = schedule;
+  // Re-stamp the zone: editing happens on whatever device is in hand, and the
+  // schedule the user just typed is in THAT device's wall clock.
+  rem.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  /* A 'once' reminder disables ITSELF after firing. If the user is now editing
+     that spent reminder to a new time, they plainly want it again, so clear
+     the spent marker and re-arm it. Only when the system disabled it, never
+     when the user did -- a reminder they deliberately switched off must stay
+     off through an edit. */
+  if (rem.fired) {
+    delete rem.fired;
+    delete rem.firedAt;
+    rem.enabled = true;
+  }
+  reminderSchedule(rem);
+  reminderUpdateBadge();
+  saveConfig();
+  return rem;
+}
+
 function reminderDelete(id) {
   if (_reminderTimeouts[id]) clearTimeout(_reminderTimeouts[id]);
   delete _reminderTimeouts[id];
@@ -8041,17 +8067,25 @@ function reminderFormatSchedule(rem) {
 
 function reminderFormatNext(rem) {
   const next = reminderNextFire(rem);
-  if (!next) return rem.enabled ? 'No upcoming fire' : 'Disabled';
-  const now = new Date();
-  const diff = next.getTime() - now.getTime();
-  if (diff < 86400000) {
-    return 'Today at ' + next.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  if (!next) {
+    if (!rem.enabled) return 'Disabled';
+    // A 'once' whose moment has passed can never fire again. Saying "no
+    // upcoming fire" for both that and a genuinely exhausted recurrence hid
+    // the difference between "finished" and "you set this for the past".
+    if (rem.schedule && rem.schedule.type === 'once') return rem.fired ? 'Already fired' : 'Time has passed';
+    return 'No upcoming fire';
   }
-  if (diff < 172800000) {
-    return 'Tomorrow at ' + next.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  }
-  return next.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' at ' +
-    next.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  /* Compare CALENDAR days, not elapsed milliseconds. The old test was
+     `diff < 86400000` for "Today", so a reminder due tomorrow at 09:44, read
+     at 09:46 today, sat 23h58m out and was labelled "Today at 9:44 AM". It
+     said today and meant tomorrow, on every daily reminder whose time had
+     just passed -- which is most of them, most of the day. */
+  const midnight = d => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((midnight(next) - midnight(new Date())) / 86400000);
+  const at = next.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  if (days === 0) return 'Today at ' + at;
+  if (days === 1) return 'Tomorrow at ' + at;
+  return next.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' at ' + at;
 }
 
 function reminderDotClass(rem) {
@@ -16722,10 +16756,21 @@ function spReminderListHtml() {
       </div>
       <div class="sp-rem-schedule">${sched}</div>
       <div class="sp-rem-next">${next}</div>
-      <div class="sp-rem-actions"><span class="sp-rem-del" onclick="spReminderDelete('${r.id}')">Delete</span></div>
+      <div class="sp-rem-actions" style="display:flex;gap:14px">
+        <span class="sp-rem-edit" onclick="spReminderEdit('${r.id}')" title="Edit ${h(r.label)}" style="cursor:pointer;color:var(--amber)">Edit</span>
+        <span class="sp-rem-del" onclick="spReminderDelete('${r.id}')">Delete</span>
+      </div>
     </div>`;
   }).join('');
 }
+
+/* Which reminder the open form is editing, or null when creating a new one.
+   Declared here, ABOVE every function that reads it, rather than beside
+   spReminderShowForm() where it logically belongs. A `let` at module scope is
+   in the temporal dead zone until its line executes, and this file has already
+   shipped a ReferenceError on every page load from a module-level constant
+   declared after the code that reached it (ARTEMIS_CAT_TYPE). */
+let _spRemEditing = null;
 
 function spReminderRefresh() {
   const el = document.getElementById('sp-rem-list');
@@ -16739,34 +16784,75 @@ function spReminderToggle(id) {
 
 function spReminderDelete(id) {
   reminderDelete(id);
+  // Deleting the reminder whose edit form is open would otherwise leave that
+  // form pointing at an id that no longer exists, and saving it would no-op.
+  if (_spRemEditing === id) spReminderCancelForm();
   spReminderRefresh();
 }
 
-function spReminderShowForm() {
+function spReminderEdit(id) {
+  spReminderShowForm(id);
+  document.getElementById('sp-rem-form-area')?.scrollIntoView({ block: 'nearest' });
+}
+
+function spReminderShowForm(id) {
   const area = document.getElementById('sp-rem-form-area');
   if (!area) return;
+  const rem = id ? (CONFIG.reminders || []).find(r => r.id === id) : null;
+  _spRemEditing = rem ? rem.id : null;
+  const s = (rem && rem.schedule) || {};
+  const type = s.type || 'daily';
+  const sel = t => t === type ? ' selected' : '';
   area.innerHTML = `<div class="sp-rem-form">
     <div class="sp-field"><label class="sp-label">Label</label>
-      <input class="sp-input" id="sp-rem-label" placeholder="Take medicine"></div>
+      <input class="sp-input" id="sp-rem-label" placeholder="Take medicine" value="${rem ? h(rem.label || '') : ''}"></div>
     <div class="sp-field"><label class="sp-label">Schedule</label>
       <select class="sp-input" id="sp-rem-type" onchange="spReminderTypeChanged()">
-        <option value="once">Once</option>
-        <option value="daily" selected>Daily</option>
-        <option value="weekdays">Weekdays</option>
-        <option value="weekly">Weekly</option>
-        <option value="monthly">Monthly</option>
-        <option value="yearly">Yearly</option>
+        <option value="once"${sel('once')}>Once</option>
+        <option value="daily"${sel('daily')}>Daily</option>
+        <option value="weekdays"${sel('weekdays')}>Weekdays</option>
+        <option value="weekly"${sel('weekly')}>Weekly</option>
+        <option value="monthly"${sel('monthly')}>Monthly</option>
+        <option value="yearly"${sel('yearly')}>Yearly</option>
       </select></div>
     <div class="sp-field"><label class="sp-label">Time</label>
-      <input class="sp-input" id="sp-rem-time" type="time" value="08:00"></div>
+      <input class="sp-input" id="sp-rem-time" type="time" value="${h(s.time || '08:00')}"></div>
     <div id="sp-rem-extra"></div>
     <div class="sp-field" id="sp-rem-end-row"><label class="sp-label">End date <span style="color:var(--t4);font-weight:300">(optional)</span></label>
-      <input class="sp-input" id="sp-rem-end" type="date" placeholder="No end date"></div>
+      <input class="sp-input" id="sp-rem-end" type="date" placeholder="No end date" value="${h(s.endDate || '')}"></div>
     <div style="display:flex;gap:8px;margin-top:10px">
-      <button class="sp-btn sp-btn-secondary" style="flex:1;justify-content:center" onclick="document.getElementById('sp-rem-form-area').innerHTML=''">Cancel</button>
-      <button class="sp-btn" style="flex:1;justify-content:center;background:var(--amber);color:#000" onclick="spReminderSave()">Save Reminder</button>
+      <button class="sp-btn sp-btn-secondary" style="flex:1;justify-content:center" onclick="spReminderCancelForm()">Cancel</button>
+      <button class="sp-btn" style="flex:1;justify-content:center;background:var(--amber);color:#000" onclick="spReminderSave()">${rem ? 'Save Changes' : 'Save Reminder'}</button>
     </div>
   </div>`;
+  // Builds the type-specific row (date / day chips / day-of-month / month),
+  // then fills it in -- it does not exist until this runs.
+  spReminderTypeChanged();
+  if (rem) spReminderFillExtras(s);
+}
+
+/* The type-specific inputs are rebuilt from scratch by spReminderTypeChanged(),
+   so an edit has to re-apply its values afterwards rather than render them
+   inline like the fields above. */
+function spReminderFillExtras(s) {
+  const set = (id, v) => { const el = document.getElementById(id); if (el != null && v != null) el.value = v; };
+  switch (s.type) {
+    case 'once':    set('sp-rem-date', s.date); break;
+    case 'monthly': set('sp-rem-dom', s.dayOfMonth); break;
+    case 'yearly':  set('sp-rem-month', s.month); set('sp-rem-dom', s.dayOfMonth); break;
+    case 'weekly':
+      (s.daysOfWeek || []).forEach(d => {
+        const chip = document.querySelector(`#sp-rem-days .sp-rem-chip[data-day="${d}"]`);
+        if (chip) chip.classList.add('selected');
+      });
+      break;
+  }
+}
+
+function spReminderCancelForm() {
+  _spRemEditing = null;
+  const area = document.getElementById('sp-rem-form-area');
+  if (area) area.innerHTML = '';
 }
 
 function spReminderTypeChanged() {
@@ -16821,10 +16907,31 @@ function spReminderSave() {
   }
   const endDate = document.getElementById('sp-rem-end')?.value;
   if (endDate && type !== 'once') schedule.endDate = endDate;
-  reminderCreate(label, schedule);
+
+  /* Refuse a schedule that can never fire, instead of saving it and letting
+     the user find out by nothing happening. A 'once' set for a moment already
+     past returns null here, and the form defaults (today's date, 08:00) are
+     exactly that combination for most of the day -- so this was easy to hit
+     and completely silent. Uses reminderNextFire(), not computeNextFire(), so
+     an end date that falls before the next occurrence is caught too. */
+  const probe = reminderNextFire({
+    enabled: true, schedule,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+  });
+  if (!probe) {
+    showDeviceToast(type === 'once'
+      ? 'That date and time has already passed'
+      : 'That schedule has no upcoming date — check the end date');
+    return;
+  }
+
+  if (_spRemEditing) reminderUpdate(_spRemEditing, label, schedule);
+  else reminderCreate(label, schedule);
+  const wasEditing = !!_spRemEditing;
+  _spRemEditing = null;
   document.getElementById('sp-rem-form-area').innerHTML = '';
   spReminderRefresh();
-  showDeviceToast('Reminder created');
+  showDeviceToast(wasEditing ? 'Reminder updated' : 'Reminder created');
 }
 
 // ── Routine Settings Helpers ──────────────────────────────────────
