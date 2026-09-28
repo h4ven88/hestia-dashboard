@@ -468,6 +468,16 @@ def getSecurity() {
 // hemispheres; Hubitat's own DST behaviour in schedule() is undocumented, and
 // a second implementation would be a second chance to get it wrong.
 //
+// Accepted race, stated rather than left implicit: reminderTick() (scheduled)
+// and ackReminder() (HTTP) both read-modify-write state.remRuntime, and the
+// app is not singleThreaded. If they interleave in the same instant, the later
+// write wins and the other change is lost -- in practice a lost ack, which
+// shows as unacknowledged again and is re-pressed. The window is very narrow
+// (the tick does no blocking work; asynchttpPost returns immediately), and
+// atomicState is deliberately not used here because this file already
+// documents that mixing it with state is unsafe. Same tradeoff recordHsmEvent()
+// makes, and worth the same honesty.
+//
 // Runtime lives in state.remRuntime, its OWN key, never inside state.config.
 // Marking reminders inside the config blob would mean parsing, mutating and
 // re-uploading the entire household config every minute, forever, against the
@@ -544,7 +554,12 @@ def reminderTick() {
         reminders.each { rem ->
             if (!(rem instanceof Map)) return
             def id = rem.id as String
-            if (!id || rem.enabled == false) return
+            /* Only an explicit true counts as enabled, matching the dashboard's
+               own `if (!rem.enabled) return`. Treating a MISSING enabled flag as
+               enabled here would have meant a reminder the dashboard considers
+               off still firing from the hub -- silent on screen, loud on your
+               phone, with nothing to explain the disagreement. */
+            if (!id || rem.enabled != true) return
             def queue = rem.fireQueue
             if (!(queue instanceof List) || queue.isEmpty()) return
 
@@ -572,8 +587,18 @@ def reminderTick() {
                dashboard shows it as missed regardless. */
             if (nowMs - occAt <= REMINDER_MISSED_AFTER_MS) {
                 def label = (rem.label ?: "Reminder") as String
-                pushSendNotification("reminder", "Reminder", label, cfg.token as String)
-                log.info "Hestia: reminder fired -- ${label}"
+                /* Respect the household's master push switch, the same way
+                   every other push path in this file does. "Reminders are
+                   pushed" means push is the channel they use, not that they
+                   override someone who turned notifications off. The
+                   occurrence is still recorded above either way, so the
+                   dashboard shows it whether or not anything was sent. */
+                if (cfg.pushEnabled == true) {
+                    pushSendNotification("reminder", "Reminder", label, cfg.token as String)
+                    log.info "Hestia: reminder fired -- ${label}"
+                } else {
+                    log.info "Hestia: reminder due, push disabled -- ${label}"
+                }
             } else {
                 log.info "Hestia: reminder missed while hub was unavailable -- ${rem.label}"
             }

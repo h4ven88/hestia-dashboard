@@ -4146,10 +4146,24 @@ async function checkCompanionVersion() {
     if (!out.ok) return;
     const data = await out.res.json();
     if (!data || !data.appVersion) return;
+    const _hubFiredBefore = reminderHubFires();
     _companionAppVersion = String(data.appVersion);
     _companionAppVersionFor = String(HUB_STORE.appId);
     clearTimeout(_companionCheckTimer);
     _companionCheckTimer = setTimeout(checkCompanionVersion, 6 * 60 * 60 * 1000);
+    /* Re-arm reminders whenever hub capability CHANGES.
+       reminderInit() runs during boot, seconds before this check resolves, so
+       at that moment _companionAppVersion is still null and reminderHubFires()
+       is necessarily false -- every reminder gets a local timer armed even in
+       a household where the hub is about to take over. Nothing revisited them,
+       so a reminder due while that tab stayed open fired twice: once locally
+       and once from the hub. The reverse matters just as much: an app that
+       downgrades below 2.1.0 must get its local timers back, or that device
+       goes silent until something else happens to reschedule. */
+    if (reminderHubFires() !== _hubFiredBefore) {
+      console.log('[Reminders] hub capability changed — re-arming');
+      reminderInit();
+    }
     // Snooze only hides the banner; the version above is still needed.
     try {
       const snoozed = _LS.getItem('hestia-companion-update-snooze');
@@ -8061,7 +8075,17 @@ function reminderHubFires() {
    dashboard left open for weeks does not let it drain. */
 function reminderRefreshQueues() {
   (CONFIG.reminders || []).forEach(rem => {
-    rem.fireQueue = reminderOccurrences(rem, REMINDER_QUEUE_MAX);
+    /* Per reminder, not around the loop. A malformed schedule -- a `time` of
+       "bad" reaches Intl with an invalid Date and throws RangeError -- used to
+       abort the whole pass, so every reminder AFTER the broken one silently
+       stopped having its hub queue topped up, for as long as the bad one
+       stayed in the list. One bad reminder must not take the others down. */
+    try {
+      rem.fireQueue = reminderOccurrences(rem, REMINDER_QUEUE_MAX);
+    } catch (e) {
+      rem.fireQueue = [];
+      console.warn(`[Reminders] "${rem.label}" has an unusable schedule:`, e.message);
+    }
   });
 }
 
@@ -8078,6 +8102,19 @@ async function reminderCompanionSync() {
     _remSyncInFlight = false;
   }
   if (!out || !out.ok) {
+    /* A 404 means this app no longer serves the path -- a downgrade, or a
+       reinstall under the same id. Without this the cached version stays
+       stale, reminderHubFires() keeps returning true, and the dashboard never
+       re-arms its own timers: the hub is not firing and neither is this
+       device, for up to six hours until the next routine version check. The
+       same branch exists in artemisCompanionSecuritySync() for the same
+       reason; leaving it out here was an asymmetry, not a simplification. */
+    if (out && out.res && out.res.status === 404) {
+      _companionAppVersion = null;
+      clearTimeout(_companionCheckTimer);
+      _companionCheckTimer = setTimeout(checkCompanionVersion, 60 * 1000);
+      reminderInit();   // hub is not firing after all -- take it back locally
+    }
     _remSyncFails++;
     _remSyncRetryAt = Date.now() + Math.min(60000, 3000 * Math.pow(2, _remSyncFails));
     return;
@@ -8089,11 +8126,56 @@ async function reminderCompanionSync() {
     // Only repaint when something actually changed, so a once-a-second poll
     // does not rebuild the reminders panel forever for no reason.
     if (JSON.stringify(next) !== JSON.stringify(REMINDER_RUNTIME)) {
-      REMINDER_RUNTIME = next;
+      const prev = REMINDER_RUNTIME;
+      /* Pruned for DISPLAY. The hub keeps entries for 8 days purely to bound
+         its own storage; the board a user looks at should be clear each
+         morning, which is what makes "no history" true in the UI and not just
+         in the store. Judged by this device's local midnight on purpose: the
+         board is a view, and "today" should mean today where the person is
+         standing, not where the reminder was configured. */
+      REMINDER_RUNTIME = reminderPruneRuntime(next, CONFIG.reminders);
+      reminderAnnounceNewlyFired(prev, REMINDER_RUNTIME);
       reminderUpdateBadge();
       if (typeof spReminderRefresh === 'function') spReminderRefresh();
     }
   } catch (e) { /* malformed body: keep the last good runtime */ }
+}
+
+/* Say something when the hub fires one.
+ *
+ * Without this the whole feature was silent on the device: the sync updated a
+ * badge and, only if Settings happened to be open on the Reminders section,
+ * re-rendered a list. A wall panel sitting on the home screen -- the exact
+ * case this feature exists for -- showed nothing at all. Push reaches devices
+ * that are closed; this is what reaches the ones that are open.
+ *
+ * Presentation only. The hub already owns whether it fired. */
+function reminderAnnounceNewlyFired(prev, next) {
+  try {
+    const now = Date.now();
+    Object.keys(next || {}).forEach(id => {
+      const entry = next[id];
+      if (!entry || typeof entry.occAt !== 'number') return;
+      const before = prev && prev[id];
+      // New only if this is an occurrence we have not already announced.
+      if (before && before.occAt === entry.occAt) return;
+      // Already acknowledged elsewhere, or too old to interrupt for -- the
+      // panel still shows it as missed, but nothing should speak up now.
+      if (entry.ackedAt) return;
+      if (now - entry.occAt > REMINDER_MISSED_AFTER_MS) return;
+      const rem = (CONFIG.reminders || []).find(r => String(r.id) === String(id));
+      if (!rem) return;
+      const msg = rem.label || 'Reminder';
+      athenaSpeak(`Reminder: ${msg}`);
+      reminderShowToast(msg);
+      const overlay = document.getElementById('ath-overlay');
+      if (!overlay || !overlay.classList.contains('open')) {
+        const fab = document.getElementById('ath-fab');
+        if (fab) fab.classList.add('ath-timer-alert');
+        setTimeout(() => fab && fab.classList.remove('ath-timer-alert'), 4000);
+      }
+    });
+  } catch (e) { console.warn('[Reminders] announce failed:', e.message); }
 }
 
 /* Acknowledge. Goes to the hub, not through saveConfig(), on purpose: an ack
@@ -8106,15 +8188,25 @@ async function reminderAck(id) {
   // Optimistic: reflect it here immediately, the poll confirms it shortly.
   if (entry) { entry.ackedAt = Date.now(); reminderUpdateBadge(); spReminderRefresh(); }
   if (!reminderHubFires()) return;
-  try {
-    await hubStoreFetch('reminders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id })
-    }, { isolated: true });
-  } catch (e) {
-    console.warn('[Reminders] ack did not reach the hub:', e.message);
+  /* Retried, because the optimistic update above is a promise this has to
+     keep. The next successful sync replaces REMINDER_RUNTIME wholesale from
+     the hub, so an ack that never lands silently reverts to unread or missed
+     with nothing said -- the user pressed the button, watched it change, and
+     it changed back. One immediate attempt plus two backed-off retries covers
+     a blip; beyond that the revert is honest, because the hub really does not
+     know. */
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const out = await hubStoreFetch('reminders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      }, { isolated: true });
+      if (out && out.ok) return;
+    } catch (e) { /* fall through to the retry */ }
+    if (attempt < 2) await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
   }
+  console.warn('[Reminders] ack did not reach the hub — it will revert on the next sync');
 }
 
 function reminderSchedule(rem) {

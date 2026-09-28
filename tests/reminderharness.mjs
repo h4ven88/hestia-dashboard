@@ -344,5 +344,132 @@ console.log('\n=== 9. One firer, chosen by capability ===');
   check('a disabled reminder arms nothing either way', alone.arm(off) === 0);
 }
 
+console.log('\n=== 10. A hub-fired reminder actually says something ===');
+{
+  /* Review found the feature was silent on-device: the sync updated a badge
+     and, only if Settings happened to be open on Reminders, re-rendered a
+     list. A wall panel on the home screen -- the exact case this exists for --
+     showed nothing. Push reaches closed devices; this reaches open ones. */
+  const build = (reminders) => {
+    const spoke = [], toasted = [];
+    const api = new Function('__spoke', '__toast', '__now', `
+      const CONFIG = { reminders: ${JSON.stringify(reminders)} };
+      const REMINDER_MISSED_AFTER_MS = ${REMINDER_MISSED_MS};
+      const Date = { now: () => __now };
+      const document = { getElementById: () => null };
+      function setTimeout(){}
+      function athenaSpeak(m){ __spoke.push(m); }
+      function reminderShowToast(m){ __toast.push(m); }
+      const console = { warn(){} };
+      ${fn('reminderAnnounceNewlyFired')}
+      return (p, n) => reminderAnnounceNewlyFired(p, n);
+    `)(spoke, toasted, NOW);
+    return { api, spoke, toasted };
+  };
+  const rems = [{ id: 'r1', label: 'Walk the dog' }];
+
+  const fresh = build(rems);
+  fresh.api({}, { r1: { occAt: NOW - 60000 } });
+  check('a newly fired reminder is spoken and shown',
+    fresh.spoke.length === 1 && fresh.toasted[0] === 'Walk the dog',
+    'without this the whole feature is a silent badge change');
+
+  const repeat = build(rems);
+  repeat.api({ r1: { occAt: NOW - 60000 } }, { r1: { occAt: NOW - 60000 } });
+  check('the same occurrence is never announced twice',
+    repeat.spoke.length === 0, 'the poll runs every few seconds');
+
+  const acked = build(rems);
+  acked.api({}, { r1: { occAt: NOW - 60000, ackedAt: NOW - 30000 } });
+  check('one already acknowledged elsewhere stays quiet', acked.spoke.length === 0);
+
+  const stale = build(rems);
+  stale.api({}, { r1: { occAt: NOW - 60 * 60000 } });
+  check('one too old to matter is not announced',
+    stale.spoke.length === 0,
+    'a hub back after three days must not shout everything it missed');
+
+  const ghost = build(rems);
+  ghost.api({}, { deleted: { occAt: NOW - 60000 } });
+  check('runtime for a reminder that no longer exists is ignored', ghost.spoke.length === 0);
+
+  const many = build([{ id: 'a', label: 'Dog' }, { id: 'b', label: 'Bins' }]);
+  many.api({}, { a: { occAt: NOW - 60000 }, b: { occAt: NOW - 30000 } });
+  check('two reminders firing together are announced separately',
+    many.toasted.length === 2, many.toasted.join(' / '));
+}
+
+console.log('\n=== 11. One bad reminder must not take the others down ===');
+{
+  /* A malformed schedule drives Intl an invalid Date and throws RangeError.
+     With one try/catch around the whole loop that aborted the pass, so every
+     reminder AFTER the broken one silently stopped having its hub queue
+     topped up -- for as long as the bad one stayed in the list. */
+  const rems = [
+    { id: 'a', label: 'good', enabled: true, timezone: TZ, schedule: { type: 'daily', time: '09:00' } },
+    { id: 'bad', label: 'broken', enabled: true, timezone: TZ, schedule: { type: 'daily', time: 'nonsense' } },
+    { id: 'c', label: 'also good', enabled: true, timezone: TZ, schedule: { type: 'daily', time: '10:00' } },
+  ];
+  const api = new Function('__RealDate', '__now', `
+    const Date = class extends __RealDate {
+      constructor(...a){ if (a.length === 0) super(__now); else super(...a); }
+      static now(){ return __now; }
+    };
+    const CONFIG = { reminders: ${JSON.stringify(rems)} };
+    const REMINDER_QUEUE_MAX = 60;
+    const console = { warn(){}, log(){} };
+    ${fn('_tzOffsetMinutesAt')}
+    ${fn('computeNextFire')}
+    ${fn('reminderNextFire')}
+    ${fn('reminderOccurrences')}
+    ${fn('reminderRefreshQueues')}
+    reminderRefreshQueues();
+    return CONFIG.reminders.map(r => (r.fireQueue || []).length);
+  `)(Date, NOW);
+
+  check('the reminder before the broken one still got a queue', api[0] > 0, String(api[0]));
+  check('the broken one gets an empty queue rather than throwing', api[1] === 0, String(api[1]));
+  check('the reminder AFTER the broken one still got a queue', api[2] > 0,
+    `${api[2]} — this is the one that silently stopped working`);
+}
+
+console.log('\n=== 12. Learning that the hub fires must re-arm, both directions ===');
+{
+  /* reminderInit() runs during boot, seconds before the companion version
+     check resolves, so reminderHubFires() is necessarily false then and every
+     reminder gets a local timer. Nothing revisited them, so in a household
+     where the hub DOES fire, anything due while that tab stayed open fired
+     twice. The reverse matters as much: an app dropping below 2.1.0 must get
+     its local timers back or that device goes silent for six hours. */
+  const start = SRC.indexOf('const _hubFiredBefore = reminderHubFires();');
+  if (start < 0) throw new Error('capability re-arm block not found in dashboard.html');
+  const BLOCK = SRC.slice(start, SRC.indexOf('}', SRC.indexOf('reminderInit();', start)) + 1);
+
+  const run = (before, after) => {
+    const calls = [];
+    new Function('__calls', '__before', '__after', `
+      let _phase = 0;
+      let _companionAppVersion = null, _companionAppVersionFor = null, _companionCheckTimer = null;
+      let HUB_STORE = { appId: '219' };
+      const data = { appVersion: '2.1.0' };
+      const console = { log(){} };
+      function clearTimeout(){} function setTimeout(){ return 1; }
+      function checkCompanionVersion(){}   // the block reschedules it by name
+      // False before the version lands, whatever the caller asked for after.
+      function reminderHubFires(){ return _phase++ === 0 ? __before : __after; }
+      function reminderInit(){ __calls.push('reArm'); }
+      ${BLOCK}
+    `)(calls, before, after);
+    return calls;
+  };
+
+  check('boot armed locally, then the hub turns out to be capable: re-arm',
+    run(false, true).includes('reArm'), 'otherwise every reminder fires twice');
+  check('the hub stops being capable: re-arm so this device takes over',
+    run(true, false).includes('reArm'), 'otherwise nothing fires at all');
+  check('capability unchanged: leave the armed timers alone',
+    run(false, false).length === 0, 're-arming on every version check would be churn');
+}
+
 console.log(`\n${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL ? 1 : 0);
