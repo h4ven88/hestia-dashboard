@@ -545,5 +545,95 @@ console.log('\n=== 13. Diagnostics must not report a forged record as Synced ===
     `${junk.colour} / ${junk.label}`);
 }
 
+console.log('\n=== 14. Boot mints the secret without the user touching Settings ===');
+{
+  /* Found by testing a real household after v2.0.0 shipped: its record was
+     still in the legacy shape. Boot pushes to the cloud, cloudSyncPush()
+     refuses without a secret, and the secret is only minted inside
+     saveConfigToHub() -- which only ran from saveConfig(), i.e. a settings
+     change. A household that updated and never opened Settings stayed on the
+     old IP-derived key indefinitely, so the release did not protect them at
+     all. Clicking Save & Apply fixed it, which confirmed the diagnosis.
+
+     Runs the REAL boot guard, sliced from dashboard.html, not a paraphrase. */
+  const start = SRC.indexOf('if (!_cloudHasSecret() && !_cloudPendingConfig) {');
+  if (start < 0) throw new Error('boot mint guard not found in dashboard.html');
+  const BLOCK = SRC.slice(start, SRC.indexOf('}', SRC.indexOf('await saveConfig();', start)) + 1);
+
+  // The sliced block contains `await`, so it runs inside an async wrapper.
+  const run = async ({ secret = null, pending = false } = {}) => {
+    const calls = [];
+    await new Function('__call', `
+      const CONFIG = { cloudSecret: ${JSON.stringify(secret)} };
+      const _cloudPendingConfig = ${pending ? '{ foreign: true }' : 'null'};
+      const console = { log(){} };
+      async function saveConfig(){ __call('saveConfig'); }
+      ${fn('_cloudHasSecret')}
+      return (async () => { ${BLOCK} })();
+    `)(c => calls.push(c));
+    return calls;
+  };
+
+  check('no secret: boot mints one without any user action',
+    (await run()).includes('saveConfig'),
+    'this is the whole fix — without it the release never engages');
+
+  check('secret already held: boot does not mint again',
+    !(await run({ secret: 'a'.repeat(64) })).includes('saveConfig'),
+    'a second mint would encrypt the shared record under a different key');
+
+  check('a malformed secret still counts as none, so it is replaced',
+    (await run({ secret: 'not-a-real-secret' })).includes('saveConfig'),
+    '_cloudHasSecret() is a format gate, and a garbage secret must not wedge the household');
+
+  check('adoption prompt pending: boot does NOT write',
+    !(await run({ pending: true })).includes('saveConfig'),
+    'that record belongs to a household this device has not accepted');
+}
+
+console.log('\n=== 15. A secret minted while seeding the hub must reach localStorage ===');
+{
+  /* The other half of the same bug. When loadConfigFromHub() returns nothing,
+     boot seeds the hub from local cache -- and saveConfigToHub() may MINT the
+     secret during that call. The mint lands in CONFIG, not in localStorage, so
+     without persisting it the next boot starts with no secret and mints a
+     second one, encrypting the shared record under a key the first device
+     cannot read. Same dropped-secret bug saveConfig() already guards against
+     at its own call site; this path had no guard at all. */
+  const start = SRC.indexOf('const seed = buildConfigPayload();');
+  if (start < 0) throw new Error('boot hub-seed block not found in dashboard.html');
+  const BLOCK = SRC.slice(start, SRC.indexOf(';', SRC.indexOf('_persistConfigKeepingSecret(seed)', start)) + 1);
+
+  const run = async (persist) => {
+    const store = {};
+    await new Function('__store', `
+      const CONFIG = { hub: 'https://hub', token: 't', appId: '219' };
+      const _LS = { setItem: (k, v) => { __store[k] = v; } };
+      const console = { log(){}, warn(){} };
+      function buildConfigPayload(){ return { config: { hub: CONFIG.hub, token: 't' }, savedAt: 1 }; }
+      // Mirrors the real saveConfigToHub() mint: sets CONFIG and the payload.
+      async function saveConfigToHub(p){
+        CONFIG.cloudSecret = 'f'.repeat(64);
+        p.config.cloudSecret = CONFIG.cloudSecret;
+        return true;
+      }
+      ${fn('_cloudHasSecret')}
+      ${fn('_persistConfigKeepingSecret')}
+      return (async () => { ${persist ? BLOCK : BLOCK.replace(/_persistConfigKeepingSecret\(seed\);/, '')} })();
+    `)(store);
+    return store['dashboard-config'] ? JSON.parse(store['dashboard-config']) : null;
+  };
+
+  const saved = await run(true);
+  check('the minted secret is written to localStorage',
+    !!(saved && saved.config && saved.config.cloudSecret === 'f'.repeat(64)),
+    saved ? JSON.stringify(saved.config) : 'nothing persisted');
+
+  const without = await run(false);
+  check('...and without the persist call it would be lost, so this test bites',
+    !without,
+    'if this fails the assertion above proves nothing');
+}
+
 console.log(`\n${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL ? 1 : 0);

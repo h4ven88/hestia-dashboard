@@ -1872,8 +1872,8 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    Copyright © 2026 Haven. CC BY-NC 4.0.
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
-const HESTIA_VERSION    = '2.0.0';
-const HESTIA_BUILD_DATE = '2026-09-27';
+const HESTIA_VERSION    = '2.0.1';
+const HESTIA_BUILD_DATE = '2026-09-28';
 
 /* ═══════════════════════════════════════════════════════
    SANDBOX MODE
@@ -19012,7 +19012,14 @@ function launchOnboarding() {
         if (_athFab) _athFab.style.display = CONFIG.athenaEnabled ? 'flex' : 'none';
         console.log('[Boot] Applied hub config');
       } else {
-        await saveConfigToHub(buildConfigPayload());
+        /* saveConfigToHub() may MINT the household secret here, and the mint
+           lands in CONFIG, not in localStorage. Without persisting it, the
+           next boot starts with no secret and mints a second one -- the same
+           dropped-secret bug saveConfig() guards against at its own call site.
+           _persistConfigKeepingSecret() re-injects it for exactly this. */
+        const seed = buildConfigPayload();
+        await saveConfigToHub(seed);
+        _persistConfigKeepingSecret(seed);
         console.log('[Boot] Seeded hub config from local cache');
       }
     } else {
@@ -19051,6 +19058,31 @@ function launchOnboarding() {
     // up rendering correctly. Pushing only after CONFIG reflects the hub's
     // truth means the cloud never receives anything staler than what's on
     // screen.
+    /* Mint the household secret on boot if this household still has none.
+       Without this, v2.0.0's protection only engaged when the user happened to
+       change a setting: boot pushes to the cloud, cloudSyncPush() refuses
+       without a secret, and the secret is only ever minted inside
+       saveConfigToHub(), which only runs from saveConfig(). A household that
+       updated and never touched Settings stayed on the old IP-derived key
+       indefinitely -- reachable by any neighbour sharing the address, which is
+       the entire thing this release exists to stop. Confirmed against a real
+       household: the record stayed legacy until Save & Apply was clicked.
+
+       saveConfig() rather than saveConfigToHub() on purpose. It is the path
+       that already mints, persists the secret afterwards, and records
+       _cfgAppliedSavedAt so this write is not mistaken for another device's
+       change 30 seconds later. Its own gates still apply: the sandbox is
+       blocked, an unreachable hub rolls the mint back, and a household with no
+       companion app mints only with real Maker credentials.
+
+       Skipped while an adoption prompt is unanswered -- that record belongs to
+       a household this device has not accepted, and writing would overwrite
+       their settings with ours. */
+    if (!_cloudHasSecret() && !_cloudPendingConfig) {
+      console.log('[Boot] No household secret yet — minting one');
+      await saveConfig();
+    }
+
     cloudSyncPush(buildConfigPayload());
   }
 
