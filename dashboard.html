@@ -7372,7 +7372,7 @@ For cancelling a timer:
 {"type":"cancel_timer","speech":"Pasta timer cancelled.","timer":{"label":"pasta"}}
 
 For setting a reminder (schedule types: once, daily, weekdays, weekly, monthly, yearly):
-{"type":"reminder","speech":"Reminder set — take medicine daily at 8 AM.","reminder":{"label":"Take medicine","schedule":{"type":"daily","time":"08:00"}}}
+{"type":"reminder","speech":"Reminder set — walk the dog daily at 8 AM.","reminder":{"label":"Walk the dog","schedule":{"type":"daily","time":"08:00"}}}
 
 Weekly reminder example (daysOfWeek: 0=Sun,1=Mon...6=Sat):
 {"type":"reminder","speech":"Got it, trash reminder every Tuesday at 7 PM.","reminder":{"label":"Take out trash","schedule":{"type":"weekly","time":"19:00","daysOfWeek":[2]}}}
@@ -7384,10 +7384,10 @@ One-time reminder example:
 {"type":"reminder","speech":"I'll remind you at 3 PM.","reminder":{"label":"Check the dryer","schedule":{"type":"once","time":"15:00","date":"${new Date().toISOString().slice(0,10)}"}}}
 
 For cancelling/deleting a reminder:
-{"type":"cancel_reminder","speech":"Medicine reminder deleted.","reminder":{"label":"Take medicine"}}
+{"type":"cancel_reminder","speech":"Dog walking reminder deleted.","reminder":{"label":"Walk the dog"}}
 
 For listing reminders:
-{"type":"list_reminders","speech":"You have 3 active reminders: take medicine daily at 8 AM, trash on Tuesdays at 7 PM, and rent on the 1st at 9 AM."}
+{"type":"list_reminders","speech":"You have 3 active reminders: walk the dog daily at 8 AM, trash on Tuesdays at 7 PM, and rent on the 1st at 9 AM."}
 
 For creating an on-demand routine (a named sequence of device commands):
 {"type":"routine","speech":"Movie mode routine saved with 3 steps.","routine":{"name":"Movie Mode","steps":[{"deviceName":"Living Room Lights","room":"Living Room","command":"setLevel","value":20},{"deviceName":"Living Room Shades","room":"Living Room","command":"close"},{"deviceName":"Ceiling Fan","room":"Living Room","command":"setSpeed","value":"low"}]}}
@@ -8472,7 +8472,7 @@ function _calAddBtnHTML(mobile) {
 function _calAddFormHTML(mobile) {
   const p = mobile ? 'm-cal-add' : 'cal-add';
   return `<div class="${p}-form" id="${p}-form">
-    <div class="${p}-row"><span class="${p}-lbl">Label</span><input class="${p}-input" id="${p}-label" placeholder="e.g. Take medicine" maxlength="80"></div>
+    <div class="${p}-row"><span class="${p}-lbl">Label</span><input class="${p}-input" id="${p}-label" placeholder="e.g. Walk the dog" maxlength="80"></div>
     <div class="${p}-row"><span class="${p}-lbl">Time</span><input type="time" class="${p}-input" id="${p}-time" value="08:00" style="flex:0 0 auto;width:110px"></div>
     <div class="${p}-row"><span class="${p}-lbl">Repeat</span><select class="${p}-sel" id="${p}-type" onchange="_calAddTypeChanged(${mobile})">
       <option value="once">Once (today)</option><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option>
@@ -16193,7 +16193,7 @@ function spShowSection(id, force) {
     case 'reminders':
       html = `<div class="sp-content-hdr"><span class="sp-content-icon">🔔</span>Reminders</div>
         <div class="sp-group">
-          <span class="sp-hint">Set reminders with your voice — "Remind me to take medicine daily at 8 AM" — or create one below.</span>
+          <span class="sp-hint">Set reminders with your voice — "Remind me to walk the dog daily at 8 AM" — or create one below.</span>
         </div>
         <div class="sp-sep"></div>
         <div class="sp-group">
@@ -16805,7 +16805,7 @@ function spReminderShowForm(id) {
   const sel = t => t === type ? ' selected' : '';
   area.innerHTML = `<div class="sp-rem-form">
     <div class="sp-field"><label class="sp-label">Label</label>
-      <input class="sp-input" id="sp-rem-label" placeholder="Take medicine" value="${rem ? h(rem.label || '') : ''}"></div>
+      <input class="sp-input" id="sp-rem-label" placeholder="e.g. Walk the dog" value="${rem ? h(rem.label || '') : ''}"></div>
     <div class="sp-field"><label class="sp-label">Schedule</label>
       <select class="sp-input" id="sp-rem-type" onchange="spReminderTypeChanged()">
         <option value="once"${sel('once')}>Once</option>
