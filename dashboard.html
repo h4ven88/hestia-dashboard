@@ -7955,6 +7955,81 @@ function reminderOccurrences(rem, count, fromMs) {
   return out;
 }
 
+/* ── Reminder runtime state ───────────────────────────────────────────
+ *
+ * Definitions live in CONFIG and change rarely. RUNTIME -- what fired, what
+ * was acknowledged -- lives on the hub in its own small state key and is read
+ * over the companion app's /reminders endpoint on the ordinary poll cadence.
+ *
+ * The two are split on purpose. Routing an acknowledgement through
+ * saveConfig() would put it on the 30-second settings-staleness poll, so a
+ * phone ack could sit unseen on a wall panel for a minute or more, and two
+ * devices acking inside one window would blind-overwrite the whole config and
+ * silently lose one of them. One authority, small writes, fast channel.
+ *
+ * A runtime entry is { occAt, firedAt, ackedAt } keyed by reminder id:
+ *   occAt   -- the SCHEDULED instant that fired, not when it was delivered.
+ *              Everything is judged against this, so a hub that fires two
+ *              minutes late does not move the goalposts.
+ *   firedAt -- when delivery actually happened. Diagnostics only.
+ *   ackedAt -- when someone pressed Mark as read, or null.
+ *
+ * ONE entry per reminder, deliberately, not a ledger keyed by occurrence. A
+ * per-occurrence ledger exists to answer "what happened to each firing over
+ * time", which is history, and history is explicitly not wanted here: a
+ * dashboard closed for three days should say "missed", not enumerate Monday,
+ * Tuesday and Wednesday. It also keeps this bounded by reminder count rather
+ * than growing forever, which matters because Hubitat's `state` has no
+ * documented size limit.
+ */
+const REMINDER_MISSED_AFTER_MS = 15 * 60 * 1000;
+// How long a missed one-time reminder keeps its place before ageing out.
+// Covers a weekend plus a work week, so something missed on Friday is still
+// there on Monday. Recurring reminders do not need this -- they come round
+// again, and the daily refresh clears the board for them.
+const REMINDER_ONCE_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
+
+/* Derived, never stored. The 'missed' transition happens because time passed,
+   so nothing has to write it -- there is no state machine to keep consistent
+   and no writer that can be offline at the wrong moment.
+   Returns 'unread' | 'read' | 'missed', or null when nothing has fired. */
+function reminderRuntimeState(entry, nowMs) {
+  if (!entry || typeof entry.occAt !== 'number') return null;
+  const now = (typeof nowMs === 'number') ? nowMs : Date.now();
+  /* Judged on how late the ACK was, not on whether one eventually arrived:
+     reading it at 08:20 does not retroactively mean you caught the 08:00
+     reminder. Missed stays missed. */
+  const lateness = (typeof entry.ackedAt === 'number' ? entry.ackedAt : now) - entry.occAt;
+  if (lateness > REMINDER_MISSED_AFTER_MS) return 'missed';
+  return (typeof entry.ackedAt === 'number') ? 'read' : 'unread';
+}
+
+/* The daily refresh. Yesterday's settled entries go, so the board is clear
+   each morning and the map stays bounded -- this is what keeps "no history"
+   true in storage and not just in the UI.
+   Returns a NEW map; never mutates the one passed in. */
+function reminderPruneRuntime(runtime, reminders, nowMs) {
+  const now = (typeof nowMs === 'number') ? nowMs : Date.now();
+  const out = {};
+  const byId = new Map((reminders || []).map(r => [String(r.id), r]));
+  Object.keys(runtime || {}).forEach(id => {
+    const entry = runtime[id];
+    if (!entry || typeof entry.occAt !== 'number') return;
+    const rem = byId.get(String(id));
+    if (!rem) return;                       // reminder deleted: drop its runtime too
+    if (rem.schedule && rem.schedule.type === 'once') {
+      // Kept past the daily refresh: a one-time reminder does not come round
+      // again, so the morning after is exactly when it is most worth seeing.
+      if (now - entry.occAt < REMINDER_ONCE_KEEP_MS) out[id] = entry;
+      return;
+    }
+    // Recurring: keep only while it still belongs to the current local day.
+    const dayStart = new Date(now); dayStart.setHours(0, 0, 0, 0);
+    if (entry.occAt >= dayStart.getTime()) out[id] = entry;
+  });
+  return out;
+}
+
 function reminderSchedule(rem) {
   if (_reminderTimeouts[rem.id]) clearTimeout(_reminderTimeouts[rem.id]);
   delete _reminderTimeouts[rem.id];

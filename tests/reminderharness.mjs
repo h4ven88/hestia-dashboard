@@ -50,7 +50,11 @@ function world(nowMs, reminders = []) {
     ${fn('reminderNextFire')}
     ${fn('reminderSchedule')}
     const REMINDER_QUEUE_MAX = 60;
+    const REMINDER_MISSED_AFTER_MS = 15 * 60 * 1000;
+    const REMINDER_ONCE_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
     ${fn('reminderOccurrences')}
+    ${fn('reminderRuntimeState')}
+    ${fn('reminderPruneRuntime')}
     ${fn('reminderFormatNext')}
     ${fn('reminderUpdate')}
     return {
@@ -59,9 +63,15 @@ function world(nowMs, reminders = []) {
       occ:    (r, n, from) => reminderOccurrences(r, n, from),
       update: (id, l, s) => reminderUpdate(id, l, s),
       get:    (id) => CONFIG.reminders.find(r => r.id === id),
+      rstate: (e, n) => reminderRuntimeState(e, n),
+      prune:  (rt, rems, n) => reminderPruneRuntime(rt, rems, n),
     };
   `)(nowMs, [], Date);
 }
+
+// Mirrors REMINDER_MISSED_AFTER_MS in dashboard.html (~7808). Asserted below
+// against the real constant so this copy cannot drift unnoticed.
+const REMINDER_MISSED_MS = 15 * 60 * 1000;
 
 const TZ = 'America/New_York';
 // 2026-06-15 09:46 local in New York (EDT, UTC-4) = 13:46 UTC. Deliberately
@@ -228,6 +238,80 @@ console.log('\n=== 6. The precomputed queue the hub fires from ===');
 
   const off = { ...daily, enabled: false };
   check('a disabled reminder produces nothing to fire', w.occ(off, 10, FROM).length === 0);
+}
+
+console.log('\n=== 7. Runtime state is derived from time, not stored ===');
+{
+  /* A stub that drifts from the code it mirrors tests fiction. This harness
+     hardcodes the threshold, so read the real one out of the source and fail
+     loudly if someone changes it here without changing it there. */
+  const declared = /REMINDER_MISSED_AFTER_MS\s*=\s*([0-9*\s]+);/.exec(SRC);
+  const realMs = declared ? Function('return ' + declared[1])() : null;
+  check('the harness threshold still matches dashboard.html', realMs === REMINDER_MISSED_MS,
+    `source says ${realMs}, harness says ${REMINDER_MISSED_MS}`);
+
+  const w = world(NOW, []);
+  const MIN = 60000;
+  const occ = NOW - 5 * MIN;   // fired five minutes ago
+
+  check('nothing fired yet reads as no state', w.rstate(null, NOW) === null);
+  check('a malformed entry does not throw', w.rstate({ ackedAt: 1 }, NOW) === null);
+
+  check('fired, unacknowledged, still inside the window: unread',
+    w.rstate({ occAt: occ }, NOW) === 'unread');
+
+  check('acknowledged inside the window: read',
+    w.rstate({ occAt: occ, ackedAt: occ + 2 * MIN }, NOW) === 'read');
+
+  check('unacknowledged past 15 minutes: missed',
+    w.rstate({ occAt: NOW - 16 * MIN }, NOW) === 'missed');
+
+  /* The rule the user asked for in as many words: reading it later does not
+     undo having missed the moment. Judged on how late the ACK was, not on
+     whether one eventually arrived. */
+  check('acknowledged AFTER the window stays missed, it does not flip to read',
+    w.rstate({ occAt: NOW - 60 * MIN, ackedAt: NOW - 1 * MIN }, NOW) === 'missed',
+    'missed stays missed');
+
+  /* Lateness is measured from the SCHEDULED instant, so a hub that delivers
+     two minutes late does not quietly move the deadline. */
+  check('lateness is measured from the scheduled instant, not from delivery',
+    w.rstate({ occAt: NOW - 16 * MIN, firedAt: NOW - 1 * MIN }, NOW) === 'missed');
+
+  const edge = w.rstate({ occAt: NOW - REMINDER_MISSED_MS }, NOW);
+  check('exactly at the threshold is not yet missed', edge === 'unread', String(edge));
+}
+
+console.log('\n=== 8. The daily refresh keeps the board clear and the map bounded ===');
+{
+  const w = world(NOW, []);
+  const DAY = 86400000;
+  const rems = [
+    { id: 'daily', schedule: { type: 'daily', time: '09:00' } },
+    { id: 'once',  schedule: { type: 'once', date: '2026-06-01', time: '09:00' } },
+  ];
+  const todayStart = (() => { const d = new Date(NOW); d.setHours(0,0,0,0); return d.getTime(); })();
+
+  const kept = w.prune({ daily: { occAt: todayStart + 3600000, ackedAt: null } }, rems, NOW);
+  check("today's recurring entry survives", !!kept.daily);
+
+  const swept = w.prune({ daily: { occAt: todayStart - 2 * 3600000 } }, rems, NOW);
+  check("yesterday's recurring entry is swept", !swept.daily,
+    'this is what keeps "no history" true in storage, not just in the UI');
+
+  const onceRecent = w.prune({ once: { occAt: NOW - 2 * DAY } }, rems, NOW);
+  check('a one-time reminder missed 2 days ago is still there', !!onceRecent.once,
+    'it does not come round again, so the morning after is when it matters most');
+
+  const onceOld = w.prune({ once: { occAt: NOW - 8 * DAY } }, rems, NOW);
+  check('a one-time reminder missed 8 days ago has aged out', !onceOld.once);
+
+  const orphan = w.prune({ ghost: { occAt: NOW } }, rems, NOW);
+  check('runtime for a deleted reminder is dropped', !orphan.ghost);
+
+  const input = { daily: { occAt: todayStart - 5 * DAY } };
+  w.prune(input, rems, NOW);
+  check('pruning never mutates the map it was given', !!input.daily);
 }
 
 console.log(`\n${PASS} passed, ${FAIL} failed`);
