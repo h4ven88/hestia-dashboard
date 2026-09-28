@@ -1,5 +1,5 @@
 /**
- * Hestia™ Home Dashboard v2.0.2
+ * Hestia™ Home Dashboard v2.1.0
  * ════════════════════════════════════════════════════════════════
  * Lightweight companion app — discovery helper and config store.
  *
@@ -55,7 +55,7 @@ preferences {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
-@Field static final String APP_VERSION        = "2.0.2"
+@Field static final String APP_VERSION        = "2.1.0"
 @Field static final String TOKEN_FILENAME      = "hestia-token.json"
 @Field static final String CONFIG_FILENAME     = "hestia-config.json"
 @Field static final String DASHBOARD_FILENAME  = "index.html"
@@ -96,6 +96,9 @@ mappings {
     }
     path("/security") {
         action: [ GET: "getSecurity", OPTIONS: "preflight" ]
+    }
+    path("/reminders") {
+        action: [ GET: "getReminders", POST: "ackReminder", OPTIONS: "preflight" ]
     }
 }
 
@@ -192,6 +195,15 @@ def initialize() {
     // way to self-correct. downloadDashboard(false) already compares versions
     // and returns early when there's nothing new, so this is a cheap poll.
     runEvery3Hours("dashboardUpdateCheck")
+    /* Reminders. ONE scanning job, never one job per reminder: the platform
+       caps an app at 75 scheduled jobs, so a household with enough reminders
+       would otherwise hit a wall it could not see coming. The tick is cheap
+       when nothing is due -- it reads state, finds nothing, writes nothing. */
+    runEvery1Minute("reminderTick")
+    /* Only for the downtime window. Recurring schedules survive a reboot on
+       their own, but any fire time that elapsed while the hub was down is
+       dropped by the platform and never caught up, so something has to look. */
+    subscribe(location, "systemStart", "systemStartHandler")
     log.info "Hestia: initialized v${APP_VERSION} — app ID: ${app.id}"
 }
 
@@ -443,6 +455,153 @@ def getSecurity() {
                alertAgeMs:  alertAt ? (now() - alertAt) : null,
                alertActive: active
            ]).toString()
+}
+
+// ── Reminders ─────────────────────────────────────────────────────────────
+//
+// The hub fires reminders so they still arrive when no dashboard is open.
+//
+// It does NO date arithmetic. The dashboard precomputes absolute epoch-ms
+// instants into each reminder's fireQueue and the hub only compares numbers.
+// Everything about weekday sets, month lengths, end dates and daylight saving
+// stays in the one implementation that has been tested across both
+// hemispheres; Hubitat's own DST behaviour in schedule() is undocumented, and
+// a second implementation would be a second chance to get it wrong.
+//
+// Runtime lives in state.remRuntime, its OWN key, never inside state.config.
+// Marking reminders inside the config blob would mean parsing, mutating and
+// re-uploading the entire household config every minute, forever, against the
+// same store whose silent truncation getConfig() already has to defend
+// against. This map is small and is only written when something changed.
+
+@Field static final Long REMINDER_MISSED_AFTER_MS = 15L * 60L * 1000L
+// Entries older than this are dropped so the map stays bounded. Comfortably
+// past the dashboard's own 7-day window for one-time reminders.
+@Field static final Long REMINDER_RUNTIME_KEEP_MS = 8L * 24L * 60L * 60L * 1000L
+
+def getReminders() {
+    render contentType: "application/json", headers: CORS_HEADERS,
+           data: new groovy.json.JsonBuilder([
+               runtime: (state.remRuntime ?: [:]),
+               // The hub's own clock, so the dashboard can tell whether a
+               // device clock disagrees rather than silently trusting its own.
+               now:     now()
+           ]).toString()
+}
+
+def ackReminder() {
+    try {
+        def body = request.body
+        def parsed = body ? new groovy.json.JsonSlurper().parseText(body) : null
+        def id = (parsed instanceof Map) ? parsed.id : null
+        if (!id) {
+            render contentType: "application/json", headers: CORS_HEADERS,
+                   data: '{"status":"error","message":"missing id"}'
+            return
+        }
+        def rt = (state.remRuntime ?: [:])
+        def entry = rt[id as String]
+        if (!entry) {
+            // Acking something the hub never fired is not an error worth
+            // failing on -- the dashboard may have fired it locally.
+            render contentType: "application/json", headers: CORS_HEADERS,
+                   data: '{"status":"ok","note":"no runtime entry"}'
+            return
+        }
+        entry.ackedAt = now()
+        rt[id as String] = entry
+        state.remRuntime = rt
+        log.info "Hestia: reminder ${id} acknowledged"
+        render contentType: "application/json", headers: CORS_HEADERS,
+               data: '{"status":"ok"}'
+    } catch (e) {
+        log.error "Hestia: reminder ack error: ${e.message}"
+        render contentType: "application/json", headers: CORS_HEADERS,
+               data: '{"status":"error","message":"ack failed"}'
+    }
+}
+
+/* Runs every minute, and again on systemStart.
+ *
+ * Cheap on the common path: when nothing is due it reads state, finds nothing,
+ * and writes nothing. state.remRuntime is only assigned when something
+ * actually changed, so this is not a once-a-minute write.
+ *
+ * Reminders are re-read from the config on every pass, so a reminder deleted
+ * or disabled on any device simply stops being considered -- there is no stale
+ * queue on the hub that could outlive it. */
+def reminderTick() {
+    try {
+        def cfg = getPushSettings()
+        if (!cfg) return
+        def reminders = cfg.reminders
+        if (!(reminders instanceof List) || reminders.isEmpty()) return
+
+        def nowMs = now()
+        def rt = (state.remRuntime ?: [:])
+        def changed = false
+
+        reminders.each { rem ->
+            if (!(rem instanceof Map)) return
+            def id = rem.id as String
+            if (!id || rem.enabled == false) return
+            def queue = rem.fireQueue
+            if (!(queue instanceof List) || queue.isEmpty()) return
+
+            def entry   = rt[id]
+            def lastOcc = (entry?.occAt ?: 0L) as Long
+
+            // The most recent instant that is due and newer than whatever we
+            // last recorded. Only the latest matters: one entry per reminder,
+            // by design, because a history of missed firings is explicitly not
+            // wanted -- three days closed should say "missed", not list three.
+            Long occAt = null
+            queue.each { t ->
+                Long ts = (t ?: 0L) as Long
+                if (ts <= nowMs && ts > lastOcc && (occAt == null || ts > occAt)) occAt = ts
+            }
+            if (occAt == null) return
+
+            rt[id] = [occAt: occAt, firedAt: nowMs, ackedAt: null]
+            changed = true
+
+            /* Record it either way, but only NOTIFY if it is still timely. A
+               hub that was off for three days coming back and firing every
+               reminder it missed would be worse than silence -- and for
+               something like a medication reminder, actively unsafe. The
+               dashboard shows it as missed regardless. */
+            if (nowMs - occAt <= REMINDER_MISSED_AFTER_MS) {
+                def label = (rem.label ?: "Reminder") as String
+                pushSendNotification("reminder", "Reminder", label, cfg.token as String)
+                log.info "Hestia: reminder fired -- ${label}"
+            } else {
+                log.info "Hestia: reminder missed while hub was unavailable -- ${rem.label}"
+            }
+        }
+
+        // Bounded storage: drop anything long settled. Only on a pass that was
+        // already writing, so this never adds a write of its own.
+        if (changed) {
+            def pruned = [:]
+            rt.each { k, v ->
+                Long occ = (v?.occAt ?: 0L) as Long
+                if (occ > 0L && (nowMs - occ) < REMINDER_RUNTIME_KEEP_MS) pruned[k] = v
+            }
+            state.remRuntime = pruned
+        }
+    } catch (e) {
+        log.error "Hestia: reminder tick error: ${e.message}"
+    }
+}
+
+/* A scheduled fire time that elapses while the hub is down is silently
+   dropped by the platform -- it is never fired late and never caught up
+   (confirmed: the scheduler does not reach back in time). Recurring schedules
+   themselves survive a reboot fine, so this exists ONLY to reconcile the
+   downtime window, not to re-register anything. */
+def systemStartHandler(evt) {
+    log.info "Hestia: hub restarted, reconciling reminders"
+    reminderTick()
 }
 
 def pushSendNotification(String category, String title, String body, String token) {

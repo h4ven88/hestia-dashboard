@@ -20,7 +20,14 @@ const VAPID_SUBJECT = 'https://hestari.com';
 // themselves -- gating on it would mean an "armed only" device could never
 // receive the arming-started or disarmed notifications at all, silently
 // defeating the whole category for exactly the devices most likely to want it.
-const ALWAYS_CATEGORIES = new Set(['alarming', 'smoke', 'water', 'armStatus']);
+// 'reminder' is here because reminders have nothing to do with the alarm. The
+// armed gate is intrusion-detection logic: it answers "is the house in a state
+// where this sensor event matters?". A reminder to walk the dog matters
+// exactly as much armed as disarmed, and gating it would mean a device set to
+// "armed only" silently swallowed every reminder while you were out -- the one
+// time you are least likely to be looking at a screen and most likely to want
+// the notification.
+const ALWAYS_CATEGORIES = new Set(['alarming', 'smoke', 'water', 'armStatus', 'reminder']);
 
 // The vendored sendPushNotification() ends in a bare fetch() with no
 // timeout and no way to pass an AbortSignal in -- the same unguarded-fetch

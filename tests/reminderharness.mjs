@@ -30,7 +30,7 @@ const check = (l, c, x = '') => { c ? PASS++ : FAIL++; console.log(`${c ? 'PASS'
 /* A pinned clock. Patching Date.now() alone is not enough: these functions
    also call bare `new Date()` internally, which is how an earlier DST fix in
    this codebase nearly shipped passing a test it was not really exercising. */
-function world(nowMs, reminders = []) {
+function world(nowMs, reminders = [], hubFires = false) {
   /* The real Date is passed IN rather than read from the enclosing scope:
      `const Date = D` shadows the whole function body, so referring to `Date`
      on the line that defines D hits the temporal dead zone. */
@@ -42,9 +42,16 @@ function world(nowMs, reminders = []) {
     const Date = D;
     const CONFIG = { reminders: ${JSON.stringify(reminders)} };
     let _reminderTimeouts = {};
-    function clearTimeout(){} function setTimeout(){ return 1; }
+    function clearTimeout(){}
+    // Records that a local timer WOULD have been armed, which is how the
+    // capability handover is observed: with the hub firing, none should be.
+    function setTimeout(fn, ms){ _scheduled.push(ms); return _scheduled.length; }
     function reminderUpdateBadge(){}
     function saveConfig(){ __saves.push(1); return Promise.resolve(); }
+    // Mirrors reminderHubFires() in dashboard.html: true when a capable
+    // companion app is present, in which case this device must not also fire.
+    function reminderHubFires(){ return ${hubFires}; }
+    const _scheduled = [];
     ${fn('_tzOffsetMinutesAt')}
     ${fn('computeNextFire')}
     ${fn('reminderNextFire')}
@@ -65,6 +72,7 @@ function world(nowMs, reminders = []) {
       get:    (id) => CONFIG.reminders.find(r => r.id === id),
       rstate: (e, n) => reminderRuntimeState(e, n),
       prune:  (rt, rems, n) => reminderPruneRuntime(rt, rems, n),
+      arm:    (r) => { _scheduled.length = 0; reminderSchedule(r); return _scheduled.length; },
     };
   `)(nowMs, [], Date);
 }
@@ -312,6 +320,28 @@ console.log('\n=== 8. The daily refresh keeps the board clear and the map bounde
   const input = { daily: { occAt: todayStart - 5 * DAY } };
   w.prune(input, rems, NOW);
   check('pruning never mutates the map it was given', !!input.daily);
+}
+
+console.log('\n=== 9. One firer, chosen by capability ===');
+{
+  /* With a capable companion app the hub owns firing and this device must
+     stay silent, or every open dashboard double-notifies. The alternative was
+     coordinating two firers through a shared record, which neither Groovy
+     state nor KV can do safely -- no compare-and-swap in either. Avoiding the
+     race beats managing it. */
+  const rem = { id: 'r', label: 'x', enabled: true, timezone: TZ,
+                schedule: { type: 'daily', time: '23:59' } };
+
+  const alone = world(NOW, [], false);
+  check('with no companion app, this device arms its own timer',
+    alone.arm(rem) === 1, 'otherwise Maker-API-only households get nothing at all');
+
+  const withHub = world(NOW, [], true);
+  check('with the hub firing, this device arms nothing',
+    withHub.arm(rem) === 0, 'two firers means every open dashboard double-notifies');
+
+  const off = { ...rem, enabled: false };
+  check('a disabled reminder arms nothing either way', alone.arm(off) === 0);
 }
 
 console.log(`\n${PASS} passed, ${FAIL} failed`);

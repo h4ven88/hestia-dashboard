@@ -1872,8 +1872,8 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    Copyright © 2026 Haven. CC BY-NC 4.0.
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
-const HESTIA_VERSION    = '2.0.2';
-const HESTIA_BUILD_DATE = '2026-09-29';
+const HESTIA_VERSION    = '2.1.0';
+const HESTIA_BUILD_DATE = '2026-09-28';
 
 /* ═══════════════════════════════════════════════════════
    SANDBOX MODE
@@ -3150,6 +3150,9 @@ function loadConfig() {
 /* Save config — localStorage (fast) + hub (cross-device sync).
    Returns a Promise so callers can await hub write before re-rendering. */
 async function saveConfig() {
+  // Top up the instants the hub fires from before the payload is built, so an
+  // ordinary settings change keeps the queue full and it never quietly drains.
+  try { reminderRefreshQueues(); } catch(e) { console.warn('[Reminders] queue refresh failed:', e.message); }
   const payload = buildConfigPayload();
   // This tab's own save is about to become the hub's new savedAt. Record it as
   // already-applied so the staleness poll (_cfgCheckStale(), ~30s later) doesn't
@@ -5281,7 +5284,7 @@ function renderHome() {
         ${weatherCardHTML()}
         ${calendarMobileHTML()}
         <div style="display:flex;justify-content:flex-end;padding:3px 14px 5px;border-top:1px solid var(--border-s);margin-top:2px">
-  <span style="font-size:10px;color:var(--t4);letter-spacing:.04em">© 2026 Haven &nbsp;·&nbsp; CC BY-NC 4.0 &nbsp;·&nbsp; Personal use only</span>
+  <span style="font-size:10px;color:var(--t4);letter-spacing:.04em">© 2026 Haven &nbsp;·&nbsp; CC BY-NC 4.0 &nbsp;·&nbsp; Personal use only &nbsp;·&nbsp; <span title="Dashboard version">v${HESTIA_VERSION}</span></span>
 </div>
       </div>`;
     setTimeout(_calInitSwipe, 50);
@@ -5326,7 +5329,7 @@ function renderHome() {
       ${cameraHomeRowHTML()}
     </div>
     <div style="display:flex;justify-content:flex-end;padding:6px 20px 8px;border-top:1px solid var(--border-s);margin-top:2px">
-  <span style="font-size:10px;color:var(--t4);letter-spacing:.04em">© 2026 Haven &nbsp;·&nbsp; CC BY-NC 4.0 &nbsp;·&nbsp; Personal use only</span>
+  <span style="font-size:10px;color:var(--t4);letter-spacing:.04em">© 2026 Haven &nbsp;·&nbsp; CC BY-NC 4.0 &nbsp;·&nbsp; Personal use only &nbsp;·&nbsp; <span title="Dashboard version">v${HESTIA_VERSION}</span></span>
 </div>`;
 }
 function _tapFeedback(el) {
@@ -8030,10 +8033,97 @@ function reminderPruneRuntime(runtime, reminders, nowMs) {
   return out;
 }
 
+/* Runtime as last read from the hub, keyed by reminder id. Device-local: it
+   is a cache of the hub's authoritative map, never the source of truth. */
+let REMINDER_RUNTIME = {};
+let _remSyncInFlight = false, _remSyncRetryAt = 0, _remSyncFails = 0, _remSyncCounter = 0;
+
+// The companion app version that first served /reminders. An older app 404s an
+// unknown path, and hubStoreFetch() reads a 404 as "this app is gone" and
+// clears credentials -- which is why this is version-gated and isolated, the
+// same way /security had to be.
+const REMINDER_HUB_MIN_APP = '2.1.0';
+
+/* True when the hub is firing reminders, so this device must not also fire.
+   One firer, chosen by capability: with a capable companion app the hub owns
+   it, otherwise the dashboard keeps doing it locally as it always has. That
+   avoids a double-fire race rather than trying to coordinate one -- neither
+   Groovy state nor KV has compare-and-swap. */
+function reminderHubFires() {
+  return !!(HUB_STORE && _companionAppVersion &&
+            _companionAppVersionFor === String(HUB_STORE.appId) &&
+            _versionCmp(_companionAppVersion, REMINDER_HUB_MIN_APP) >= 0 &&
+            !_breakerIsOpen());
+}
+
+/* Refresh the precomputed instants the hub fires from. Called before every
+   save, so an ordinary settings change tops the queue up, and on boot so a
+   dashboard left open for weeks does not let it drain. */
+function reminderRefreshQueues() {
+  (CONFIG.reminders || []).forEach(rem => {
+    rem.fireQueue = reminderOccurrences(rem, REMINDER_QUEUE_MAX);
+  });
+}
+
+async function reminderCompanionSync() {
+  if (!HUB_STORE || _remSyncInFlight) return;
+  if (!_companionAppVersion || _versionCmp(_companionAppVersion, REMINDER_HUB_MIN_APP) < 0) return;
+  if (_companionAppVersionFor !== String(HUB_STORE.appId)) return;
+  if (Date.now() < _remSyncRetryAt) return;
+  _remSyncInFlight = true;
+  let out;
+  try {
+    out = await hubStoreFetch('reminders', undefined, { isolated: true });
+  } finally {
+    _remSyncInFlight = false;
+  }
+  if (!out || !out.ok) {
+    _remSyncFails++;
+    _remSyncRetryAt = Date.now() + Math.min(60000, 3000 * Math.pow(2, _remSyncFails));
+    return;
+  }
+  _remSyncFails = 0;
+  try {
+    const data = await out.res.json();
+    const next = (data && data.runtime) || {};
+    // Only repaint when something actually changed, so a once-a-second poll
+    // does not rebuild the reminders panel forever for no reason.
+    if (JSON.stringify(next) !== JSON.stringify(REMINDER_RUNTIME)) {
+      REMINDER_RUNTIME = next;
+      reminderUpdateBadge();
+      if (typeof spReminderRefresh === 'function') spReminderRefresh();
+    }
+  } catch (e) { /* malformed body: keep the last good runtime */ }
+}
+
+/* Acknowledge. Goes to the hub, not through saveConfig(), on purpose: an ack
+   routed through settings sync would land on the 30-second staleness poll, so
+   a phone ack could sit unseen on a wall panel for a minute, and two devices
+   acking inside one window would blind-overwrite the whole config and lose
+   one. The hub is the single writer of record. */
+async function reminderAck(id) {
+  const entry = REMINDER_RUNTIME[id];
+  // Optimistic: reflect it here immediately, the poll confirms it shortly.
+  if (entry) { entry.ackedAt = Date.now(); reminderUpdateBadge(); spReminderRefresh(); }
+  if (!reminderHubFires()) return;
+  try {
+    await hubStoreFetch('reminders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id })
+    }, { isolated: true });
+  } catch (e) {
+    console.warn('[Reminders] ack did not reach the hub:', e.message);
+  }
+}
+
 function reminderSchedule(rem) {
   if (_reminderTimeouts[rem.id]) clearTimeout(_reminderTimeouts[rem.id]);
   delete _reminderTimeouts[rem.id];
   if (!rem.enabled) return;
+  // The hub has it. Firing here as well would double-notify on every device
+  // that happens to be open at the time.
+  if (reminderHubFires()) return;
   const next = reminderNextFire(rem);
   if (!next) return;
   const delay = next.getTime() - Date.now();
@@ -8087,6 +8177,32 @@ function reminderInit() {
   _reminderTimeouts = {};
   (CONFIG.reminders || []).forEach(rem => reminderSchedule(rem));
   reminderUpdateBadge();
+  reminderTopUpQueues();
+}
+
+/* The queue is normally refilled by ordinary saves, but a household that
+   never opens Settings would eventually run it dry and the hub would go
+   quiet with nothing to say why. Tops up only when it is actually getting
+   low, so this is not a write on every boot. */
+const REMINDER_QUEUE_LOW = 10;
+function reminderTopUpQueues() {
+  try {
+    const now = Date.now();
+    const low = (CONFIG.reminders || []).some(rem => {
+      if (!rem.enabled) return false;
+      // No queue at all counts as low only if the reminder has occurrences to
+      // give -- an exhausted 'once' legitimately has none and must not drive
+      // a save on every single boot.
+      const ahead = (rem.fireQueue || []).filter(t => t > now).length;
+      if (ahead >= REMINDER_QUEUE_LOW) return false;
+      return reminderOccurrences(rem, 1).length > 0;
+    });
+    if (!low) return;
+    console.log('[Reminders] queue running low — topping up');
+    saveConfig();   // refreshes the queues on its way through
+  } catch (e) {
+    console.warn('[Reminders] top-up failed:', e.message);
+  }
 }
 
 function reminderUpdateBadge() {
@@ -16870,6 +16986,28 @@ function resetSettings() {
 }
 
 // ── Reminder Settings Helpers ──────────────────────────────────────
+/* The row that says what happened to the most recent firing. Absent entirely
+   until something has fired, so a reminder that has simply not come round yet
+   shows nothing rather than an empty status. */
+function spReminderStatusHtml(r) {
+  const entry = REMINDER_RUNTIME[String(r.id)];
+  const st = reminderRuntimeState(entry);
+  if (!st) return '';
+  const at = new Date(entry.occAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  if (st === 'read') {
+    return `<div class="sp-rem-status" style="font-size:11px;color:var(--t3);margin-top:4px">Read · ${h(at)}</div>`;
+  }
+  if (st === 'missed') {
+    return `<div class="sp-rem-status" style="font-size:11px;color:${aRedColor()};margin-top:4px">Missed · ${h(at)}</div>`;
+  }
+  // Unread: the only state with something to do, so the only one with a control.
+  return `<div class="sp-rem-status" style="display:flex;align-items:center;gap:10px;margin-top:4px">
+    <span style="font-size:11px;color:var(--amber);font-weight:600">Reminder · ${h(at)}</span>
+    <button class="sp-btn sp-btn-secondary" style="padding:2px 10px;font-size:11px"
+            onclick="reminderAck('${r.id}')">Mark as read</button>
+  </div>`;
+}
+
 function spReminderListHtml() {
   const rems = CONFIG.reminders || [];
   if (rems.length === 0) return '<div style="font-size:11px;color:var(--t3);padding:8px 0">No reminders yet. Create one above or ask Athena.</div>';
@@ -16885,6 +17023,7 @@ function spReminderListHtml() {
       </div>
       <div class="sp-rem-schedule">${sched}</div>
       <div class="sp-rem-next">${next}</div>
+      ${spReminderStatusHtml(r)}
       <div class="sp-rem-actions" style="display:flex;gap:14px">
         <span class="sp-rem-edit" onclick="spReminderEdit('${r.id}')" title="Edit ${h(r.label)}" style="cursor:pointer;color:var(--amber)">Edit</span>
         <span class="sp-rem-del" onclick="spReminderDelete('${r.id}')">Delete</span>
@@ -18377,6 +18516,14 @@ function scheduleNextPoll() {
           _hsmAlertCounter = 0;
           if (artemisMode !== 'disarm' || artemisTransition) artemisCompanionSecuritySync();
         }
+      }
+      /* Reminder runtime, every ~5s. Not gated on Artemis: reminders have
+         nothing to do with the alarm. This is the channel that makes an ack on
+         one device show up on the others in seconds rather than on the
+         30-second settings poll. */
+      if ((CONFIG.reminders || []).length) {
+        _remSyncCounter = (_remSyncCounter || 0) + 1;
+        if (_remSyncCounter >= 5) { _remSyncCounter = 0; reminderCompanionSync(); }
       }
       patchView(); // surgical patch — only changed elements touched, animations uninterrupted
       patchSidebarSecurity(); // also covers lock badges, independent of Artemis
