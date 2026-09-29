@@ -3192,8 +3192,17 @@ async function saveConfig() {
 /* ── Cloud Config Sync (AES-256-GCM, keyed by public IP) ────────────── */
 async function _cloudGetIp() {
   try {
-    const r = await fetch(CLOUD_SYNC_API + '/whoami');
-    if (!r.ok) return null;
+    /* Timed out, not a bare fetch. This is the same unguarded-fetch class the
+       project already root-caused once -- the "hestari.com spins forever"
+       report, which is why _fetchWithTimeout exists at all -- and it had been
+       left here. It became critical when cloudRecordLockedOut() started
+       awaiting this during BOOT: a stalled /whoami (cold start, an extension
+       that blocks IP-lookup endpoints, a captive portal) meant the promise
+       never settled, boot never reached either the wizard or the lockout
+       screen, and the page sat blank forever with nothing in the console.
+       Fixed at the source so all three callers get it. */
+    const r = await _fetchWithTimeout(CLOUD_SYNC_API + '/whoami', 4000);
+    if (!r || !r.ok) return null;
     const d = await r.json();
     return d.ip || null;
   } catch { return null; }
@@ -3570,11 +3579,20 @@ async function cloudRecordLockedOut() {
     // A pre-v2 record is still readable with the IP-derived key, and a device
     // arriving at one should migrate normally rather than be told it is
     // locked out. Only the new shape without a key is a real lockout.
+    /* Fail OPEN when the IP lookup itself could not be evaluated, rather than
+       falling through to "locked out". Those are different facts: a decrypt
+       that was tried and failed means this device really cannot read the
+       record; a /whoami hiccup means we never got to ask. Conflating them sent
+       a household still on the legacy scheme to a recovery flow it did not
+       need, over an unrelated endpoint having a bad moment -- and contradicted
+       this function's own contract three lines up. */
     const ip = await _cloudGetIp();
-    if (ip) {
-      try { await _cloudDecrypt(data.payload, ip); return false; } catch (e) {}
-    }
-    return true;
+    if (!ip) return false;
+    try {
+      await _cloudDecrypt(data.payload, ip);
+      return false;          // readable with the legacy key: migrate normally
+    } catch (e) {}
+    return true;             // tried, genuinely cannot read it
   } catch (e) {
     return false;
   }
@@ -3593,7 +3611,22 @@ async function cloudRecordLockedOut() {
  * By the time any caller reaches this, the hub and the cloud have both had
  * their chance. Only then is "we cannot read this household" true. */
 async function renderSetupOrLockout() {
-  if (await cloudRecordLockedOut()) { renderCloudLockout(); return; }
+  /* Hard ceiling on the whole check, not just its fetches.
+     This is the last thing standing between a user and a usable screen, so it
+     must finish. Individual calls are timed out, but that still leaves a body
+     read (the fetch timer is cleared once headers arrive) and any future await
+     someone adds here. Racing the lot guarantees boot proceeds within six
+     seconds no matter which step misbehaves, and losing the race fails OPEN to
+     the ordinary wizard -- being wrongly offered setup is recoverable, a page
+     that never renders is not. */
+  let locked = false;
+  try {
+    locked = await Promise.race([
+      cloudRecordLockedOut(),
+      new Promise(resolve => setTimeout(() => resolve(false), 6000)),
+    ]);
+  } catch (e) { locked = false; }
+  if (locked) { renderCloudLockout(); return; }
   renderOnboarding();
 }
 
@@ -3612,8 +3645,15 @@ function renderCloudLockout() {
     <div class="ob-card" style="max-width:520px">
       <h2 style="margin:0 0 10px">This device needs your household key</h2>
       <p style="color:var(--t3);line-height:1.6;margin:0 0 14px">
-        Hestia is already set up on this network, but your settings are encrypted
-        and this device does not have the key yet. That is why it cannot load them.
+        There are already encrypted Hestia settings saved for this internet
+        connection, and this device does not have the key to read them.
+      </p>
+      <p style="color:var(--t3);line-height:1.6;margin:0 0 14px">
+        <strong style="color:var(--t1)">If you have used Hestia before,</strong> these are
+        almost certainly yours and nothing has been lost.
+        <strong style="color:var(--t1)">If this is your first time,</strong> they may belong
+        to someone who previously had your address — some providers share or recycle
+        them — in which case use "Set up as a new household" below.
       </p>
       <p style="color:var(--t3);line-height:1.6;margin:0 0 14px">
         <strong style="color:var(--t1)">To fix it:</strong> open Hestia on a device that

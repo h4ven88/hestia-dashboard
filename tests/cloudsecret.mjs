@@ -674,7 +674,17 @@ console.log('\n=== 16. A device without the key must not start a fresh household
         getItem: k => (k in __store ? __store[k] : null),
         removeItem: k => { delete __store[k]; },
       };
-      function _fetchWithTimeout(){
+      /* Mirrors dashboard.html's real signature: (url, ms, opts) -- the
+         TIMEOUT IS THE SECOND ARGUMENT. This stub used to ignore its
+         arguments entirely, so the suite passed while the real call site
+         passed {} as the timeout, making setTimeout fire immediately and
+         abort every request. The guard failed open on every device and the
+         bug it exists to fix was completely unfixed. A stub that does not
+         check its own contract is how a test agrees with a bug. */
+      function _fetchWithTimeout(url, ms, opts){
+        if (typeof ms !== 'number' || !isFinite(ms)) {
+          throw new Error('_fetchWithTimeout called with a non-numeric timeout: ' + JSON.stringify(ms));
+        }
         return Promise.resolve({ ok: ${ok}, json: () => Promise.resolve(
           ${JSON.stringify({ found, encrypted: !!payload, payload })}) });
       }
@@ -718,6 +728,122 @@ console.log('\n=== 16. A device without the key must not start a fresh household
 
   check('the deliberate override lets a real new household through',
     (await run({ secret: null, payload: householdBlob, override: true })) === false);
+
+  /* Review finding: this fell through to "locked out" when the IP lookup
+     itself could not be evaluated, contradicting the function's own contract.
+     Those are different facts -- a decrypt tried and failed means this device
+     really cannot read the record; a /whoami hiccup means we never got to ask.
+     Conflating them sent a household still on the legacy scheme into a
+     recovery flow it did not need, over an unrelated endpoint having a bad
+     moment. */
+  const noIp = await new Function('crypto', 'btoa', 'atob', 'TextEncoder', 'TextDecoder', `
+    const CONFIG = { cloudSecret: null };
+    const CLOUD_SYNC_API = '/api/config';
+    const _LS = { getItem: () => null, removeItem(){} };
+    function _fetchWithTimeout(url, ms){
+      if (typeof ms !== 'number') throw new Error('timeout must be numeric');
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(
+        ${JSON.stringify({ found: true, encrypted: true, payload: { iv: 'AAAA', data: 'AAAA' } })}) });
+    }
+    function _cloudGetIp(){ return Promise.resolve(null); }   // lookup unavailable
+    ${fn('_cloudHasSecret')}
+    ${fn('_cloudDeriveKey')}
+    ${fn('_cloudDecrypt')}
+    ${fn('cloudRecordLockedOut')}
+    return cloudRecordLockedOut();
+  `)(globalThis.crypto, globalThis.btoa, globalThis.atob, TextEncoder, TextDecoder);
+  check('the IP lookup failing fails OPEN, it is not evidence of a lockout',
+    noIp === false, 'never got to ask is not the same as asked and could not read');
+
+  /* The override is a one-shot, and proving that needs TWO calls against the
+     same storage -- a single call cannot tell "consumed once" from "disarmed
+     forever". If it never cleared, one person choosing "set up as a new
+     household" would silently switch the guard off on that device for good,
+     and the next time they were genuinely locked out it would hand them the
+     household-wiping wizard instead. */
+  const twice = await new Function('crypto', 'btoa', 'atob', 'TextEncoder', 'TextDecoder', `
+    const store = { 'hestia-cloud-lockout-override': '1' };
+    const CONFIG = { cloudSecret: null };
+    const CLOUD_SYNC_API = '/api/config';
+    const _LS = {
+      getItem: k => (k in store ? store[k] : null),
+      removeItem: k => { delete store[k]; },
+    };
+    function _fetchWithTimeout(url, ms){
+      if (typeof ms !== 'number') throw new Error('timeout must be numeric');
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(
+        ${JSON.stringify({ found: true, encrypted: true, payload: { iv: 'AAAA', data: 'AAAA' } })}) });
+    }
+    function _cloudGetIp(){ return Promise.resolve('203.0.113.5'); }
+    ${fn('_cloudHasSecret')}
+    ${fn('_cloudDeriveKey')}
+    ${fn('_cloudDecrypt')}
+    ${fn('cloudRecordLockedOut')}
+    return (async () => {
+      const first  = await cloudRecordLockedOut();
+      const second = await cloudRecordLockedOut();
+      return { first, second, left: store['hestia-cloud-lockout-override'] || null };
+    })();
+  `)(globalThis.crypto, globalThis.btoa, globalThis.atob, TextEncoder, TextDecoder);
+
+  check('the override is honoured once', twice.first === false);
+  check('...and is consumed, not left disarming the guard forever',
+    twice.second === true && twice.left === null,
+    `second call returned ${twice.second}, flag left: ${twice.left}`);
+}
+
+console.log('\n=== 17. Boot must never hang on this check ===');
+{
+  /* Review finding, and the most severe of the three attempts at this fix.
+     cloudRecordLockedOut() is awaited during BOOT. _cloudGetIp() was a bare
+     fetch with no timeout -- the same unguarded-fetch class that produced the
+     "hestari.com spins forever" report and caused _fetchWithTimeout to exist.
+     A stalled /whoami meant the promise never settled, boot reached neither
+     the wizard nor the lockout screen, and the page sat blank forever with
+     nothing in the console. Worse than either earlier mistake: one failed
+     open harmlessly, the other showed a wrong-but-visible screen. */
+  // Brace-matched rather than a fixed slice: the explanatory comment inside
+  // this function is long enough that a short window missed the call entirely
+  // and failed while the code was correct.
+  const src = fn('_cloudGetIp');
+  check('_cloudGetIp uses the timeout helper, not a bare fetch',
+    /_fetchWithTimeout\(\s*CLOUD_SYNC_API \+ '\/whoami'/.test(src) && !/await fetch\(/.test(src),
+    'a bare fetch here hangs boot with a blank page');
+
+  const guard = SRC.slice(SRC.indexOf('async function renderSetupOrLockout'),
+                          SRC.indexOf('async function renderSetupOrLockout') + 900);
+  check('the whole check is raced against a hard ceiling',
+    /Promise\.race/.test(guard) && /setTimeout\(\(\) => resolve\(false\)/.test(guard),
+    'per-call timeouts still leave the body read and any future await uncovered');
+  check('and losing that race fails OPEN to the wizard',
+    /resolve\(false\)/.test(guard),
+    'being wrongly offered setup is recoverable; a page that never renders is not');
+
+  /* The wiring, not the logic. Everything above proves cloudRecordLockedOut()
+     decides correctly; this proves the decision is actually acted on. A
+     mutation that changed `if (locked)` to `if (false)` survived the entire
+     suite, because every other test called the decision function directly and
+     never checked that anyone listened to it. */
+  const wire = async (lockedResult) => {
+    const calls = [];
+    await new Function('__calls', '__locked', `
+      function cloudRecordLockedOut(){ return Promise.resolve(__locked); }
+      function renderCloudLockout(){ __calls.push('lockout'); }
+      function renderOnboarding(){ __calls.push('wizard'); }
+      // Never fires, so the real check always wins the race here.
+      function setTimeout(){ return 1; }
+      ${fn('renderSetupOrLockout')}
+      return renderSetupOrLockout();
+    `)(calls, lockedResult);
+    return calls;
+  };
+
+  check('locked out -> the recovery screen is actually rendered',
+    (await wire(true)).includes('lockout'),
+    'deciding correctly means nothing if the result is ignored');
+  check('not locked out -> the ordinary wizard is rendered',
+    (await wire(false)).includes('wizard'));
+  check('never both', (await wire(true)).length === 1 && (await wire(false)).length === 1);
 }
 
 console.log(`\n${PASS} passed, ${FAIL} failed`);
