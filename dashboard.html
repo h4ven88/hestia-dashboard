@@ -3580,6 +3580,23 @@ async function cloudRecordLockedOut() {
   }
 }
 
+/* The single door to the setup wizard during boot.
+ *
+ * Checked HERE, at the point the wizard would actually be shown, and not
+ * earlier. An earlier version guarded the whole no-local-config branch, which
+ * put this in front of loadConfigFromHub() -- so anyone who simply cleared
+ * their browser cache on a device that could reach their hub was told to go
+ * find a Wall Panel link, when the hub was sitting right there ready to
+ * configure them and hand over the key. Clearing a cache is common; that
+ * would have hit far more people than the bug it was written to fix.
+ *
+ * By the time any caller reaches this, the hub and the cloud have both had
+ * their chance. Only then is "we cannot read this household" true. */
+async function renderSetupOrLockout() {
+  if (await cloudRecordLockedOut()) { renderCloudLockout(); return; }
+  renderOnboarding();
+}
+
 /* Shown instead of the setup wizard when the household exists but this device
    has no key. Explains it in the user's terms and gives the one action that
    actually recovers: the Wall Panel link, which carries the key directly. */
@@ -19011,11 +19028,6 @@ function launchOnboarding() {
        IP-derived key, so any device on the network could read it. Removing
        that was the entire security fix, but it was also the bootstrap path
        for a device that cannot reach the hub, and nothing replaced it. */
-    const locked = await cloudRecordLockedOut();
-    if (locked) {
-      renderCloudLockout();
-      return;
-    }
     // ── New device / no local config ──────────────────────────────────
     if (HUB_STORE) {
       // Try to load full saved config from the hub first
@@ -19050,7 +19062,7 @@ function launchOnboarding() {
           OB.hub   = (hubCfg.config && hubCfg.config.hub)   || _hubHint || ('http://' + window.location.hostname);
           OB.appId = (hubCfg.config && hubCfg.config.appId) || '';
           OB.token = (hubCfg.config && hubCfg.config.token) || '';
-          renderOnboarding();
+          await renderSetupOrLockout();
           return;
         }
       } else if (hubStoreHasMakerApi()) {
@@ -19068,7 +19080,7 @@ function launchOnboarding() {
         // Hub has no saved config and no Maker API credentials in token file
         // → show wizard with URL pre-filled; user must enter App ID + token
         OB.hub = _hubHint || window.location.origin;
-        renderOnboarding();
+        await renderSetupOrLockout();
         return;
       }
     } else if (_hubHint && _urlMid && _urlMtk) {
@@ -19085,7 +19097,7 @@ function launchOnboarding() {
         // Fall through to normal boot
       } catch(e) {
         OB.hub = _hubHint; OB.appId = _urlMid; OB.token = _urlMtk;
-        renderOnboarding();
+        await renderSetupOrLockout();
         return;
       }
     } else {
@@ -19096,7 +19108,7 @@ function launchOnboarding() {
       if (cloudCfg && !_cloudConfigTrusted(cloudCfg)) {
         cloudOfferConfig(cloudCfg);
         if (_hubHint) OB.hub = _hubHint;
-        renderOnboarding();
+        await renderSetupOrLockout();
         return;
       }
       if (cloudCfg) {
@@ -19108,12 +19120,12 @@ function launchOnboarding() {
           // Fall through to normal boot
         } else {
           if (_hubHint) OB.hub = _hubHint;
-          renderOnboarding();
+          await renderSetupOrLockout();
           return;
         }
       } else {
         if (_hubHint) OB.hub = _hubHint;
-        renderOnboarding();
+        await renderSetupOrLockout();
         return;
       }
     }
