@@ -540,9 +540,16 @@ console.log('\n=== 13. Diagnostics must not report a forged record as Synced ===
     `${premigration.colour} / ${premigration.label}`);
 
   const junk = await run(SECRET, { iv: btoa('0'.repeat(12)), data: btoa('unreadable-by-anyone') });
-  check('a record readable by nobody reads as unreadable',
-    junk.colour === 'amber' && /unreadable/i.test(junk.label || ''),
+  check('a record readable by nobody is flagged, not passed',
+    junk.colour === 'amber' && /household key/i.test(junk.label || ''),
     `${junk.colour} / ${junk.label}`);
+  /* The wording matters as much as the colour here. This is what a user sees
+     when their device has lost the key, and the previous text led with "it
+     belongs to a different household sharing this public address" -- alarming,
+     usually wrong, and with nothing to act on. A real user hit exactly this on
+     v2.0.1 and concluded their settings were gone. */
+  check('...and tells them how to actually recover',
+    /Wall Panel/i.test(junk.detail || ''), junk.detail || '(no detail)');
 }
 
 console.log('\n=== 14. Boot mints the secret without the user touching Settings ===');
@@ -633,6 +640,84 @@ console.log('\n=== 15. A secret minted while seeding the hub must reach localSto
   check('...and without the persist call it would be lost, so this test bites',
     !without,
     'if this fails the assertion above proves nothing');
+}
+
+console.log('\n=== 16. A device without the key must not start a fresh household ===');
+{
+  /* Reported from the field on v2.0.1. A device that cannot reach the hub and
+     has no local config opened hestari.com, could not decrypt the household
+     record, and was shown the setup wizard. Completing it rebuilt rooms from
+     scratch, minted a NEW household secret and rewrote the cloud record under
+     it -- locking out every other device, which then hit the wizard in turn.
+     The user's words: "afterwards I lost everything again."
+
+     Before v2 this was impossible: the record used an IP-derived key, so any
+     device on the network could read it. Removing that was the whole security
+     fix, but it was also the bootstrap path, and nothing replaced it. */
+  const IP = '203.0.113.5';
+  async function legacyBlob(obj) {
+    const raw = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(IP + ':hestia-cloud-sync'));
+    const key = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt']);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key,
+      new TextEncoder().encode(JSON.stringify(obj))));
+    return { iv: btoa(String.fromCharCode(...iv)), data: btoa(String.fromCharCode(...ct)) };
+  }
+
+  const run = async ({ secret = null, found = true, payload = null, ok = true, override = false }) => {
+    const store = override ? { 'hestia-cloud-lockout-override': '1' } : {};
+    return await new Function('crypto', 'btoa', 'atob', 'TextEncoder', 'TextDecoder', '__store', `
+      const CONFIG = { cloudSecret: ${JSON.stringify(secret)} };
+      const _CLOUD_INFO_ENC = 'hestia-enc';
+      const CLOUD_SYNC_API = '/api/config';
+      const _LS = {
+        getItem: k => (k in __store ? __store[k] : null),
+        removeItem: k => { delete __store[k]; },
+      };
+      function _fetchWithTimeout(){
+        return Promise.resolve({ ok: ${ok}, json: () => Promise.resolve(
+          ${JSON.stringify({ found, encrypted: !!payload, payload })}) });
+      }
+      function _cloudGetIp(){ return Promise.resolve(${JSON.stringify(IP)}); }
+      ${fn('_cloudHasSecret')}
+      ${fn('_cloudDeriveKey')}
+      ${fn('_cloudDecrypt')}
+      ${fn('cloudRecordLockedOut')}
+      return cloudRecordLockedOut();
+    `)(globalThis.crypto, globalThis.btoa, globalThis.atob, TextEncoder, TextDecoder, store);
+  };
+
+  const householdBlob = await (async () => {
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode('a'.repeat(64)), 'HKDF', false, ['deriveKey']);
+    const key = await crypto.subtle.deriveKey(
+      { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: new TextEncoder().encode('hestia-enc') },
+      base, { name: 'AES-GCM', length: 256 }, false, ['encrypt']);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key,
+      new TextEncoder().encode('{"config":{}}')));
+    return { iv: btoa(String.fromCharCode(...iv)), data: btoa(String.fromCharCode(...ct)) };
+  })();
+
+  check('no key + a record it cannot read: LOCKED OUT, no wizard',
+    (await run({ secret: null, payload: householdBlob })) === true,
+    'this is the exact state that took a household down');
+
+  check('holding the key: not locked out',
+    (await run({ secret: 'a'.repeat(64), payload: householdBlob })) === false);
+
+  check('no record at all: a genuinely new household proceeds normally',
+    (await run({ secret: null, found: false })) === false,
+    'first-time setup must never be blocked');
+
+  check('a pre-v2 record it CAN still read: migrate, do not block',
+    (await run({ secret: null, payload: await legacyBlob({ config: { config: {} } }) })) === false);
+
+  check('backend unreachable: fail open to the wizard rather than trap them',
+    (await run({ secret: null, ok: false })) === false,
+    'a network hiccup must not look like a lockout');
+
+  check('the deliberate override lets a real new household through',
+    (await run({ secret: null, payload: householdBlob, override: true })) === false);
 }
 
 console.log(`\n${PASS} passed, ${FAIL} failed`);
