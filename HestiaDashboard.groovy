@@ -1,5 +1,5 @@
 /**
- * Hestia™ Home Dashboard v2.1.1
+ * Hestia™ Home Dashboard v2.1.2
  * ════════════════════════════════════════════════════════════════
  * Lightweight companion app — discovery helper and config store.
  *
@@ -55,7 +55,7 @@ preferences {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
-@Field static final String APP_VERSION        = "2.1.1"
+@Field static final String APP_VERSION        = "2.1.2"
 @Field static final String TOKEN_FILENAME      = "hestia-token.json"
 @Field static final String CONFIG_FILENAME     = "hestia-config.json"
 @Field static final String DASHBOARD_FILENAME  = "index.html"
@@ -204,10 +204,28 @@ def initialize() {
        their own, but any fire time that elapsed while the hub was down is
        dropped by the platform and never caught up, so something has to look. */
     subscribe(location, "systemStart", "systemStartHandler")
+    /* Marks the tick as freshly registered. reminderHealTick() needs this:
+       state.remTickAt stays empty until the tick first runs, up to a minute
+       from now, and without a grace window every poll in between would warn
+       that a job registered seconds ago was not running. */
+    state.remInitAt = now()
+    state.remHealTries = 0
+    state.remHealGaveUp = false
     log.info "Hestia: initialized v${APP_VERSION} — app ID: ${app.id}"
 }
 
 def dashboardUpdateCheck() {
+    /* The reminder heal belongs here as well as on the endpoint, and for the
+       affected population this is the copy that matters.
+       runEvery3Hours("dashboardUpdateCheck") was registered by the PREVIOUS
+       initialize(), so it is already running on exactly the hubs whose tick was
+       never scheduled, and a scheduled job resolves to the newly pasted code.
+       The endpoint copy only fires while a dashboard is open with reminders
+       configured -- but a household relying on pushed reminders and keeping no
+       screen open is the natural end state of this feature, and that is
+       precisely who would never have healed. Three hours is slow, and slow
+       beats never. */
+    reminderHealTick("periodic check")
     downloadDashboard(false)
 }
 
@@ -488,11 +506,110 @@ def getSecurity() {
 // Entries older than this are dropped so the map stays bounded. Comfortably
 // past the dashboard's own 7-day window for one-time reminders.
 @Field static final Long REMINDER_RUNTIME_KEEP_MS = 8L * 24L * 60L * 60L * 1000L
+/* How often reminderTick() refreshes its heartbeat. NOT every pass: the tick
+   is deliberately write-free when nothing is due, and a state write every
+   minute forever would undo that. Five minutes is frequent enough to tell
+   "running" from "never started" and cheap enough to be uninteresting. */
+@Field static final Long REMINDER_TICK_BEAT_MS = 5L * 60L * 1000L
+// Past this with no heartbeat, the tick is presumed not running.
+@Field static final Long REMINDER_TICK_STALE_MS = 11L * 60L * 1000L
+/* Minimum gap between two heal attempts, and it is load-bearing.
+   runEvery1Minute schedules "with a randomized position in the interval", and
+   overwrite (the default) cancels the previous schedule and creates a new one.
+   The dashboard polls /reminders roughly every five seconds, so an unthrottled
+   heal would cancel and recreate the job about twelve times a minute -- and if
+   that random position is re-drawn each time, the tick would almost never
+   survive long enough to fire. The heal would be starving the job it is trying
+   to register. Whether the position is re-drawn is NOT documented and could not
+   be confirmed, so this window exists to make the question stop mattering:
+   three minutes is far longer than the one-minute period, so the tick always
+   gets a clear run regardless of which reading is correct. */
+@Field static final Long REMINDER_HEAL_GAP_MS = 3L * 60L * 1000L
+/* Grace after initialize(), to stop a guaranteed false positive. The tick is
+   registered by initialize() but state.remTickAt stays empty until it first
+   runs, up to a minute later -- so without this every install and every Done
+   produced a burst of "not running" warnings about a job that had just been
+   registered and was perfectly healthy. */
+@Field static final Long REMINDER_HEAL_GRACE_MS = 2L * 60L * 1000L
+/* After this many heals that changed nothing, stop and say so once. A hub
+   whose job store is genuinely broken (the "stuck schedules" reports trace to
+   database corruption, not to anything a re-register fixes) would otherwise
+   churn the scheduler and the log forever, on a hub that is already sick. */
+@Field static final Integer REMINDER_HEAL_MAX_TRIES = 3
+
+/* Re-register the reminder tick if it looks like it is not running.
+ *
+ * Why this is needed at all: runEvery1Minute("reminderTick") is registered in
+ * initialize(), which runs ONLY from installed()/updated() -- and updated()
+ * fires only when someone opens the app and clicks Done. Pasting new code and
+ * clicking "Update Dashboard File" never reaches it, which is exactly what this
+ * project's own v2.1.0 update instructions told everyone to do. The result was
+ * a hub that reported the right version, served its endpoints, held a valid
+ * queue, and never fired anything, with nothing anywhere saying so.
+ *
+ * Deliberately NOT claimed: that this fixes a "stuck" schedule. The community
+ * reports of that trace to database corruption and were resolved by a soft
+ * reset and restore, not by re-registering; the documented workaround was a
+ * full app re-save, which is initialize(), not this. If a bare re-register does
+ * not take, the attempt ceiling below turns that into one honest error rather
+ * than permanent churn.
+ *
+ * Returns true when it actually rescheduled. */
+private boolean reminderHealTick(String why) {
+    try {
+        Long nowMs = now()
+        Long beat  = (state.remTickAt ?: 0L) as Long
+        if (nowMs - beat <= REMINDER_TICK_STALE_MS) {
+            // Healthy. Clear the failure count so a later real problem starts
+            // from a full allowance rather than an exhausted one.
+            if (state.remHealTries) { state.remHealTries = 0 }
+            return false
+        }
+        Long initAt = (state.remInitAt ?: 0L) as Long
+        if (initAt && nowMs - initAt < REMINDER_HEAL_GRACE_MS) return false
+        Long lastHeal = (state.remHealAt ?: 0L) as Long
+        if (lastHeal && nowMs - lastHeal < REMINDER_HEAL_GAP_MS) return false
+
+        Integer tries = (state.remHealTries ?: 0) as Integer
+        if (tries >= REMINDER_HEAL_MAX_TRIES) {
+            if (!state.remHealGaveUp) {
+                state.remHealGaveUp = true
+                log.error "Hestia: the reminder tick is still not running after " +
+                          "${REMINDER_HEAL_MAX_TRIES} attempts to reschedule it. " +
+                          "Open the Hestia app and click Done. If that does not help, " +
+                          "the hub's scheduler may need attention."
+            }
+            return false
+        }
+
+        state.remHealAt = nowMs
+        state.remHealTries = tries + 1
+        state.remHealGaveUp = false
+        runEvery1Minute("reminderTick")
+        // States what was OBSERVED, not what is wrong with the job. This checks
+        // heartbeat age; it cannot see whether a job exists, and saying so
+        // outright would send anyone debugging this down the wrong path.
+        log.warn "Hestia: no reminder heartbeat in over " +
+                 "${(long)(REMINDER_TICK_STALE_MS / 60000L)} minutes (${why}) — rescheduling the tick. " +
+                 "Clicking Done in the app is what normally registers it."
+        return true
+    } catch (e) {
+        log.warn "Hestia: could not verify the reminder schedule: ${e.message}"
+        return false
+    }
+}
 
 def getReminders() {
+    reminderHealTick("dashboard poll")
     render contentType: "application/json", headers: CORS_HEADERS,
            data: new groovy.json.JsonBuilder([
                runtime: (state.remRuntime ?: [:]),
+               /* Lets the dashboard tell "the hub is firing these" from "the
+                  hub is reachable and the right version but nothing is
+                  running". Without it, capability was inferred from a version
+                  string alone and a silent hub meant silent reminders, because
+                  the dashboard had stood down on the strength of that string. */
+               tickAt:  (state.remTickAt ?: 0L),
                // The hub's own clock, so the dashboard can tell whether a
                // device clock disagrees rather than silently trusting its own.
                now:     now()
@@ -542,12 +659,20 @@ def ackReminder() {
  * queue on the hub that could outlive it. */
 def reminderTick() {
     try {
+        def nowMs = now()
+        /* Heartbeat, throttled, and FIRST -- ahead of every early return below.
+           It answers "is this job running", not "did it have work to do". A
+           household with no reminders yet still has a working tick, and
+           reporting otherwise would make the dashboard fire locally the moment
+           one was created, racing the hub that was about to fire it too. */
+        Long beat = (state.remTickAt ?: 0L) as Long
+        if (nowMs - beat > REMINDER_TICK_BEAT_MS) state.remTickAt = nowMs
+
         def cfg = getPushSettings()
         if (!cfg) return
         def reminders = cfg.reminders
         if (!(reminders instanceof List) || reminders.isEmpty()) return
 
-        def nowMs = now()
         def rt = (state.remRuntime ?: [:])
         def changed = false
 

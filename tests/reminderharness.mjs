@@ -716,5 +716,194 @@ console.log('\n=== 14. A reminder with no dates left is finished, not active ===
     'a finished reminder is still the user\'s to keep or remove');
 }
 
+console.log('\n=== 15. A hub only counts as the firer if it is actually ticking ===');
+{
+  /* Reported from the field on v2.1.1, and the worst failure this feature has
+     had: nothing fired at all, on any device, with nothing anywhere saying so.
+
+     runEvery1Minute("reminderTick") is registered in the companion app's
+     initialize(), which runs ONLY from installed()/updated() -- and updated()
+     fires only when someone opens the app and clicks Done. This project's own
+     v2.1.0 update instructions said to click "Update Dashboard File" and
+     explicitly NOT Done, so on a household that followed them the job was
+     never scheduled.
+
+     The hub then reported the right version, served /reminders correctly, and
+     held a perfectly good queue. reminderHubFires() read that version, decided
+     the hub had it, and every open dashboard stood down. Both sides waiting
+     for the other, forever.
+
+     A version string says what is INSTALLED. It cannot say what is RUNNING. */
+  /* The staleness window is lifted out of the source, never copied. A local
+     copy that drifted would let the test agree with a window the code no
+     longer uses -- the same stub-drift failure this repo has already had. */
+  const staleDecl = /const REMINDER_TICK_STALE_MS = ([^;]+);/.exec(SRC);
+  check('the staleness window is readable from the source', !!staleDecl);
+  // Evaluate the EXPRESSION, not the declaration: a `var` statement evaluates
+  // to undefined, which made this assertion pass for the wrong reason.
+  const staleMs = staleDecl ? Function(`return (${staleDecl[1]});`)() : 0;
+  check('...and comfortably clears the hub\'s 5-minute write throttle',
+    staleMs >= 10 * 60 * 1000, `${staleMs}ms — too tight and a late poll reads as a dead hub`);
+
+  const firerWorld = (tickAt, hubNow, version = '2.1.2') => new Function('__tickAt', '__hubNow', `
+    const HUB_STORE = { appId: '7' };
+    let _companionAppVersion = ${JSON.stringify(version)};
+    let _companionAppVersionFor = '7';
+    const REMINDER_HUB_MIN_APP = '2.1.0';
+    ${staleDecl[0]}
+    let _remHubTickAt = null, _remHubNowAt = null;
+    function _breakerIsOpen(){ return false; }
+    ${fn('_versionCmp')}
+    ${fn('reminderHubTickAlive')}
+    ${fn('reminderHubFires')}
+    _remHubTickAt = __tickAt;
+    _remHubNowAt  = __hubNow;
+    return reminderHubFires();
+  `)(tickAt, hubNow);
+
+  const HUB_NOW = Date.UTC(2026, 5, 15, 13, 46, 0);
+
+  check('a fresh heartbeat means the hub is firing, and this device stands down',
+    firerWorld(HUB_NOW - 60 * 1000, HUB_NOW) === true);
+
+  check('THE FIELD BUG: right version, heartbeat never set -> this device fires',
+    firerWorld(0, HUB_NOW) === false,
+    'a version string says what is installed, never what is running');
+
+  check('a heartbeat that has gone stale -> this device takes firing back',
+    firerWorld(HUB_NOW - 30 * 60 * 1000, HUB_NOW) === false,
+    'whatever stopped the tick, an open dashboard must not keep waiting on it');
+
+  check('just inside the window is still alive',
+    firerWorld(HUB_NOW - 10 * 60 * 1000, HUB_NOW) === true,
+    'the window must clear the hub\'s own 5-minute write throttle comfortably');
+
+  /* Boot order. reminderInit() runs before the first companion poll answers,
+     so "not asked yet" has to read as alive -- otherwise every boot arms local
+     timers and disarms them a second later, turning a possible double-fire
+     into a guaranteed one. */
+  check('before any sync has answered, the hub gets the benefit of the doubt',
+    firerWorld(null, null) === true,
+    'treating "not asked yet" as dead double-fires on every single boot');
+
+  /* The heartbeat is compared against the HUB's clock, not the device's. A
+     wall panel with a badly wrong clock is not rare, and it must not be able
+     to declare a healthy hub dead. */
+  const skewed = firerWorld(HUB_NOW - 60 * 1000, HUB_NOW);
+  check('a device with a wildly wrong clock does not misjudge the hub',
+    skewed === true,
+    'the comparison must use the hub-reported now, not Date.now()');
+
+  const src = fn('reminderHubTickAlive');
+  check('...and that is structural, not incidental',
+    /_remHubNowAt/.test(src),
+    'comparing against Date.now() alone would make this depend on the device clock');
+
+  /* An app too old to report a heartbeat reads as 0, so the dashboard fires.
+     Deliberate: a duplicate notification is visible and self-corrects on the
+     next Groovy paste; silence does neither. */
+  check('an app too old to report a heartbeat is not trusted to fire',
+    firerWorld(0, HUB_NOW, '2.1.1') === false,
+    'duplicate beats silent');
+
+  /* And the hub half: the endpoint must reschedule a tick that is not running,
+     so an existing install repairs itself without anyone clicking Done. */
+  const groovy = fs.readFileSync(path.join(ROOT, 'HestiaDashboard.groovy'), 'utf8');
+  /* Comments stripped FIRST. The explanatory comment above this endpoint
+     names runEvery1Minute("reminderTick") in prose, so matching the raw text
+     passed with the real call deleted -- the mutation gate caught this test
+     agreeing with a comment. Assert on code, never on the words around it. */
+  const decomment = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const endpoint = decomment(groovy.slice(groovy.indexOf('def getReminders()'),
+                                          groovy.indexOf('def ackReminder()')));
+  const heal = decomment(groovy.slice(groovy.indexOf('private boolean reminderHealTick'),
+                                      groovy.indexOf('def getReminders()')));
+
+  check('the hub reschedules its own tick when the heartbeat is stale',
+    /runEvery1Minute\("reminderTick"\)/.test(heal),
+    'otherwise every household that followed the v2.1.0 instructions stays broken');
+  check('the endpoint runs the heal',
+    /reminderHealTick\(/.test(endpoint));
+  check('...and reports the heartbeat so the dashboard can judge it',
+    /tickAt\s*:/.test(endpoint));
+
+  /* The heal has to be rate limited, and this is not housekeeping.
+     runEvery1Minute schedules at "a randomized position in the interval" and
+     overwrite (the default) cancels and recreates. The dashboard polls this
+     endpoint about every five seconds, so an unthrottled heal cancels and
+     recreates the job ~12x a minute -- and if that position is re-drawn each
+     time, the tick would rarely survive long enough to fire. The heal would
+     starve the job it exists to register. Whether it is re-drawn is
+     undocumented and could not be confirmed, so the gap must be comfortably
+     longer than the tick's own one-minute period either way. */
+  const healGap = (() => {
+    const m = /REMINDER_HEAL_GAP_MS = ([^\n]+)/.exec(groovy);
+    return m ? Function(`return (${m[1].replace(/L/g, '')});`)() : 0;
+  })();
+  check('the heal is rate limited to well beyond the tick period',
+    healGap >= 2 * 60 * 1000,
+    `${healGap}ms — an unthrottled heal can starve the very job it registers`);
+  check('...and the gap is actually enforced',
+    /remHealAt/.test(heal) && /REMINDER_HEAL_GAP_MS/.test(heal));
+
+  /* Guaranteed false positive without a grace window: initialize() registers
+     the tick but the heartbeat stays empty until it first RUNS, up to a minute
+     later. Every poll in between would warn that a job registered seconds ago
+     was not running -- the log-flood class this project has shipped before. */
+  check('a freshly initialised app is given time before being judged',
+    /remInitAt/.test(heal) && /REMINDER_HEAL_GRACE_MS/.test(heal),
+    'otherwise every install and every Done produces a burst of false warnings');
+  const init = decomment(groovy.slice(groovy.indexOf('def initialize()'),
+                                      groovy.indexOf('def dashboardUpdateCheck()')));
+  check('...and initialize actually stamps it',
+    /state\.remInitAt\s*=/.test(init),
+    'the grace window does nothing if nothing ever sets the timestamp');
+
+  /* A hub whose job store is genuinely broken must not be churned forever.
+     The "stuck schedule" reports trace to database corruption, which a bare
+     re-register does not fix, so the heal has to give up and say so. */
+  /* Assert the COMPARISON and the increment, not that the constant's name
+     appears. Naming it was satisfied by the log message inside the block, so
+     a mutant that disabled the ceiling entirely sailed through -- the same
+     way the endpoint test passed on a comment. Text presence is not a
+     behavioural assertion. */
+  check('the heal gives up after a bounded number of attempts',
+    /tries\s*>=\s*REMINDER_HEAL_MAX_TRIES/.test(heal) &&
+    /remHealTries\s*=\s*tries\s*\+\s*1/.test(heal),
+    'permanent churn on an already-sick hub is worse than one honest error');
+  check('...and says so exactly once, not every pass',
+    /remHealGaveUp/.test(heal));
+  check('a healthy heartbeat resets the attempt count',
+    /remHealTries\s*=\s*0/.test(heal),
+    'otherwise a past blip leaves no allowance for a real problem later');
+
+  /* The placement that matters most. The endpoint heal only fires while a
+     dashboard is open WITH reminders configured -- but a household relying on
+     pushed reminders and keeping no screen open is the natural end state of
+     this feature, and is exactly who never heals. runEvery3Hours(
+     "dashboardUpdateCheck") was registered by the PREVIOUS initialize(), so it
+     is already running on the affected hubs and resolves to new code. */
+  const periodic = decomment(groovy.slice(groovy.indexOf('def dashboardUpdateCheck()'),
+                                          groovy.indexOf('def writeDiscovery()')));
+  check('the periodic job heals too, so a hub with no dashboard open recovers',
+    /reminderHealTick\(/.test(periodic),
+    'the endpoint alone cannot reach the households that need this most');
+
+  /* The one claim the review could not substantiate: the community reports of
+     stuck schedules were resolved by a database reset, not a re-register. */
+  check('the code does not claim to fix a stuck scheduler',
+    !/also covers[\s\S]{0,120}stuck/i.test(groovy),
+    'those reports trace to database corruption; a bare re-register does not clear one');
+  check('the tick writes its heartbeat before any early return',
+    (() => {
+      const tick = groovy.slice(groovy.indexOf('def reminderTick()'),
+                                groovy.indexOf('def systemStartHandler'));
+      const beat = tick.indexOf('state.remTickAt = nowMs');
+      const bail = tick.indexOf('if (!cfg) return');
+      return beat > 0 && bail > 0 && beat < bail;
+    })(),
+    'a household with no reminders yet still has a working tick');
+}
+
 console.log(`\n${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL ? 1 : 0);

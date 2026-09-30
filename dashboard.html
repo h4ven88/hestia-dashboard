@@ -1872,7 +1872,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    Copyright © 2026 Haven. CC BY-NC 4.0.
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
-const HESTIA_VERSION    = '2.1.1';
+const HESTIA_VERSION    = '2.1.2';
 const HESTIA_BUILD_DATE = '2026-09-30';
 
 /* ═══════════════════════════════════════════════════════
@@ -8188,11 +8188,55 @@ const REMINDER_HUB_MIN_APP = '2.1.0';
    it, otherwise the dashboard keeps doing it locally as it always has. That
    avoids a double-fire race rather than trying to coordinate one -- neither
    Groovy state nor KV has compare-and-swap. */
+/* Whether the HUB is firing reminders, in which case this device must not also
+   arm local timers.
+
+   A version string is not evidence. The companion app registers its
+   once-a-minute job in initialize(), which runs only from installed()/updated()
+   -- and updated() fires only when someone opens the app and clicks Done.
+   Pasting new code and clicking "Update Dashboard File" never reaches it, which
+   is what this project's own v2.1.0 instructions told everyone to do. The hub
+   then reported the right version, served its endpoints, held a correct queue,
+   and fired nothing; this function said "the hub has it", every dashboard stood
+   down, and reminders stopped happening entirely with nothing on any screen.
+
+   So the hub now has to prove it is RUNNING, not merely installed, via a
+   heartbeat its tick refreshes. Stale or absent, this device fires them itself
+   -- the same thing it does for a household with no companion app at all.
+   Falling back costs at worst a duplicate notification; not falling back costs
+   every reminder. */
 function reminderHubFires() {
   return !!(HUB_STORE && _companionAppVersion &&
             _companionAppVersionFor === String(HUB_STORE.appId) &&
             _versionCmp(_companionAppVersion, REMINDER_HUB_MIN_APP) >= 0 &&
-            !_breakerIsOpen());
+            !_breakerIsOpen() &&
+            reminderHubTickAlive());
+}
+
+/* The hub's heartbeat freshness.
+
+   `null` means no sync has answered yet, and that counts as ALIVE. Boot order
+   is the reason: reminderInit() runs before the first companion poll returns,
+   and treating "not asked yet" as dead would arm local timers on every boot
+   only to disarm them a second later -- turning a possible double-fire into a
+   guaranteed one. Once a real value arrives, staleness is believed.
+
+   The window is wider than the hub's own 5-minute write throttle so an
+   ordinary late poll never reads as a dead tick. A heartbeat of 0 means the
+   app is too old to report one, or has genuinely never ticked; both mean this
+   device fires them. */
+const REMINDER_TICK_STALE_MS = 11 * 60 * 1000;
+let _remHubTickAt = null;      // hub-reported heartbeat, on the HUB's clock
+let _remHubNowAt  = null;      // the hub's clock at that same moment
+
+function reminderHubTickAlive() {
+  if (_remHubTickAt === null) return true;
+  if (!_remHubTickAt) return false;
+  /* Measured against the HUB's own clock, never this device's. A tablet whose
+     clock is days out would otherwise call a healthy hub dead, or a dead one
+     healthy -- and a wall panel with a drifting clock is not a rare thing. */
+  const ref = (typeof _remHubNowAt === 'number' && _remHubNowAt > 0) ? _remHubNowAt : Date.now();
+  return (ref - _remHubTickAt) <= REMINDER_TICK_STALE_MS;
 }
 
 /* Refresh the precomputed instants the hub fires from. Called before every
@@ -8247,6 +8291,19 @@ async function reminderCompanionSync() {
   _remSyncFails = 0;
   try {
     const data = await out.res.json();
+
+    /* Read the heartbeat BEFORE anything else uses it. If the hub turns out
+       not to be ticking, this device has to take firing back, and doing that
+       one poll later means a reminder due in between is simply lost. */
+    const wasFiring = reminderHubFires();
+    _remHubTickAt = (data && typeof data.tickAt === 'number') ? data.tickAt : 0;
+    _remHubNowAt  = (data && typeof data.now === 'number') ? data.now : null;
+    if (reminderHubFires() !== wasFiring) {
+      /* Who fires just changed. Re-arm, in both directions: standing down
+         without this double-fires, taking over without it fires nothing. */
+      reminderInit();
+    }
+
     const next = (data && data.runtime) || {};
     // Only repaint when something actually changed, so a once-a-second poll
     // does not rebuild the reminders panel forever for no reason.
@@ -16697,6 +16754,7 @@ function spShowSection(id, force) {
         <div class="sp-group">
           <span class="sp-hint">Set reminders with your voice — "Remind me to walk the dog daily at 8 AM" — or create one below.</span>
         </div>
+        ${spReminderFirerHtml()}
         <div class="sp-sep"></div>
         <div class="sp-group">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -17278,6 +17336,29 @@ function spReminderStatusHtml(r) {
 function reminderIsFinished(r) {
   if (!r || !r.enabled) return false;
   try { return !reminderNextFire(r); } catch (e) { return false; }
+}
+
+/* Says plainly which side is firing reminders.
+   Whether it was the hub or the screen was previously invisible, and the
+   difference is the whole feature: only the hub can fire one while nothing is
+   open. When a household discovered the hub was not firing, there was nowhere
+   to look that would have told them. Stated as a fact rather than a warning,
+   because the hub repairs its own schedule on the next poll and an alarm that
+   usually clears itself teaches people to ignore it. */
+function spReminderFirerHtml() {
+  const hub = (typeof reminderHubFires === 'function') && reminderHubFires();
+  const detail = hub
+    ? 'Your hub is firing these, so they arrive whether or not a screen is open.'
+    : 'This device is firing these, so they only happen while a dashboard is open. '
+      + 'For reminders while everything is closed, the companion app needs to be installed and running — '
+      + 'open the Hestia app on your hub and click Done.';
+  return `<div class="sp-group">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="sp-rem-dot ${hub ? 'on' : ''}"></div>
+        <span style="font-size:12px;color:var(--t1)">Fired by ${hub ? 'your hub' : 'this device'}</span>
+      </div>
+      <span class="sp-hint" style="margin-top:6px;display:block">${detail}</span>
+    </div>`;
 }
 
 function spReminderListHtml() {
