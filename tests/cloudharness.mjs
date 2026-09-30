@@ -30,6 +30,13 @@ function world(localCfg, store = {}) {
     const CLOUD_HOUSEHOLD_KEY = 'hestia-cloud-household';
     const CLOUD_DECLINED_KEY  = 'hestia-cloud-declined';
     let _cloudPendingConfig = null;
+    /* The household id whose record the last discover decrypted with THIS
+       device's secret; _cloudConfigTrusted() treats that as proof of
+       ownership. Null here on purpose: this harness tests the OTHER two trust
+       routes (own hub, previously accepted household), so nothing has vouched.
+       Missing it entirely crashed the suite, which runall reported as
+       "NO SUMMARY" rather than a pass — the MISSING-suite guard working. */
+    let _cloudSecretDecryptedId = null;
     let CONFIG = ${JSON.stringify(localCfg)};
     const _store = ${JSON.stringify(store)};
     const localStorage = { getItem: k => (k in _store ? _store[k] : null), setItem: (k, v) => { _store[k] = String(v); }, removeItem: k => { delete _store[k]; } };

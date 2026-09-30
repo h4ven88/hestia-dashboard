@@ -1,5 +1,5 @@
 /**
- * Hestia™ Home Dashboard v2.1.3
+ * Hestia™ Home Dashboard v2.1.4
  * ════════════════════════════════════════════════════════════════
  * Lightweight companion app — discovery helper and config store.
  *
@@ -55,7 +55,7 @@ preferences {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
-@Field static final String APP_VERSION        = "2.1.3"
+@Field static final String APP_VERSION        = "2.1.4"
 @Field static final String TOKEN_FILENAME      = "hestia-token.json"
 @Field static final String CONFIG_FILENAME     = "hestia-config.json"
 @Field static final String DASHBOARD_FILENAME  = "index.html"

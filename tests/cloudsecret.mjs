@@ -1053,5 +1053,123 @@ console.log('\n=== 18. Recovering when NO device still has the key ===');
     'untrue for the household that already lost it, which is who reads this');
 }
 
+console.log('\n=== 19. Holding the household secret IS the proof of ownership ===');
+{
+  /* The v2.1.3 recovery screen led straight back into the v2.0.2 disaster.
+     jbwrd3 did exactly what he was told: got his household key, cleared the
+     cache, entered the key. Boot decrypted the record with it -- and then
+     _cloudConfigTrusted() said untrusted, because it only knew "the hub this
+     device already uses" and "a household accepted here before", BOTH of which
+     the cache clear had wiped. So it showed the setup wizard. Finishing that
+     minted a NEW secret and overwrote the household again.
+
+     His words: "entered the secret key finished setup and still have it asking
+     for household key and now have to re enter my devices again."
+
+     The trust check was written before the household secret existed and was
+     never taught about it. Decrypting the record under the secret this device
+     holds is the STRONGEST proof available -- stronger than a hostname and an
+     app id, which are guessable -- and it was the one signal being ignored. */
+  const SECRET = 'c'.repeat(64);
+  const OTHER  = 'd'.repeat(64);
+  const IP = '203.0.113.5';
+  const CFG = { config: { hub: 'http://192.168.50.139', appId: '219', token: 't' },
+                rooms: [{ id: 'r1', name: 'Kitchen' }] };
+
+  const sealHousehold = async (secret, body) => {
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), 'HKDF', false, ['deriveKey']);
+    const key = await crypto.subtle.deriveKey(
+      { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: new TextEncoder().encode('hestia-enc') },
+      base, { name: 'AES-GCM', length: 256 }, false, ['encrypt']);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key,
+      new TextEncoder().encode(JSON.stringify({ config: body }))));
+    return { iv: btoa(String.fromCharCode(...iv)), data: btoa(String.fromCharCode(...ct)) };
+  };
+  const sealLegacy = async (body) => {
+    const raw = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(IP + ':hestia-cloud-sync'));
+    const key = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt']);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key,
+      new TextEncoder().encode(JSON.stringify({ config: body }))));
+    return { iv: btoa(String.fromCharCode(...iv)), data: btoa(String.fromCharCode(...ct)) };
+  };
+
+  /* A device with a WIPED cache: no hub, no appId, no remembered household --
+     exactly the state a cache clear leaves, and the state the old check could
+     never trust anything in. */
+  const run = async (secret, payload) => await new Function(
+    'crypto', 'btoa', 'atob', 'TextEncoder', 'TextDecoder', '__payload', `
+    const CONFIG = { cloudSecret: ${JSON.stringify(secret)} };   // no hub, no appId
+    const _CLOUD_INFO_ENC = 'hestia-enc';
+    const CLOUD_SYNC_API = '/api/config';
+    const CLOUD_HOUSEHOLD_KEY = 'hestia-cloud-household';
+    const _LS = { getItem: () => null, setItem(){}, removeItem(){} };
+    const console = { log(){}, warn(){} };
+    function _cloudGetIp(){ return Promise.resolve(${JSON.stringify(IP)}); }
+    function fetch(){ return Promise.resolve({ ok: true, json: () => Promise.resolve(
+      { found: true, encrypted: true, payload: __payload }) }); }
+    ${fn('_cloudKey')}
+    ${fn('_cloudDeriveKey')}
+    ${fn('_cloudDecrypt')}
+    ${fn('_cloudDecryptWithKey')}
+    ${fn('_cloudHouseholdId')}
+    ${fn('_cloudLocalHouseholdId')}
+    let _cloudSecretDecryptedId = null;
+    ${fn('_cloudConfigTrusted')}
+    ${fn('cloudSyncDiscover')}
+    return cloudSyncDiscover().then(cfg => ({
+      got: !!cfg,
+      rooms: cfg && cfg.rooms ? cfg.rooms.length : 0,
+      trusted: cfg ? _cloudConfigTrusted({ config: cfg.config || (cfg.hub ? cfg : null) }) : null,
+      flag: _cloudSecretDecryptedId,
+      /* A DIFFERENT household presented after the same successful discover.
+         The vouch is for the record that was decrypted, not a licence to
+         trust whatever is handed over next. */
+      foreignTrusted: _cloudConfigTrusted({ config: { hub: 'http://10.0.0.9', appId: '999' } }),
+    }));
+  `)(globalThis.crypto, globalThis.btoa, globalThis.atob, TextEncoder, TextDecoder, payload);
+
+  const mine = await run(SECRET, await sealHousehold(SECRET, CFG));
+  check('THE FIELD BUG: a cache-wiped device that supplies the right key is TRUSTED',
+    mine.got === true && mine.trusted === true,
+    JSON.stringify(mine) + ' — untrusted here means the setup wizard, which destroys the household');
+  check('...and the config really came back, not an empty shell',
+    mine.rooms === 1, `${mine.rooms} room(s)`);
+  /* The vouch names ONE household. Without the id comparison it degenerates
+     into "a secret decrypt happened recently, trust anything" -- and the
+     comment on that line claims the opposite, so the claim needs a test. */
+  check('...but it vouches for THAT household only, not the next config offered',
+    mine.foreignTrusted === false,
+    'a vouch must not become a blanket licence to trust whatever comes next');
+
+  /* The security-critical negative. A legacy record is decrypted with
+     SHA-256(publicIP + a constant in a public repo), which any IP neighbour
+     can recompute and therefore forge. Decrypting one proves nothing about
+     whose household it is, so it must NOT set the vouching flag. */
+  const legacy = await run(null, await sealLegacy(CFG));
+  check('a legacy IP-key record is read but never vouched for',
+    legacy.got === true && legacy.flag === null,
+    JSON.stringify(legacy) + ' — a neighbour can forge one of these');
+  check('...so an untrusted legacy record still goes through the prompt',
+    legacy.trusted === false,
+    'auto-applying a forgeable record is the hole the whole trust model closes');
+
+  /* Someone else's record, encrypted under a secret this device does not hold:
+     it must not decrypt at all, so there is nothing to trust. */
+  const theirs = await run(SECRET, await sealHousehold(OTHER, CFG));
+  check('a record sealed under a different secret does not decrypt',
+    theirs.got === false && theirs.flag === null, JSON.stringify(theirs));
+
+  /* The flag is per-call. A stale value from an earlier discover vouching for
+     a later, different record would be its own vulnerability. */
+  const src = fn('cloudSyncDiscover');
+  check('the vouching flag is cleared on every call before anything sets it',
+    /_cloudSecretDecryptedId = null;[\s\S]{0,200}viaSecret = false/.test(src),
+    'a stale flag would vouch for a record it never read');
+  check('...and only the secret path sets it',
+    /if \(viaSecret && out\) _cloudSecretDecryptedId = _cloudHouseholdId\(out\)/.test(src));
+}
+
 console.log(`\n${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL ? 1 : 0);

@@ -1872,7 +1872,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    Copyright © 2026 Haven. CC BY-NC 4.0.
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
-const HESTIA_VERSION    = '2.1.3';
+const HESTIA_VERSION    = '2.1.4';
 const HESTIA_BUILD_DATE = '2026-09-30';
 
 /* ═══════════════════════════════════════════════════════
@@ -3464,9 +3464,34 @@ function _cloudLocalHouseholdId() {
     return `${new URL(CONFIG.hub).hostname}|${CONFIG.appId}`;
   } catch(e) { return null; }
 }
+/* The household id of the record that the LAST cloudSyncDiscover() decrypted
+   using this device's household secret, or null. Set per call, so it can never
+   vouch for a different config than the one it was derived from. */
+let _cloudSecretDecryptedId = null;
+
 function _cloudConfigTrusted(cfg) {
   const id = _cloudHouseholdId(cfg);
   if (!id) return false;
+  /* Holding the household secret IS the proof, and this check used to ignore
+     it entirely.
+
+     That is how the v2.1.2 recovery screen led straight back into the v2.0.2
+     disaster. A user whose device had lost its config entered their household
+     key correctly, boot decrypted the record with it, and then this function --
+     which only knew about "the hub this device already uses" and "a household
+     accepted here before", both wiped with the cache -- said untrusted. The
+     wizard was shown, finishing it minted a NEW secret, and the household was
+     overwritten again. Reported by the same user this recovery path was built
+     for: "entered the secret key finished setup and still have it asking for
+     household key and now have to re enter my devices again."
+
+     Why this is safe: cloudSyncDiscover() uses the household secret with NO
+     legacy fallback, and the payload is AES-GCM, which is authenticated. A
+     record that decrypts under the secret this device holds was written by
+     someone holding that secret. The IP neighbour this whole trust model
+     exists to exclude cannot produce one. Nothing weaker than the secret gets
+     this far. */
+  if (_cloudSecretDecryptedId && id === _cloudSecretDecryptedId) return true;
   if (id === _cloudLocalHouseholdId()) return true; // already this device's own hub
   try { return _LS.getItem(CLOUD_HOUSEHOLD_KEY) === id; } catch(e) { return false; }
 }
@@ -3522,9 +3547,14 @@ async function cloudSyncDiscover() {
          the hub URL, token and PIN hashes on the next reload. Keeping the
          invariant here means none of those sites need to change. */
       let decrypted = null;
+      /* Cleared on EVERY call, before anything can set it. A stale value from
+         an earlier discover must never vouch for this one. */
+      _cloudSecretDecryptedId = null;
+      let viaSecret = false;
       if (CONFIG.cloudSecret) {
         try {
           decrypted = await _cloudDecryptWithKey(data.payload, await _cloudKey(CONFIG.cloudSecret, ['decrypt']));
+          viaSecret = true;
         } catch (e) {}
         /* Deliberately NO legacy fallback here.
 
@@ -3553,7 +3583,12 @@ async function cloudSyncDiscover() {
         return null;
       }
       console.log('[CloudSync] Encrypted config discovered from cloud');
-      return decrypted.config || null;
+      const out = decrypted.config || null;
+      /* Only the household-secret path vouches. The legacy branch above uses
+         SHA-256(publicIP + a constant in a public repo), which a neighbour can
+         recompute, so a record it decrypts proves nothing about whose it is. */
+      if (viaSecret && out) _cloudSecretDecryptedId = _cloudHouseholdId(out);
+      return out;
     }
     if (data.config) return data.config;
     return null;
