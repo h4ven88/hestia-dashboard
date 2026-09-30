@@ -1872,7 +1872,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    Copyright © 2026 Haven. CC BY-NC 4.0.
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
-const HESTIA_VERSION    = '2.1.0';
+const HESTIA_VERSION    = '2.1.1';
 const HESTIA_BUILD_DATE = '2026-09-30';
 
 /* ═══════════════════════════════════════════════════════
@@ -7485,7 +7485,7 @@ Monthly reminder example:
 {"type":"reminder","speech":"Rent reminder set for the 1st of each month.","reminder":{"label":"Pay rent","schedule":{"type":"monthly","time":"09:00","dayOfMonth":1}}}
 
 One-time reminder example:
-{"type":"reminder","speech":"I'll remind you at 3 PM.","reminder":{"label":"Check the dryer","schedule":{"type":"once","time":"15:00","date":"${new Date().toISOString().slice(0,10)}"}}}
+{"type":"reminder","speech":"I'll remind you at 3 PM.","reminder":{"label":"Check the dryer","schedule":{"type":"once","time":"15:00","date":"${_localDateStr(new Date())}"}}}
 
 For cancelling/deleting a reminder:
 {"type":"cancel_reminder","speech":"Dog walking reminder deleted.","reminder":{"label":"Walk the dog"}}
@@ -7881,6 +7881,44 @@ function _tzOffsetMinutesAt(utcMs, tz) {
   for (const x of parts) p[x.type] = x.value;
   const asUTC = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour === 24 ? 0 : +p.hour, +p.minute, +p.second);
   return Math.round((asUTC - utcMs) / 60000);
+}
+
+/* The calendar date (YYYY-MM-DD) that an instant falls on in a given zone.
+   Defaults to this browser's zone, which is also what reminderCreate() stamps
+   on `rem.timezone`.
+
+   Exists because `new Date().toISOString().slice(0, 10)` is the UTC date, and
+   every caller that used it meant "today". Those disagree for part of every
+   day -- west of UTC after local evening, east of UTC before local morning --
+   and the two halves of the reminders UI disagreed with each other as a
+   result. A "Once (today)" reminder saved at 20:35 in New York stored
+   2026-09-30 and displayed "Tomorrow", and a reminder created at 20:42 was
+   filtered off today's calendar row entirely, because a createdAt was reduced
+   to a UTC day and then re-parsed as UTC midnight (= 20:00 local the previous
+   evening). Reported from the field on v2.1.0.
+
+   Intl rather than getFullYear()/getMonth()/getDate(): those read the
+   browser's own zone only, and this has to be able to answer for the zone
+   stored on the reminder. */
+function _localDateStr(d, tz) {
+  const when = (d instanceof Date) ? d : new Date(d == null ? Date.now() : d);
+  if (isNaN(when.getTime())) return null;
+  const zone = tz || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(when);
+    const p = {};
+    for (const x of parts) p[x.type] = x.value;
+    if (!p.year || !p.month || !p.day) throw new Error('incomplete');
+    return `${p.year}-${p.month}-${p.day}`;
+  } catch (e) {
+    /* An unknown zone string throws. Falling back to the BROWSER's local parts
+       keeps this a date-in-some-real-zone rather than silently reintroducing
+       the UTC answer this function exists to avoid. */
+    const pad = n => String(n).padStart(2, '0');
+    return `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}`;
+  }
 }
 
 /* `fromMs` answers "the first occurrence strictly after this instant" instead
@@ -8756,7 +8794,11 @@ let _calState = { month: new Date().getMonth(), year: new Date().getFullYear(), 
 
 function _calEventsForDate(d) {
   const events = [];
-  const dateStr = d.toISOString().split('T')[0];
+  /* `d` is a local midnight for the day being drawn, so its UTC date is a day
+     early for every zone east of UTC. The other reads below (getDay,
+     getDate, getMonth) are already local, and this one disagreeing with them
+     put "once" reminders on the wrong square. */
+  const dateStr = _localDateStr(d);
   const dayOfWeek = d.getDay();
   const dayOfMonth = d.getDate();
   const month = d.getMonth() + 1;
@@ -8766,7 +8808,10 @@ function _calEventsForDate(d) {
     if (!rem.schedule) return;
     const s = rem.schedule;
     const created = rem.createdAt ? new Date(rem.createdAt) : null;
-    if (created && d < new Date(created.toISOString().split('T')[0])) return;
+    // Compare local day strings. Reducing createdAt to a UTC day and
+    // re-parsing it produced UTC MIDNIGHT, which is 20:00 the previous evening
+    // in New York -- so anything created after 8pm vanished from today's row.
+    if (created && dateStr < _localDateStr(created)) return;
     if (s.endDate && dateStr > s.endDate) return;
     let matches = false;
     switch (s.type) {
@@ -8803,7 +8848,10 @@ function _calEventsForDate(d) {
     if (!rtn.schedule || !rtn.scheduleEnabled) return;
     const s = rtn.schedule;
     const created = rtn.createdAt ? new Date(rtn.createdAt) : null;
-    if (created && d < new Date(created.toISOString().split('T')[0])) return;
+    // Compare local day strings. Reducing createdAt to a UTC day and
+    // re-parsing it produced UTC MIDNIGHT, which is 20:00 the previous evening
+    // in New York -- so anything created after 8pm vanished from today's row.
+    if (created && dateStr < _localDateStr(created)) return;
     if (s.endDate && dateStr > s.endDate) return;
     let matches = false;
     switch (s.type) {
@@ -8940,8 +8988,9 @@ function _calSaveReminder(mobile) {
   const type = document.getElementById(p + '-type')?.value || 'once';
   const schedule = { type, time };
   if (type === 'once') {
-    const today = new Date();
-    schedule.date = today.toISOString().split('T')[0];
+    // The dropdown says "Once (today)". toISOString() gave the UTC date, so
+    // after ~20:00 in New York "today" silently became tomorrow.
+    schedule.date = _localDateStr(new Date());
   } else if (type === 'weekly') {
     const dayBtns = document.querySelectorAll(`#${p}-days .${p}-day-btn.active`);
     schedule.daysOfWeek = Array.from(dayBtns).map(b => parseInt(b.dataset.day));
@@ -8951,6 +9000,24 @@ function _calSaveReminder(mobile) {
   }
   const endDate = document.getElementById(p + '-end')?.value;
   if (endDate && type !== 'once') schedule.endDate = endDate;
+
+  /* Same refusal the Settings form has had since v2.1.0. This form never got
+     it, and until the date above was fixed it could not be reached from here:
+     "Once (today)" resolved to the UTC date, which is tomorrow for the whole
+     evening, so the schedule was always in the future and always "valid".
+     Correcting the date is what makes a genuinely past "today" possible here,
+     so the guard has to land in the same change. */
+  const probe = reminderNextFire({
+    enabled: true, schedule,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+  });
+  if (!probe) {
+    showDeviceToast(type === 'once'
+      ? 'That time has already passed today'
+      : 'That schedule has no upcoming date — check the end date');
+    return;
+  }
+
   reminderCreate(label, schedule);
   reminderInit();
   _calRefresh();
@@ -17198,10 +17265,27 @@ function spReminderStatusHtml(r) {
   </div>`;
 }
 
+/* A reminder that is switched ON but has no occurrence left has finished --
+   its end date has passed, or it was a one-time that already came round. A
+   reminder the user switched OFF is paused, not finished, and stays in the
+   active list where they can switch it back on.
+
+   Split out because these sat in "Active Reminders" reading "No upcoming
+   fire", which is a description of a state with no name and no way to act on
+   it. Nothing is deleted automatically: a finished reminder is still the
+   user's, and the design keeps no history precisely so that what IS on screen
+   is something they put there. */
+function reminderIsFinished(r) {
+  if (!r || !r.enabled) return false;
+  try { return !reminderNextFire(r); } catch (e) { return false; }
+}
+
 function spReminderListHtml() {
   const rems = CONFIG.reminders || [];
   if (rems.length === 0) return '<div style="font-size:11px;color:var(--t3);padding:8px 0">No reminders yet. Create one above or ask Athena.</div>';
-  return rems.map(r => {
+  const live = rems.filter(r => !reminderIsFinished(r));
+  const done = rems.filter(r => reminderIsFinished(r));
+  const card = r => {
     const dot = reminderDotClass(r);
     const sched = reminderFormatSchedule(r);
     const next = reminderFormatNext(r);
@@ -17219,7 +17303,19 @@ function spReminderListHtml() {
         <span class="sp-rem-del" onclick="spReminderDelete('${r.id}')">Delete</span>
       </div>
     </div>`;
-  }).join('');
+  };
+  let out = live.length
+    ? live.map(card).join('')
+    : '<div style="font-size:11px;color:var(--t3);padding:8px 0">Nothing scheduled. Create one above or ask Athena.</div>';
+  if (done.length) {
+    out += `<div class="sp-group-lbl" style="margin:18px 0 8px">Finished</div>
+      <div style="font-size:11px;color:var(--t3);line-height:1.6;margin-bottom:10px">
+        These have no dates left — a one-time that has been and gone, or a repeat
+        whose end date has passed. Edit one to give it a new schedule, or delete it.
+      </div>
+      <div style="opacity:.72">${done.map(card).join('')}</div>`;
+  }
+  return out;
 }
 
 /* Which reminder the open form is editing, or null when creating a new one.
@@ -17322,7 +17418,7 @@ function spReminderTypeChanged() {
   const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   switch (type) {
     case 'once':
-      extra.innerHTML = `<div class="sp-field"><label class="sp-label">Date</label><input class="sp-input" id="sp-rem-date" type="date" value="${new Date().toISOString().slice(0,10)}"></div>`;
+      extra.innerHTML = `<div class="sp-field"><label class="sp-label">Date</label><input class="sp-input" id="sp-rem-date" type="date" value="${_localDateStr(new Date())}"></div>`;
       break;
     case 'weekly':
       extra.innerHTML = `<div class="sp-field"><label class="sp-label">Days</label><div class="sp-rem-chips" id="sp-rem-days">${dayNames.map((n,i)=>`<button class="sp-rem-chip" data-day="${i}" onclick="this.classList.toggle('selected')">${n}</button>`).join('')}</div></div>`;
@@ -17347,7 +17443,7 @@ function spReminderSave() {
   const schedule = { type, time };
   switch (type) {
     case 'once':
-      schedule.date = document.getElementById('sp-rem-date')?.value || new Date().toISOString().slice(0,10);
+      schedule.date = document.getElementById('sp-rem-date')?.value || _localDateStr(new Date());
       break;
     case 'weekly': {
       const chips = document.querySelectorAll('#sp-rem-days .sp-rem-chip.selected');

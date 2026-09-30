@@ -10,6 +10,9 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+// Section 13 re-runs one calendar check in a child process with TZ set east of
+// UTC; the zone has to be in place before node starts for Date to honour it.
+import { execFileSync } from 'child_process';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = fs.readFileSync(path.join(ROOT, 'dashboard.html'), 'utf8');
@@ -469,6 +472,248 @@ console.log('\n=== 12. Learning that the hub fires must re-arm, both directions 
     run(true, false).includes('reArm'), 'otherwise nothing fires at all');
   check('capability unchanged: leave the armed timers alone',
     run(false, false).length === 0, 're-arming on every version check would be churn');
+}
+
+console.log('\n=== 13. "Today" must mean the local day, not the UTC one ===');
+{
+  /* Reported from the field on v2.1.0, at 20:35 in New York. Every producer of
+     a date string used `new Date().toISOString().slice(0, 10)`, which is the
+     UTC date. West of UTC that is tomorrow for the whole evening, east of UTC
+     it is yesterday for the whole early morning.
+
+     Two visible failures, and they pointed in opposite directions, which is
+     why it read as one confusing bug rather than two:
+       - A reminder saved as "Once (today)" at 20:35 stored 2026-09-30 and the
+         list then correctly displayed it as "Tomorrow at 8:35 PM". Display was
+         right; the stored date was wrong.
+       - A daily created at 20:42 disappeared from TODAY's calendar row,
+         because createdAt was reduced to a UTC day and re-parsed as UTC
+         midnight, which is 20:00 local the previous evening. */
+
+  // 2026-09-29 20:35 in New York (EDT, UTC-4) = 2026-09-30 00:35 UTC.
+  const EVENING = Date.UTC(2026, 8, 30, 0, 35, 0);
+  const LOCAL_DAY = '2026-09-29';
+  const UTC_DAY   = '2026-09-30';
+
+  // Guard the fixture itself: if these ever stop differing the tests below
+  // pass without proving anything.
+  check('the fixture really straddles the date line',
+    new Date(EVENING).toISOString().slice(0, 10) === UTC_DAY && UTC_DAY !== LOCAL_DAY);
+
+  const dateWorld = new Function('__now', '__RealDate', `
+    class D extends __RealDate {
+      constructor(...a) { if (a.length === 0) super(__now); else super(...a); }
+      static now() { return __now; }
+    }
+    const Date = D;
+    ${fn('_localDateStr')}
+    return { local: (d, tz) => _localDateStr(d, tz) };
+  `)(EVENING, Date);
+
+  check('_localDateStr gives the local day, not the UTC one',
+    dateWorld.local(new Date(EVENING), TZ) === LOCAL_DAY,
+    dateWorld.local(new Date(EVENING), TZ));
+
+  check('...and is not merely returning a hardcoded offset: Tokyo is a day ahead',
+    dateWorld.local(new Date(EVENING), 'Asia/Tokyo') === UTC_DAY,
+    dateWorld.local(new Date(EVENING), 'Asia/Tokyo'));
+
+  check('a nonsense zone falls back to a real local date, never to UTC-by-accident',
+    /^\d{4}-\d{2}-\d{2}$/.test(dateWorld.local(new Date(EVENING), 'Not/AZone') || ''),
+    String(dateWorld.local(new Date(EVENING), 'Not/AZone')));
+
+  /* The producer the user actually used: the calendar's inline Add Reminder
+     form, whose dropdown literally says "Once (today)". */
+  const saveWorld = (timeStr, nowMs) => new Function('__now', '__RealDate', '__created', `
+    class D extends __RealDate {
+      constructor(...a) { if (a.length === 0) super(__now); else super(...a); }
+      static now() { return __now; }
+    }
+    const Date = D;
+    const fields = {
+      'cal-add-label': { value: 'Bins out', focus(){} },
+      'cal-add-time':  { value: ${JSON.stringify(timeStr)} },
+      'cal-add-type':  { value: 'once' },
+    };
+    const document = { getElementById: (id) => fields[id] || null };
+    let toast = null;
+    function showDeviceToast(m){ toast = m; }
+    function reminderCreate(label, schedule){ __created.push({ label, schedule }); }
+    function reminderInit(){}
+    function _calRefresh(){}
+    function renderHome(){}
+    ${fn('_tzOffsetMinutesAt')}
+    ${fn('_localDateStr')}
+    ${fn('computeNextFire')}
+    ${fn('reminderNextFire')}
+    ${fn('_calSaveReminder')}
+    _calSaveReminder(false);
+    return toast;
+  `)(nowMs, Date, []);
+
+  const created = [];
+  const toast = new Function('__now', '__RealDate', '__created', `
+    class D extends __RealDate {
+      constructor(...a) { if (a.length === 0) super(__now); else super(...a); }
+      static now() { return __now; }
+    }
+    const Date = D;
+    const fields = {
+      'cal-add-label': { value: 'Bins out', focus(){} },
+      'cal-add-time':  { value: '20:55' },
+      'cal-add-type':  { value: 'once' },
+    };
+    const document = { getElementById: (id) => fields[id] || null };
+    let toast = null;
+    function showDeviceToast(m){ toast = m; }
+    function reminderCreate(label, schedule){ __created.push({ label, schedule }); }
+    function reminderInit(){}
+    function _calRefresh(){}
+    function renderHome(){}
+    ${fn('_tzOffsetMinutesAt')}
+    ${fn('_localDateStr')}
+    ${fn('computeNextFire')}
+    ${fn('reminderNextFire')}
+    ${fn('_calSaveReminder')}
+    _calSaveReminder(false);
+    return toast;
+  `)(EVENING, Date, created);
+
+  check('"Once (today)" at 20:35 stores TODAY, not the UTC tomorrow',
+    created.length === 1 && created[0].schedule.date === LOCAL_DAY,
+    created.length ? created[0].schedule.date : '(nothing saved)');
+  check('...and saving it succeeded rather than being refused',
+    toast === null, String(toast));
+
+  /* The refusal that only the Settings form had. Until the date above was
+     fixed this was unreachable from the calendar form -- "today" was always
+     the UTC tomorrow, so the schedule was always in the future. */
+  check('a "Once (today)" time that has already passed is refused here too',
+    /already passed/i.test(String(saveWorld('20:00', EVENING))),
+    String(saveWorld('20:00', EVENING)));
+
+  /* The second failure: a reminder created this evening vanishing from today's
+     own calendar row. */
+  const calWorld = (reminders) => new Function('__now', '__RealDate', `
+    class D extends __RealDate {
+      constructor(...a) { if (a.length === 0) super(__now); else super(...a); }
+      static now() { return __now; }
+    }
+    const Date = D;
+    const CONFIG = { reminders: ${JSON.stringify(reminders)}, routines: [] };
+    function _calSchedLabel(){ return ''; }
+    ${fn('_localDateStr')}
+    ${fn('_calEventsForDate')}
+    return (y, m, d) => _calEventsForDate(new __RealDate(y, m, d));
+  `)(EVENING, Date);
+
+  // Created at 20:42 local on Sep 29 = 00:42 UTC Sep 30.
+  const createdEvening = Date.UTC(2026, 8, 30, 0, 42, 0);
+  const evts = calWorld([{
+    id: 'r9', label: 'Bins', enabled: true, timezone: TZ,
+    createdAt: createdEvening, schedule: { type: 'daily', time: '20:42' },
+  }]);
+
+  check('a daily created at 20:42 still appears on TODAY\'s calendar row',
+    evts(2026, 8, 29).length === 1,
+    `${evts(2026, 8, 29).length} event(s) on Sep 29`);
+  check('...and on tomorrow\'s as well, since it repeats',
+    evts(2026, 8, 30).length === 1);
+  check('...but not on a day before it existed',
+    evts(2026, 8, 28).length === 0,
+    'a reminder cannot have occurrences predating its own creation');
+
+  /* A "once" reminder must land on its own square. This is the latent half of
+     the same bug: local midnight converted to a UTC date is a day early for
+     every zone east of UTC, so this was wrong there even though New York
+     happened to be right. */
+  const once = calWorld([{
+    id: 'r10', label: 'Dentist', enabled: true, timezone: TZ,
+    createdAt: Date.UTC(2026, 8, 20, 12, 0, 0),
+    schedule: { type: 'once', date: '2026-09-29', time: '14:00' },
+  }]);
+  check('a one-time reminder lands on its own calendar day',
+    once(2026, 8, 29).length === 1 && once(2026, 8, 30).length === 0);
+
+  /* Run the same check with the PROCESS in a positive-offset zone.
+     _calEventsForDate is handed a local midnight, and east of UTC that instant
+     belongs to the PREVIOUS UTC day -- so the old toISOString() key put every
+     one-time reminder on the square before its own. New York cannot show this
+     (its local midnight is 04:00 UTC, the same date), which is exactly why the
+     check above passed against the broken line. TZ has to be set before node
+     starts for Date to honour it, hence a child process. */
+  const probe = `
+    const fs = require('fs');
+    const SRC = fs.readFileSync(${JSON.stringify(path.join(ROOT, 'dashboard.html'))}, 'utf8');
+    ${fn.toString()}
+    const CONFIG = { reminders: [{
+      id: 'z', label: 'Dentist', enabled: true, timezone: 'Asia/Tokyo',
+      createdAt: Date.UTC(2026, 8, 20, 3, 0, 0),
+      schedule: { type: 'once', date: '2026-09-29', time: '14:00' },
+    }], routines: [] };
+    function _calSchedLabel(){ return ''; }
+    eval(fn('_localDateStr'));
+    eval(fn('_calEventsForDate'));
+    const on29 = _calEventsForDate(new Date(2026, 8, 29)).length;
+    const on28 = _calEventsForDate(new Date(2026, 8, 28)).length;
+    console.log(JSON.stringify({ tz: Intl.DateTimeFormat().resolvedOptions().timeZone, on29, on28 }));
+  `;
+  let tokyo = null;
+  try {
+    tokyo = JSON.parse(execFileSync(process.execPath, ['-e', probe], {
+      env: { ...process.env, TZ: 'Asia/Tokyo' }, encoding: 'utf8',
+    }).trim());
+  } catch (e) { tokyo = { error: String(e.message).slice(0, 120) }; }
+
+  check('the child really ran east of UTC, or this proves nothing',
+    tokyo && tokyo.tz === 'Asia/Tokyo', JSON.stringify(tokyo));
+  check('east of UTC, a one-time reminder is still on its own day',
+    tokyo && tokyo.on29 === 1 && tokyo.on28 === 0,
+    JSON.stringify(tokyo) + ' — a UTC day key puts it on the square before');
+}
+
+console.log('\n=== 14. A reminder with no dates left is finished, not active ===');
+{
+  /* The user's two oldest reminders sat under "Active Reminders" reading "No
+     upcoming fire" -- a state with no name and nothing to do about it. */
+  const finishWorld = (rems) => new Function('__now', '__RealDate', `
+    class D extends __RealDate {
+      constructor(...a) { if (a.length === 0) super(__now); else super(...a); }
+      static now() { return __now; }
+    }
+    const Date = D;
+    const CONFIG = { reminders: ${JSON.stringify(rems)} };
+    ${fn('_tzOffsetMinutesAt')}
+    ${fn('computeNextFire')}
+    ${fn('reminderNextFire')}
+    ${fn('reminderIsFinished')}
+    return CONFIG.reminders.map(r => reminderIsFinished(r));
+  `)(NOW, Date);
+
+  const base = { enabled: true, timezone: TZ };
+  const flags = finishWorld([
+    { ...base, id: 'a', label: 'ended', schedule: { type: 'daily', time: '09:00', endDate: '2026-06-01' } },
+    { ...base, id: 'b', label: 'running', schedule: { type: 'daily', time: '09:00' } },
+    { ...base, id: 'c', label: 'spent once', schedule: { type: 'once', date: '2026-06-01', time: '09:00' } },
+    { ...base, id: 'd', label: 'future once', schedule: { type: 'once', date: '2026-06-20', time: '09:00' } },
+    { ...base, enabled: false, id: 'e', label: 'paused', schedule: { type: 'daily', time: '09:00' } },
+  ]);
+
+  check('a repeat whose end date has passed is finished', flags[0] === true);
+  check('a repeat still running is not', flags[1] === false);
+  check('a one-time that has been and gone is finished', flags[2] === true);
+  check('a one-time still ahead is not', flags[3] === false);
+  /* The distinction that matters: OFF is a choice the user made and can undo
+     from the active list. Sorting it into "Finished" would tell them their own
+     paused reminder had expired. */
+  check('a reminder the user switched off is paused, not finished',
+    flags[4] === false);
+
+  const list = fn('spReminderListHtml');
+  check('the list actually splits them', /reminderIsFinished/.test(list) && /Finished/.test(list));
+  check('...and nothing is deleted automatically',
+    !/reminderDelete\(|splice\(/.test(list),
+    'a finished reminder is still the user\'s to keep or remove');
 }
 
 console.log(`\n${PASS} passed, ${FAIL} failed`);
