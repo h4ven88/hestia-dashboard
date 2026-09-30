@@ -982,9 +982,72 @@ console.log('\n=== 18. Recovering when NO device still has the key ===');
   /* And the lockout screen must actually offer the field, wired to the handler.
      Rendering the explanation without the input would read as fixed and
      recover nobody. */
+  /* The instructions told people to take "appId and token" from
+     hestia-token.json. That file holds FOUR credentials -- appId/token for the
+     companion app and makerApiAppId/makerApiToken for Maker API -- and picking
+     the wrong pair yields a blank page with nothing to say which mistake was
+     made. jbwrd3 followed the instructions and got exactly that. The page
+     knows which fields it wants, so it builds the URL itself. */
+  const build = (value, hub = '') => new Function('__value', '__hub', `
+    const els = {
+      'cl-tok':     { value: __value },
+      'cl-tok-out': { innerHTML: '', style: {}, querySelector: () => null },
+    };
+    const document = { getElementById: (id) => els[id] || null };
+    const CONFIG = { hub: __hub };
+    const encodeURIComponent = globalThis.encodeURIComponent;
+    function h(s){ return String(s); }
+    ${fn('cloudLockoutBuildLink')}
+    cloudLockoutBuildLink();
+    return els['cl-tok-out'].innerHTML;
+  `)(value, hub);
+
+  const REAL = '{"appId":"222","token":"tok-companion","hubIp":"192.168.50.139",' +
+               '"makerApiAppId":"219","makerApiToken":"tok-maker"}';
+  const built = build(REAL);
+  check('the link is built from the COMPANION credentials, not the Maker API ones',
+    /\/apps\/api\/222\/config\?access_token=tok-companion/.test(built) &&
+    !/219/.test(built) && !/tok-maker/.test(built),
+    built.slice(0, 140));
+  check('...and works out the hub address with no local config at all',
+    /192\.168\.50\.139/.test(built),
+    'a locked-out device often knows nothing about the hub');
+
+  check('a paste of only the Maker API fields is refused, not silently wrong',
+    !/apps\/api/.test(build('{"makerApiAppId":"219","makerApiToken":"x","hubIp":"1.2.3.4"}')),
+    'building a broken link is what produced the blank page');
+  check('an empty paste asks for the file rather than erroring obscurely',
+    /paste the contents/i.test(build('')));
+  check('a pretty-printed paste still works, since that is what a browser shows',
+    /apps\/api\/222/.test(build('{\n  "appId": "222",\n  "token": "tok-companion"\n}', 'http://h')));
+  check('the result warns that a blank or null page means no saved settings',
+    /blank or says "null"/.test(built),
+    'that case needs a different remedy and used to look identical');
+
   const lock = fn('renderCloudLockout');
   check('the lockout screen renders the key input and wires it up',
     /id="cl-key"/.test(lock) && /cloudLockoutUseKey\(\)/.test(lock));
+  check('...and the link builder too',
+    /id="cl-tok"/.test(lock) && /cloudLockoutBuildLink\(\)/.test(lock));
+
+  /* Diagnostics carried its own copy of the impossible advice. v2.1.2 fixed
+     the lockout screen and missed this one, so the household that could not
+     recover was still being told to use a device that does not exist. */
+  const diag = fn('diagCheckCloud');
+  check('Diagnostics no longer leads with "use a device that is already working"',
+    /hestia-token\.json/.test(diag),
+    'it must name the self-service path, like the lockout screen does');
+  /* Anchor on the appended text, not on the variable name: the variable is
+     declared above the message, so searching after the title found nothing
+     while the feature was present. */
+  /* Pin the BINDING, not the occurrence. Both the message string and the
+     variable name appear elsewhere in this function, so asserting they exist
+     passed with the branch hard-wired off -- the third time tonight a
+     text-presence assertion agreed with a disabled feature. */
+  check('...and surfaces a rejected write instead of suppressing it',
+    /const why = _cloudLastPushError/.test(diag) &&
+    /last save was also rejected/.test(diag),
+    'a 401 explains why setting up fresh does not stick; hiding it wastes the user\'s time');
   check('...and no longer claims nothing has been lost',
     !/nothing has been lost/.test(lock),
     'untrue for the household that already lost it, which is who reads this');

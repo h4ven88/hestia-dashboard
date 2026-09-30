@@ -1872,7 +1872,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    Copyright © 2026 Haven. CC BY-NC 4.0.
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
-const HESTIA_VERSION    = '2.1.2';
+const HESTIA_VERSION    = '2.1.3';
 const HESTIA_BUILD_DATE = '2026-09-30';
 
 /* ═══════════════════════════════════════════════════════
@@ -3681,13 +3681,20 @@ function renderCloudLockout() {
       <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px;margin:0 0 14px">
         <div style="font-size:13px;font-weight:600;color:var(--t1);margin-bottom:8px">Enter your household key</div>
         <p style="color:var(--t3);line-height:1.6;margin:0 0 10px;font-size:12px">
-          This works even when none of your devices are reachable. Your hub has the
-          key. On your home network, open
+          This works even when none of your devices are reachable, because your hub
+          has the key. <strong style="color:var(--t1)">Step 1:</strong> on your home network open
           <span style="color:var(--t1);user-select:all;word-break:break-all">${h(hub)}/local/hestia-token.json</span>
-          and note <code style="color:var(--t1)">appId</code> and <code style="color:var(--t1)">token</code>, then open
-          <span style="color:var(--t1);user-select:all;word-break:break-all">${h(hub)}/apps/api/&lt;appId&gt;/config?access_token=&lt;token&gt;</span>
-          and find <code style="color:var(--t1)">cloudSecret</code>. Paste it below. Pasting the whole
-          line, or a link containing it, is fine.
+          and paste everything it shows into the box below.
+        </p>
+        <input id="cl-tok" type="text" spellcheck="false" autocomplete="off"
+               placeholder='{"appId":"…","token":"…", …}'
+               style="width:100%;box-sizing:border-box;background:var(--bg-panel);border:1px solid var(--border);border-radius:7px;padding:10px 12px;font-size:12px;font-family:monospace;color:var(--t1);margin-bottom:8px">
+        <button class="sp-btn sp-btn-secondary" onclick="cloudLockoutBuildLink()">Build my link</button>
+        <div id="cl-tok-out" style="display:none;margin-top:10px;font-size:12px;color:var(--t3);line-height:1.6"></div>
+        <p style="color:var(--t3);line-height:1.6;margin:12px 0 10px;font-size:12px">
+          <strong style="color:var(--t1)">Step 2:</strong> open the link that appears, then paste
+          what it shows below. The value after <code style="color:var(--t1)">cloudSecret</code> is
+          your key; pasting the whole thing is fine.
         </p>
         <input id="cl-key" type="text" spellcheck="false" autocomplete="off"
                placeholder="cloudSecret (64 characters)"
@@ -3714,8 +3721,58 @@ function renderCloudLockout() {
   const inp = document.getElementById('cl-key');
   if (inp) {
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') cloudLockoutUseKey(); });
-    try { inp.focus(); } catch (e) {}
   }
+  const tok = document.getElementById('cl-tok');
+  if (tok) {
+    tok.addEventListener('keydown', e => { if (e.key === 'Enter') cloudLockoutBuildLink(); });
+    try { tok.focus(); } catch (e) {}
+  }
+}
+
+/* Builds the config URL from a pasted hestia-token.json instead of asking
+   someone to assemble it by hand.
+
+   That hand-assembly is where the first person to follow these instructions
+   came unstuck: the file contains FOUR credentials -- appId/token for the
+   companion app and makerApiAppId/makerApiToken for Maker API -- and the
+   instructions just said "appId and token". Picking the wrong pair produces a
+   blank page, with nothing to say which of the two mistakes was made. The page
+   knows which fields it wants, so it should pick them. */
+function cloudLockoutBuildLink() {
+  const inp = document.getElementById('cl-tok');
+  const out = document.getElementById('cl-tok-out');
+  if (!out) return;
+  const show = (html) => { out.innerHTML = html; out.style.display = 'block'; };
+  const raw = inp ? String(inp.value || '').trim() : '';
+  if (!raw) { show(`<span style="color:var(--red)">Paste the contents of hestia-token.json first.</span>`); return; }
+
+  let data = null;
+  try { data = JSON.parse(raw); } catch (e) {}
+  /* Fall back to picking the fields out of the text. Browsers pretty-print
+     JSON, and people reasonably paste a partial selection. */
+  const pick = (name) => {
+    if (data && typeof data[name] === 'string' && data[name]) return data[name];
+    const m = new RegExp('"' + name + '"\\s*:\\s*"([^"]+)"').exec(raw);
+    return m ? m[1] : null;
+  };
+  const appId = pick('appId');
+  const token = pick('token');
+  if (!appId || !token) {
+    show(`<span style="color:var(--red)">That does not look like hestia-token.json — it needs an "appId" and a "token".
+          Make sure you opened <strong>/local/hestia-token.json</strong> on your hub and copied all of it.</span>`);
+    return;
+  }
+  const base = (pick('hubIp') ? 'http://' + pick('hubIp') : (CONFIG.hub || '')).replace(/\/+$/, '');
+  if (!base) {
+    show(`<span style="color:var(--red)">Could not work out your hub's address. Add it to the paste, or use the Wall Panel link from a working device.</span>`);
+    return;
+  }
+  const url = `${base}/apps/api/${encodeURIComponent(appId)}/config?access_token=${encodeURIComponent(token)}`;
+  show(`Open this, then paste what it shows into the box below:<br>
+        <a href="${h(url)}" target="_blank" rel="noopener"
+           style="color:var(--amber);word-break:break-all;user-select:all">${h(url)}</a>
+        <br><span style="color:var(--t4)">If that page is blank or says "null", your hub has no saved
+        settings — use "Set up as a new household" at the bottom instead.</span>`);
 }
 
 /* Hands the key to the ONE adoption path boot already has (the `hs=` parameter
@@ -12910,11 +12967,25 @@ async function diagCheckCloud() {
          simply never received the key -- it reads as though the data is gone.
          A real user hit exactly this and concluded their settings were lost.
          Lead with the recoverable explanation and name the action. */
+      /* Two things this branch used to get wrong, both reported from the field.
+         It led with "open Hestia on a device that is already working" -- the
+         same advice the lockout screen led with, and impossible for exactly the
+         households that land here, since if any device still worked they would
+         not be reading this. v2.1.2 fixed that wording on the lockout screen
+         and missed this copy of it.
+         And it never mentioned _cloudLastPushError, so a household whose SAVES
+         were being rejected was told only "you need your key" -- suppressing
+         the one message that explains why setting up fresh does not stick. */
+      const why = _cloudLastPushError
+        ? ` The last save was also rejected: ${_cloudLastPushError}`
+        : '';
       diagSetStatus('cloud', 'amber', 'This device needs your household key',
         `Your settings are encrypted and this device does not have the key, so it cannot read them. ` +
-        `Open Hestia on a device that is already working, go to Settings → Wall Panel, and open that link here — it carries the key across. ` +
-        `Connecting this device to your home network where it can reach the hub does the same thing. ` +
-        `(If this address is shared with other homes, as on some ISPs, the record may genuinely belong to someone else.)`);
+        `Your hub has the key: open ${(CONFIG.hub || 'http://YOUR_HUB_IP').replace(/\/+$/, '')}/local/hestia-token.json on your network, ` +
+        `take "appId" and "token" from it (NOT makerApiAppId or makerApiToken), and open ` +
+        `<hub>/apps/api/<appId>/config?access_token=<token> — the 64-character value after "cloudSecret" is your key. ` +
+        `Paste it into the recovery screen, or use Settings → Wall Panel on a device that still works. ` +
+        `(If this address is shared with other homes, as on some ISPs, the record may genuinely belong to someone else.)` + why);
     }
   } catch (e) {
     diagSetStatus('cloud', 'red', 'Record check failed', `Could not read this household's record: ${e.message}`);
