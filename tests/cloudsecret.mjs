@@ -33,7 +33,10 @@ let PASS = 0, FAIL = 0;
 const check = (l, c, x = '') => { c ? PASS++ : FAIL++; console.log(`${c ? 'PASS' : 'FAIL'}  ${l}${x ? `  ${x}` : ''}`); };
 
 /* ── a world that runs the real cloudSyncPush end to end ────────────── */
-function world({ cloudSecret = 'a'.repeat(64), hubOk = true } = {}) {
+function world({ cloudSecret = 'a'.repeat(64), hubOk = true, status = null } = {}) {
+  // The rejection STATUS is selectable because the push handler now branches on
+  // it. Hardcoding one status meant the other branches were never executed.
+  status = (status === null) ? (hubOk ? 200 : 401) : status;
   const sent = [];
   const logs = [];
   const api = new Function('crypto', 'btoa', 'atob', 'TextEncoder', 'TextDecoder', '__sent', '__log', `
@@ -52,7 +55,7 @@ function world({ cloudSecret = 'a'.repeat(64), hubOk = true } = {}) {
     function sbxBlocked(){ return false; }
     const deepClone = (o) => JSON.parse(JSON.stringify(o));
     function _cloudGetIp(){ return Promise.resolve('203.0.113.5'); }
-    function fetch(url, init){ __sent(JSON.parse(init.body)); return Promise.resolve({ ok: ${hubOk}, status: ${hubOk ? 200 : 401} }); }
+    function fetch(url, init){ __sent(JSON.parse(init.body)); return Promise.resolve({ ok: ${hubOk}, status: ${status} }); }
     ${fn('_cloudKey')}
     ${fn('_cloudEncryptWithKey')}
     ${fn('_cloudDecryptWithKey')}
@@ -149,13 +152,43 @@ console.log('\n=== 3. No secret means no write, loudly ===');
 
 console.log('\n=== 4. A rejected write is surfaced, never silent ===');
 {
-  const w = world({ hubOk: false });
-  await w.api.push(PAYLOAD());
-  await new Promise(r => setTimeout(r, 50));
-  check('the PUT was attempted', w.sent.length === 1);
-  check('the rejection is recorded for Diagnostics', /HTTP 401/.test(w.api.err() || ''),
-    w.api.err() || '(silent — this was the bug)');
-  check('and logged', w.logs.some(l => /rejected/i.test(l)));
+  const reject = async (status) => {
+    const w = world({ hubOk: false, status });
+    await w.api.push(PAYLOAD());
+    await new Promise(r => setTimeout(r, 50));
+    return w;
+  };
+
+  const generic = await reject(413);
+  check('the PUT was attempted', generic.sent.length === 1);
+  check('an unexpected rejection still names its status',
+    /HTTP 413/.test(generic.api.err() || ''),
+    generic.api.err() || '(silent — this was the bug)');
+  check('and logged', generic.logs.some(l => /rejected/i.test(l)));
+
+  /* 401 and 409 each have exactly one cause a user can act on, and naming only
+     the number left the most damaging one unexplained. A household recovering
+     over its own record is authorised by the Maker API token stored in that
+     record, so entering a freshly generated token during setup 401s forever:
+     the dashboard works locally, nothing ever reaches another device, and the
+     only symptom was a three-digit number. */
+  const unauth = await reject(401);
+  check('401 names the Maker API token as the cause',
+    /Maker API token/i.test(unauth.api.err() || ''),
+    unauth.api.err() || '(no message)');
+  check('...and says which token to use, not just that one is wrong',
+    /already had/i.test(unauth.api.err() || ''));
+
+  const conflict = await reject(409);
+  check('409 points at the household key rather than a fresh setup',
+    /household key/i.test(conflict.api.err() || ''),
+    conflict.api.err() || '(no message)');
+
+  /* All three must still be distinguishable. Collapsing them back to one
+     string is the regression this guards. */
+  const msgs = [generic.api.err(), unauth.api.err(), conflict.api.err()];
+  check('the three cases do not share one message',
+    new Set(msgs).size === 3, JSON.stringify(msgs));
 }
 
 console.log('\n=== 5. Minting is gated on the hub accepting the write ===');
@@ -844,6 +877,117 @@ console.log('\n=== 17. Boot must never hang on this check ===');
   check('not locked out -> the ordinary wizard is rendered',
     (await wire(false)).includes('wizard'));
   check('never both', (await wire(true)).length === 1 && (await wire(false)).length === 1);
+}
+
+console.log('\n=== 18. Recovering when NO device still has the key ===');
+{
+  /* Field report on v2.0.2, from the household the lockout screen was built
+     for. Every one of his devices was locked out, which is the end state of the
+     v2.0.0 wipe, and the screen's instruction was "open Hestia on a device that
+     is already working". There was no such device. He followed it anyway, and
+     the Wall Panel link he copied carried no `hs=` at all, because
+     spWallPanelBody only appends the secret when the generating device holds
+     one -- so the one documented recovery produced a link that looked right and
+     did nothing. His words: "same results ... is there a way to start from
+     scratch?"
+
+     Entering the key by hand needs no second device, which is why it is now the
+     first thing offered. These tests constrain the two halves that made the old
+     advice fail silently: the extraction, and the fact that the link warns when
+     it cannot carry a key. */
+  const KEY = 'ab12'.repeat(16);                 // 64 hex
+  const OTHER = 'ff00'.repeat(16);               // a DIFFERENT 64-hex value
+  if (KEY.length !== 64 || OTHER.length !== 64) throw new Error('test fixture is not 64 chars');
+
+  /* Stable element objects, not a fresh literal per getElementById call: the
+     error element has to be readable AFTER the call or the message it shows
+     cannot be asserted at all. */
+  const drive = new Function('__value', '__nav', '__err', `
+    const els = {
+      'cl-key':     { value: __value, addEventListener(){}, focus(){} },
+      'cl-key-err': { textContent: '', style: {}, },
+    };
+    Object.defineProperty(els['cl-key-err'], 'textContent', {
+      get: () => __err.text, set: (v) => { __err.text = v; },
+    });
+    const document = { getElementById: (id) => els[id] || null };
+    const location = { pathname: '/', replace: (u) => __nav.push(u) };
+    const encodeURIComponent = globalThis.encodeURIComponent;
+    ${fn('cloudLockoutUseKey')}
+    cloudLockoutUseKey();
+  `);
+
+  const run = (value) => {
+    const nav = [], err = { text: '' };
+    drive(value, nav, err);
+    return { nav, err: err.text };
+  };
+  const go = (value) => run(value).nav;
+
+  check('a bare key navigates to the hs= boot path',
+    go(KEY)[0] === '/?hs=' + KEY, go(KEY)[0]);
+
+  check('a pasted JSON fragment has the key pulled out of it',
+    go(`  "cloudSecret":"${KEY}",  `)[0] === '/?hs=' + KEY);
+
+  check('a pasted link works too',
+    go(`https://hestari.com/?hs=${KEY}`)[0] === '/?hs=' + KEY);
+
+  check('uppercase is normalised, so boot\'s own gate accepts it',
+    go(KEY.toUpperCase())[0] === '/?hs=' + KEY,
+    'boot tests /^[0-9a-f]{64}$/ -- uppercase would be silently ignored there');
+
+  /* The reason extraction is labelled-first rather than first-match. A user
+     told to look for `cloudSecret` may paste the whole config blob, and that
+     blob contains other 64-character hex strings. Taking the first run found
+     would hand over a token hash, fail to decrypt, and return them to this
+     exact screen with nothing explaining why. */
+  const blob = `{"savedAt":1,"config":{"tokenHash":"${OTHER}","cloudSecret":"${KEY}","x":1}}`;
+  check('a whole config blob yields cloudSecret, not the hash that precedes it',
+    go(blob)[0] === '/?hs=' + KEY, go(blob)[0]);
+
+  check('nothing usable in the paste means no navigation at all',
+    go('not a key').length === 0 && go('').length === 0 && go('   ').length === 0,
+    'navigating on junk would reload into the same screen with no error shown');
+
+  check('a 63-character near-miss is refused rather than padded',
+    go(KEY.slice(0, 63)).length === 0);
+
+  /* An empty box and a wrong value are different mistakes and get different
+     wording. Without this, dropping the early return changed nothing a test
+     could see -- the format check below it refuses an empty string too, so the
+     only casualty was telling someone who has not pasted yet that what they
+     pasted is invalid. */
+  check('an empty box asks for the key rather than calling it invalid',
+    /paste your household key/i.test(run('   ').err), JSON.stringify(run('   ').err));
+  check('...and a wrong value is described as wrong',
+    /does not contain/i.test(run('nope').err), JSON.stringify(run('nope').err));
+
+  /* The extracted value is only useful if boot still accepts it, and boot's
+     gate is inline in the boot IIFE so it cannot be brace-extracted. Assert the
+     literal is still there: if that gate is ever widened or narrowed, this
+     fails and the extraction above gets re-checked against it. */
+  check('boot still gates hs= on exactly 64 lowercase hex characters',
+    /_urlHs && \/\^\[0-9a-f\]\{64\}\$\/\.test\(_urlHs\) && !CONFIG\.cloudSecret/.test(SRC),
+    'extraction and adoption must agree on the format');
+
+  /* The other half of the field failure. A link that cannot carry the key must
+     say so, or the lockout screen's fallback advice sends people to copy it. */
+  const wp = fn('spWallPanelBody');
+  check('the Wall Panel section warns when the link carries no household key',
+    /CONFIG\.cloudSecret \? '' :/.test(wp) &&
+    /does not carry your household key/.test(wp),
+    'a keyless link that looks correct is what made the original advice fail');
+
+  /* And the lockout screen must actually offer the field, wired to the handler.
+     Rendering the explanation without the input would read as fixed and
+     recover nobody. */
+  const lock = fn('renderCloudLockout');
+  check('the lockout screen renders the key input and wires it up',
+    /id="cl-key"/.test(lock) && /cloudLockoutUseKey\(\)/.test(lock));
+  check('...and no longer claims nothing has been lost',
+    !/nothing has been lost/.test(lock),
+    'untrue for the household that already lost it, which is who reads this');
 }
 
 console.log(`\n${PASS} passed, ${FAIL} failed`);

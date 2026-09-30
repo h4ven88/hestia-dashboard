@@ -1873,7 +1873,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '2.1.0';
-const HESTIA_BUILD_DATE = '2026-09-29';
+const HESTIA_BUILD_DATE = '2026-09-30';
 
 /* ═══════════════════════════════════════════════════════
    SANDBOX MODE
@@ -3406,7 +3406,21 @@ function cloudSyncPush(payload) {
         // There was no else branch at all. Every rejected write -- 400 on a
         // shape change, 413 on size, 401 once writes are authenticated -- was
         // completely invisible, on both the console and the Diagnostics panel.
-        _cloudLastPushError = `backend rejected the write (HTTP ${r.status})`;
+        //
+        // 401 and 409 get their own wording because the generic form named the
+        // status and nothing else, and both have one specific cause a user can
+        // act on. A household that starts fresh over its own existing record is
+        // authorised by the Maker API token in that record, so entering a
+        // NEWLY generated token during setup 401s here indefinitely -- with the
+        // old message, the only symptom was settings that never reached other
+        // devices and no statement anywhere of why.
+        if (r.status === 401) {
+          _cloudLastPushError = 'cloud rejected the write as unauthorized — the saved record for this connection was created with a different Maker API token. Use the token this household already had, in Settings → Hub & API.';
+        } else if (r.status === 409) {
+          _cloudLastPushError = 'cloud refused to overwrite an existing record it could not read — enter your household key rather than setting up fresh.';
+        } else {
+          _cloudLastPushError = `backend rejected the write (HTTP ${r.status})`;
+        }
         console.warn('[CloudSync] ' + _cloudLastPushError);
       }
     });
@@ -3634,8 +3648,16 @@ async function renderSetupOrLockout() {
 }
 
 /* Shown instead of the setup wizard when the household exists but this device
-   has no key. Explains it in the user's terms and gives the one action that
-   actually recovers: the Wall Panel link, which carries the key directly. */
+   has no key.
+
+   Recovery routes are ordered by what is still possible, NOT by how convenient
+   they are. The first version of this screen led with "open Hestia on a device
+   that is already working" -- which is impossible for the households that
+   actually land here in numbers. A household that hit the v2.0.0 wipe has NO
+   working device by definition, and following that instruction produced a Wall
+   Panel link with no `hs=` on it at all (spWallPanelBody only appends the
+   secret when the generating device holds one), so the advice failed silently.
+   Entering the key by hand needs no second device, so it goes first. */
 function renderCloudLockout() {
   document.querySelector('.panel').style.display = 'none';
   let wrap = document.getElementById('ob-wrap');
@@ -3644,35 +3666,97 @@ function renderCloudLockout() {
     wrap.id = 'ob-wrap'; wrap.className = 'ob-wrap';
     document.body.appendChild(wrap);
   }
+  const hub = (CONFIG.hub || '').replace(/\/+$/, '') || 'http://YOUR_HUB_IP';
   wrap.innerHTML = `
-    <div class="ob-card" style="max-width:520px">
+    <div class="ob-card" style="max-width:560px">
       <h2 style="margin:0 0 10px">This device needs your household key</h2>
       <p style="color:var(--t3);line-height:1.6;margin:0 0 14px">
         There are already encrypted Hestia settings saved for this internet
         connection, and this device does not have the key to read them.
+        <strong style="color:var(--t1)">If this is your first time using Hestia,</strong>
+        they may belong to whoever previously had your address, since some providers
+        recycle them — use "Set up as a new household" at the bottom.
       </p>
-      <p style="color:var(--t3);line-height:1.6;margin:0 0 14px">
-        <strong style="color:var(--t1)">If you have used Hestia before,</strong> these are
-        almost certainly yours and nothing has been lost.
-        <strong style="color:var(--t1)">If this is your first time,</strong> they may belong
-        to someone who previously had your address — some providers share or recycle
-        them — in which case use "Set up as a new household" below.
-      </p>
-      <p style="color:var(--t3);line-height:1.6;margin:0 0 14px">
-        <strong style="color:var(--t1)">To fix it:</strong> open Hestia on a device that
-        is already working, go to <strong style="color:var(--t1)">Settings &rarr; Wall Panel</strong>,
-        and open that link on this device. It carries the key across. Connecting this
-        device to your home network, where it can reach your hub, does the same thing.
+
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px;margin:0 0 14px">
+        <div style="font-size:13px;font-weight:600;color:var(--t1);margin-bottom:8px">Enter your household key</div>
+        <p style="color:var(--t3);line-height:1.6;margin:0 0 10px;font-size:12px">
+          This works even when none of your devices are reachable. Your hub has the
+          key. On your home network, open
+          <span style="color:var(--t1);user-select:all;word-break:break-all">${h(hub)}/local/hestia-token.json</span>
+          and note <code style="color:var(--t1)">appId</code> and <code style="color:var(--t1)">token</code>, then open
+          <span style="color:var(--t1);user-select:all;word-break:break-all">${h(hub)}/apps/api/&lt;appId&gt;/config?access_token=&lt;token&gt;</span>
+          and find <code style="color:var(--t1)">cloudSecret</code>. Paste it below. Pasting the whole
+          line, or a link containing it, is fine.
+        </p>
+        <input id="cl-key" type="text" spellcheck="false" autocomplete="off"
+               placeholder="cloudSecret (64 characters)"
+               style="width:100%;box-sizing:border-box;background:var(--bg-panel);border:1px solid var(--border);border-radius:7px;padding:10px 12px;font-size:12px;font-family:monospace;color:var(--t1);margin-bottom:8px">
+        <div id="cl-key-err" style="display:none;font-size:12px;color:var(--red);line-height:1.5;margin-bottom:8px"></div>
+        <button class="sp-btn" style="background:var(--amber);color:#000" onclick="cloudLockoutUseKey()">Use this key</button>
+      </div>
+
+      <p style="color:var(--t3);line-height:1.6;margin:0 0 14px;font-size:12px">
+        <strong style="color:var(--t1)">Or, if another device is still working:</strong>
+        open Hestia there, go to <strong style="color:var(--t1)">Settings &rarr; Wall Panel</strong>,
+        and open that link on this device. Connecting this device to your home network,
+        where it can reach your hub, does the same thing.
       </p>
       <p style="color:var(--t4);font-size:12px;line-height:1.6;margin:0 0 18px">
-        Starting fresh here would replace your household's settings everywhere,
-        so Hestia will not offer that by mistake.
+        Starting fresh replaces your household's settings on every device and cannot
+        be undone, so Hestia will not offer it by mistake.
       </p>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <button class="sp-btn" style="background:var(--amber);color:#000" onclick="location.reload()">Try again</button>
+        <button class="sp-btn" onclick="location.reload()">Try again</button>
         <button class="sp-btn sp-btn-secondary" onclick="cloudLockoutSetUpAnyway()">Set up as a new household</button>
       </div>
     </div>`;
+  const inp = document.getElementById('cl-key');
+  if (inp) {
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') cloudLockoutUseKey(); });
+    try { inp.focus(); } catch (e) {}
+  }
+}
+
+/* Hands the key to the ONE adoption path boot already has (the `hs=` parameter
+   at the top of boot), rather than adding a second way for a secret to enter
+   CONFIG. That path is tested, scrubs the value out of the address bar, and
+   refuses to overwrite a secret this device already holds.
+
+   Deliberately tolerant about what gets pasted. The key is read out of a JSON
+   line or a URL by hand, so `"cloudSecret":"ab..."`, a bare value with quotes
+   or trailing whitespace, and a full link are all things a person will
+   reasonably arrive with. Extraction is by pattern, so whatever is pulled out
+   is a 64-character hex string either way -- the tolerance is in the input, not
+   in what gets accepted. */
+function cloudLockoutUseKey() {
+  const inp = document.getElementById('cl-key');
+  const err = document.getElementById('cl-key-err');
+  const show = msg => {
+    if (!err) return;
+    err.textContent = msg;
+    err.style.display = 'block';
+  };
+  if (err) err.style.display = 'none';
+  const raw = inp ? String(inp.value || '') : '';
+  if (!raw.trim()) { show('Paste your household key first.'); return; }
+  const low = raw.toLowerCase();
+  /* A labelled match wins over a bare one. Someone told to look for
+     `cloudSecret` in a config blob may well paste the whole blob, and that blob
+     contains OTHER 64-character hex strings -- a token hash, a secret proof --
+     so taking the first run found would quietly hand over the wrong value and
+     land them back on this screen with no idea why. Falling back to a bare run
+     keeps a paste of just the value working. */
+  const m = low.match(/cloudsecret[^0-9a-f]{0,8}([0-9a-f]{64})/) || low.match(/([0-9a-f]{64})/);
+  if (!m) {
+    show('That does not contain a household key. It is 64 characters long and uses only the digits 0-9 and the letters a-f.');
+    return;
+  }
+  /* location.search is replaced rather than appended to: this screen can only
+     be reached with no usable secret, and carrying over whatever params got the
+     device here (an old hs=, a stale wall panel token) would be re-applying the
+     thing that already failed. */
+  location.replace(location.pathname + '?hs=' + encodeURIComponent(m[1]));
 }
 
 /* The deliberate escape hatch. Someone really may be starting a new household
@@ -3684,6 +3768,9 @@ function cloudLockoutSetUpAnyway() {
     'This will set up a new household on this device.\n\n' +
     'If the existing settings on this network belong to you, this replaces them ' +
     'on every one of your devices, and they cannot be recovered.\n\n' +
+    'If you are doing this to recover your own household, enter the SAME Maker API ' +
+    'token you were already using. A newly generated one will be refused, because ' +
+    'the token is what proves the household is yours.\n\n' +
     'Continue only if this really is a new setup.'
   );
   if (!ok) return;
@@ -11271,6 +11358,17 @@ function spWallPanelBody() {
         <div onclick="spWallPanelCopy()" aria-label="Copy Wall Panel link" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);width:30px;height:30px;border-radius:6px;border:1px solid var(--border);background:var(--bg-panel);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--t2);font-size:16px;transition:all .15s" id="sp-wp-copy">⎘</div>
       </div>
       <span class="sp-hint">This URL contains your API credentials. Do not share it publicly.</span>
+      ${CONFIG.cloudSecret ? '' : `
+      <div style="background:var(--amber-dim);border:1px solid var(--amber-bdr);border-radius:10px;padding:12px 14px;margin-top:12px">
+        <div style="font-size:12px;font-weight:500;color:var(--amber);margin-bottom:4px">This link does not carry your household key</div>
+        <div style="font-size:11px;color:var(--t2);line-height:1.6">
+          This device has no household key yet, so the link above cannot pass one on.
+          A device opening it will still reach your hub, but a device that cannot
+          reach your hub will be asked for the key instead. Save any setting here
+          while your hub is reachable to generate one, then come back and copy the
+          link again.
+        </div>
+      </div>`}
     </div>` : `
     <div class="sp-group">
       <div class="sp-group-lbl">Setup URL</div>
