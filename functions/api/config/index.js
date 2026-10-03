@@ -100,11 +100,45 @@ export async function onRequestPut({ request, env }) {
           message: 'existing record could not be read; refusing to overwrite',
         }, { status: 409 });
       }
+      /* THIRD DOOR: proof that the caller can DECRYPT this record.
+       *
+       * A random R is written into the ENCRYPTED half and sha256(R) into the
+       * plaintext half, so recovering R requires the household secret. Neither
+       * side is attacker-chosen: the hash was stored by an authorised write,
+       * and the neighbour can read the hash but cannot invert it.
+       *
+       * This exists because doors one and two can BOTH be shut at once, and a
+       * real household hit exactly that. They regenerated their Maker API
+       * token in Hubitat, which froze the stored tokenHash at a value no
+       * device could reproduce, and separately a second secret was minted on
+       * one of their devices, which made their secretProof miss the stored
+       * verifier. Every write 401'd for the full 30-day TTL with no way back
+       * in, and nothing on any screen explained it.
+       *
+       * It is NOT retroactive: a record written before this release carries no
+       * recoveryHash, so it does not rescue that household. It stops the next
+       * one. */
+      const storedRecovery = household.config && household.config.recoveryHash;
+      const presentedRecovery = typeof body.recoveryProof === 'string' ? body.recoveryProof : null;
+      if (storedRecovery && presentedRecovery &&
+          (await sha256Hex(presentedRecovery)) === storedRecovery) {
+        // Proved something about the record that was ALREADY stored, which is
+        // the bar mayReplaceVerifier asks for below.
+        tokenProved = true;
+      } else {
       const storedHash = household.config && household.config.tokenHash;
       if (storedHash) {
         const presented = body.token ? await sha256Hex(body.token) : null;
         if (!presented || presented !== storedHash) {
-          return Response.json({ status: 'error', message: 'unauthorized' }, { status: 401 });
+          /* Machine-readable, because the client could not previously tell
+             "your Maker token was rotated" from "this device has the wrong
+             household key" -- and the one message it did show named only the
+             token, which sent a real user through a rebuild for the wrong
+             cause. */
+          return Response.json({
+            status: 'error', reason: 'bad-token',
+            message: 'the saved record for this connection was created with a different Maker API token',
+          }, { status: 401 });
         }
         // Matched the hash already in the stored record, so this caller really
         // does hold the household's Maker token -- enough to rotate its secret.
@@ -132,7 +166,26 @@ export async function onRequestPut({ request, env }) {
            hub's relays. Establishing a fresh verifier is only ever for a
            household that holds no verifier of any kind. */
         if (storedSecretHash) {
-          return Response.json({ status: 'error', message: 'unauthorized' }, { status: 401 });
+          return Response.json({
+            status: 'error', reason: 'bad-secret',
+            message: 'this network already has a household key and the one presented does not match it',
+          }, { status: 401 });
+        }
+        /* F6. The check below compares two fields the CALLER supplied, which
+           is only safe while the slot is genuinely unclaimed. A LEGACY record
+           is not evidence of that: its contents are encrypted under
+           SHA-256(publicIP + a constant in a public repo), so any neighbour
+           can forge one whose decrypted config carries no token, arrive here,
+           and claim the slot with a verifier of their choosing.
+
+           Ask of every authorisation check which side the attacker can choose.
+           Here they could choose both, and the only thing standing in the way
+           was a wcap entry that a forged legacy record would not have. */
+        if (household.legacy) {
+          return Response.json({
+            status: 'error', reason: 'legacy-record',
+            message: 'this network\'s record predates the encrypted format; open Hestia on a device that can reach your hub to migrate it',
+          }, { status: 401 });
         }
         const incoming = body.service && body.service.tokenHash;
         if (!incoming || typeof incoming !== 'string') {
@@ -149,11 +202,12 @@ export async function onRequestPut({ request, env }) {
         const proof = body.token ? await sha256Hex(body.token) : null;
         if (!proof || proof !== incoming) {
           return Response.json({
-            status: 'error',
+            status: 'error', reason: 'verifier-mismatch',
             message: 'claimed verifier does not match the presented token',
           }, { status: 401 });
         }
-      }
+        }
+      }   // end of the recovery-proof door's else
     }
 
     /* Proof material is never persisted. The raw Maker token especially: the
@@ -161,10 +215,27 @@ export async function onRequestPut({ request, env }) {
      * so storing it would hand over the exact credential this change moved
      * into the encrypted half. */
     const secretProof = presentedSecretHash;
+    const webhookCapProof = typeof body.webhookCapProof === 'string' ? body.webhookCapProof : null;
     if (body.token) delete body.token;
     if (body.secretProof) delete body.secretProof;
+    if (body.webhookCapProof) delete body.webhookCapProof;
+    // Same rule for the recovery proof. Its HASH belongs in the record (the
+    // client puts it in the service half); the value itself never does, or the
+    // neighbour reading discover.js would simply be handed the credential.
+    if (body.recoveryProof) delete body.recoveryProof;
 
-    await env.HESTIA_KV.put(ipKey, JSON.stringify(body), { expirationTtl: 2592000 });
+    /* KV does not expose a key's own expiry through get(), so a household that
+       is locked out of its record cannot be told how long that lasts. Stamping
+       it here lets the UI say "this clears on the 14th" instead of advising an
+       open-ended wait -- which is the difference between a user who waits and
+       a user who wipes a device and takes the rest of the household down.
+       Written server-side on purpose: the client must not get to choose it. */
+    const RECORD_TTL_SECONDS = 2592000;
+    if (body.service && typeof body.service === 'object') {
+      body.service.expiresAt = Date.now() + RECORD_TTL_SECONDS * 1000;
+    }
+
+    await env.HESTIA_KV.put(ipKey, JSON.stringify(body), { expirationTtl: RECORD_TTL_SECONDS });
 
     /* Recorded after the write is authorised, so a rejected caller can never
        install their own recovery credential. Refreshed on every successful
@@ -183,6 +254,20 @@ export async function onRequestPut({ request, env }) {
     const mayReplaceVerifier = !storedSecretHash || secretProves || tokenProved;
     if (secretProof && mayReplaceVerifier) {
       await env.HESTIA_KV.put(wcapKey, secretProof, { expirationTtl: 2592000 * 2 });
+    }
+
+    /* The device-event webhook's verifier, stored only now -- after the write
+       was authorised -- for the same reason as wcap above: a rejected caller
+       must never get to install their own.
+     *
+     * It lives at its own key and NOT in the record, because discover.js hands
+     * the record's plaintext half to anyone at this address. Putting it there
+     * would publish the credential to exactly the attacker it excludes.
+     *
+     * Its presence is also what closes the webhook's grace window for THIS
+     * household: once this key exists, webhook.js refuses uncapped POSTs. */
+    if (webhookCapProof && /^[0-9a-f]{64}$/.test(webhookCapProof)) {
+      await env.HESTIA_KV.put(`hcap:${shortHash}`, webhookCapProof, { expirationTtl: 2592000 * 2 });
     }
 
     return Response.json({ status: 'ok' });

@@ -98,7 +98,51 @@ function pushAllowed(config, described, evt) {
 //
 // Body (Maker API's own shape): { content: { name, value, displayName,
 // deviceId, descriptionText, unit, data } }
+/* The capability verifier, at its own KV key.
+ *
+ * NOT in the record's service half, because discover.js hands that to anyone
+ * at this address -- which is the mistake the wcap comment in config/index.js
+ * already warns about. Written only by an authorised config write, so the
+ * stored side of the comparison is never attacker-chosen. */
+export const webhookCapKey = (shortHash) => `hcap:${shortHash}`;
+
 export async function onRequestPost({ request, env }) {
+  return processDeviceEvent({ request, env, cap: null });
+}
+
+/* Shared by this route (uncapped, legacy) and webhook/[cap].js (capped).
+ *
+ * WHY A CAPABILITY AT ALL: this endpoint had no credential of any kind, and it
+ * composes with discover.js into a remotely triggerable fire alarm. A
+ * neighbour sharing the public IP reads the household's smoke sensor ids from
+ * discover.js, POSTs {deviceId, name:'smoke', value:'detected'} here, and
+ * because 'smoke' is in pushDispatch's ALWAYS_CATEGORIES it bypasses the
+ * armed-only gate and every phone in the house gets "Smoke / CO Alert", at any
+ * hour, repeatably. The same trick blinds the Activity Log: one fake motion
+ * event per sensor every ten minutes holds the mcool: cooldown open so real
+ * motion is never recorded.
+ *
+ * WHY THE CAPABILITY IS A PATH SEGMENT, not a query string: Hubitat's docs
+ * specify /postURL/[URL] with the target "URL encoded" and say nothing about
+ * whether a query string survives being encoded, stored and replayed. That is
+ * unconfirmed platform behaviour, and this project has nearly shipped on three
+ * of those already. A path segment cannot be dropped without breaking postURL
+ * for every user of it, so it needs no assumption.
+ *
+ * WHY UNCAPPED IS STILL ACCEPTED: only the browser can re-register the URL --
+ * a Groovy app cannot reliably call its own hub's Maker API (established by
+ * direct testing in Sprint 13). Refusing uncapped POSTs on the release that
+ * introduces the cap would silently kill device-event push and Activity Log
+ * capture for every household that does not open a dashboard, who are exactly
+ * the push-only households the feature is for. So uncapped is accepted for a
+ * stated grace window.
+ *
+ * THE WINDOW CLOSES PER HOUSEHOLD, NOT ON A DATE ALONE: once a household has
+ * registered a capped URL it has an hcap: verifier, and from that moment an
+ * uncapped POST for that household is refused. So a household is protected the
+ * first time it opens a dashboard, and only households that have never
+ * migrated stay exposed. */
+export async function processDeviceEvent({ request, env, cap }) {
   try {
     const ip = request.headers.get('CF-Connecting-IP');
     if (!ip) return Response.json({ status: 'error', message: 'no IP' }, { status: 400 });
@@ -118,6 +162,37 @@ export async function onRequestPost({ request, env }) {
 
     const hash = await sha256(ip);
     const shortHash = hash.substring(0, 16);
+
+    /* The gate. Verifier is stored hashed; the caller presents the raw value,
+       so neither side of this comparison is attacker-chosen. */
+    const storedCap = await env.HESTIA_KV.get(webhookCapKey(shortHash));
+    if (storedCap) {
+      /* This arm is REDUNDANT for safety and exists for the log line. With it
+         removed, a `cap` of null still falls to the comparison below, where
+         sha256(null) hashes the string "null" and can never equal a stored
+         verifier, so the request is refused either way -- confirmed by
+         mutating this block out and watching the suite stay green while the
+         401 still happened. Kept because "refused an uncapped POST" and
+         "refused a bad capability" are different operational facts, and a
+         household debugging its own notifications needs to tell them apart. */
+      if (!cap) {
+        console.warn('[push/webhook] refused an uncapped POST for a household that has registered a capability', shortHash);
+        return Response.json({ status: 'error', message: 'unauthorized' }, { status: 401 });
+      }
+      if (await sha256(cap) !== storedCap) {
+        console.warn('[push/webhook] refused a POST presenting a bad capability', shortHash);
+        return Response.json({ status: 'error', message: 'unauthorized' }, { status: 401 });
+      }
+    } else if (cap) {
+      /* Presented a capability for a household that has none stored. Not an
+         attack -- most likely a re-registration whose config write has not
+         landed yet. Nothing to verify against, so it is treated exactly like
+         an uncapped call rather than refused. */
+      console.warn('[push/webhook] capability presented but none stored yet', shortHash);
+    } else {
+      // Grace: this household has never registered a capability.
+      console.warn('[push/webhook] accepted an uncapped POST (grace window)', shortHash);
+    }
 
     const household = await getHouseholdConfig(env, ip, shortHash);
     if (!household) {

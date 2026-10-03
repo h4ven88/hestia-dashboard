@@ -1872,8 +1872,8 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    Copyright © 2026 Haven. CC BY-NC 4.0.
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
-const HESTIA_VERSION    = '2.1.4';
-const HESTIA_BUILD_DATE = '2026-09-30';
+const HESTIA_VERSION    = '2.2.0';
+const HESTIA_BUILD_DATE = '2026-10-03';
 
 /* ═══════════════════════════════════════════════════════
    SANDBOX MODE
@@ -3092,6 +3092,35 @@ async function saveConfigToHub(payload) {
   if (!HUB_STORE) {
     if (payload && payload.config && !payload.config.cloudSecret &&
         payload.config.token && payload.config.appId && !SANDBOX) {
+      /* `!HUB_STORE` does NOT mean "this household has no companion app". It
+         also means "this device cannot reach it right now", which is the
+         ordinary state on hestari.com (discoverHubStore()'s fetch of
+         /local/hestia-token.json is CORS-blocked cross-origin) and whenever
+         the stale-app-id breaker is open. Minting on that signal gave one
+         physical device two secrets across its two origins: the hub-served
+         page kept the hub's, hestari.com invented its own and rewrote the
+         cloud record under it, and the household could no longer read its own
+         settings. Reported by two users; it is the condition this guard
+         exists for, not a hypothetical.
+
+         Guard 1: a known companion app id means we have seen the hub before,
+         so this is unreachable rather than absent. Wait for it. */
+      if (CONFIG.hestiaAppId) {
+        console.warn('[CloudSync] Not minting a secret: this household has a companion app (' +
+                     CONFIG.hestiaAppId + ') that is currently unreachable, not none. ' +
+                     'The hub distributes the real secret; inventing one here would fork the household.');
+        return false;
+      }
+      /* Guard 2: a record this device cannot read means a household already
+         exists here. Minting would encrypt a second record over it and lock
+         out every device holding the real key. Fails OPEN on a network
+         hiccup, matching cloudRecordLockedOut()'s own contract -- a genuine
+         first-time setup must never be blocked by a bad moment. */
+      if (await _cloudRecordUnreadable()) {
+        console.warn('[CloudSync] Not minting a secret: a household record exists here that this ' +
+                     'device cannot read. Supply the household key instead (Settings -> Diagnostics).');
+        return false;
+      }
       CONFIG.cloudSecret = Array.from(crypto.getRandomValues(new Uint8Array(32)))
         .map(b => b.toString(16).padStart(2, '0')).join('');
       payload.config.cloudSecret = CONFIG.cloudSecret;
@@ -3110,7 +3139,27 @@ async function saveConfigToHub(payload) {
      Mint-then-write would break that: hubStoreFetch() never throws (it returns
      {ok:false} on failure and on an open breaker), so a device whose hub write
      silently failed would still be holding a secret nobody else has. */
-  const minting = !!(payload && payload.config && !payload.config.cloudSecret);
+  let minting = !!(payload && payload.config && !payload.config.cloudSecret);
+  /* The same guard the !HUB_STORE branch above carries, applied to the
+     hub-reachable path -- which it did not cover, and which has a live route
+     into it.
+
+     exportSettings() does not include cloudSecret. So importing a settings
+     file onto a device that has none leaves CONFIG without one, saveConfig()
+     builds a payload without one, and this mints a brand new household key and
+     POSTs it to the hub. Every other device then inherits it on next boot
+     through applyParsedConfig()'s unconditional assign, and the household can
+     no longer read its own cloud record. One import, whole household re-keyed.
+     That is v2.0.2's shape arriving by a different door.
+
+     A genuinely new household has no record, so this returns false and the
+     mint proceeds. It fails OPEN on a network hiccup, deliberately, for the
+     same reason it does above. */
+  if (minting && await _cloudRecordUnreadable()) {
+    console.warn('[CloudSync] Not minting a secret: a household record exists here that this device ' +
+                 'cannot read. Supply the household key in Settings -> Diagnostics instead.');
+    minting = false;
+  }
   const candidate = minting
     ? Array.from(crypto.getRandomValues(new Uint8Array(32))).map(b => b.toString(16).padStart(2, '0')).join('')
     : null;
@@ -3283,6 +3332,51 @@ function _cloudHasSecret() {
   return !!(CONFIG.cloudSecret && /^[0-9a-f]{64}$/.test(CONFIG.cloudSecret));
 }
 
+/* R -- proof that the holder can DECRYPT this household's record.
+ *
+ * R rides inside the ENCRYPTED half; only sha256(R) goes in the plaintext
+ * half. So presenting R proves the presenter decrypted the record, which is a
+ * stronger claim than holding the Maker token and, unlike the token, survives
+ * the user regenerating it in Hubitat.
+ *
+ * CRITICALLY UNLIKE cloudSecret, generating this opportunistically is safe. A
+ * second secret makes the record unreadable and splits the household -- which
+ * is the bug this release exists to fix. A second R just means door three does
+ * not open for that device, and doors one and two still do. It degrades, it
+ * does not lock anyone out. So it needs none of the minting guards the secret
+ * needs, and devices converge on one value through ordinary config sync. */
+function _cloudEnsureRecovery() {
+  if (!CONFIG.cloudRecovery || !/^[0-9a-f]{32}$/.test(CONFIG.cloudRecovery)) {
+    CONFIG.cloudRecovery = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  return CONFIG.cloudRecovery;
+}
+
+/* The device-event webhook's capability. Same reasoning as R: losing it costs
+   notifications until the next registration, never access to settings. */
+function _cloudEnsureWebhookCap() {
+  if (!CONFIG.pushWebhookCap || !/^[0-9a-f]{32}$/.test(CONFIG.pushWebhookCap)) {
+    CONFIG.pushWebhookCap = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  return CONFIG.pushWebhookCap;
+}
+
+/* Credentials for the GET/PUT/DELETE endpoints that are not the config PUT.
+   Those take their proof in the body; these take it in headers, because some
+   of them are GETs. The raw Maker token already reaches this origin on every
+   config save, so sending it here is no new exposure. */
+async function _cloudAuthHeaders() {
+  const h = {};
+  try {
+    if (CONFIG.token) h['X-Hestia-Token'] = String(CONFIG.token);
+    if (_cloudHasSecret()) h['X-Hestia-Proof'] = await _cloudTokenHash(CONFIG.cloudSecret);
+    if (CONFIG.cloudRecovery) h['X-Hestia-Recovery'] = String(CONFIG.cloudRecovery);
+  } catch (e) {}
+  return h;
+}
+
 /* Persists a config that came from the CLOUD, keeping this device's household
    secret.
 
@@ -3311,11 +3405,15 @@ function _persistConfigKeepingSecret(cfg) {
 
    tests/projection-equivalence.mjs derives the required field list from the
    Worker sources and fails if this drops one. */
-function buildServiceHalf(c, tokenHash) {
+function buildServiceHalf(c, tokenHash, recoveryHash) {
   const pick = (arr) => (arr || []).map(d => ({ id: d.id, subtype: d.subtype, name: d.name }));
   const s = c.artemisSensors || {};
   return {
     tokenHash,
+    /* sha256(R), never R. The value itself stays in the encrypted half; this
+       is the verifier the Worker compares against, and it is safe to sit in
+       the plaintext half because it cannot be inverted. */
+    recoveryHash,
     artemisSensors: { contacts: pick(s.contacts), motions: pick(s.motions),
                       smokes: pick(s.smokes), waters: pick(s.waters) },
     locks: (c.locks || []).map(l => ({ id: l.id, label: l.label })),
@@ -3372,9 +3470,17 @@ function cloudSyncPush(payload) {
     const priv = deepClone(payload);
     if (priv.config) delete priv.config.cloudSecret;
 
+    /* Established on the way out, so the verifier and the value it protects
+       are written in the same operation and cannot disagree. R stays in `priv`
+       -- it is the one credential that MUST ride inside the ciphertext. */
+    _cloudEnsureRecovery();
+    if (priv.config) priv.config.cloudRecovery = CONFIG.cloudRecovery;
+
     const inner = { config: priv, savedAt: Date.now(), version: HESTIA_VERSION };
     const key = await _cloudKey(secret, ['encrypt']);
-    const service = buildServiceHalf((payload.config) || {}, await _cloudTokenHash(payload.config && payload.config.token));
+    const service = buildServiceHalf((payload.config) || {},
+                                     await _cloudTokenHash(payload.config && payload.config.token),
+                                     await _cloudTokenHash(CONFIG.cloudRecovery));
     return _cloudEncryptWithKey(inner, key).then(async encrypted => {
       // The raw token proves write authority. It is verified against the
       // stored sha256 and then discarded server-side, never persisted -- the
@@ -3385,9 +3491,17 @@ function cloudSyncPush(payload) {
       // back in when the token one no longer matches. It is a hash, never the
       // secret itself, and the server stores it where no endpoint returns it.
       const secretProof = await _cloudTokenHash(secret);
+      /* The third door, offered on every write. A household whose Maker token
+         was rotated AND whose secret was replaced has neither of the other
+         two, which is exactly the state that locked one out with no way back.
+         Also carries the webhook capability's verifier, which the Worker
+         stores at its own key only once this write is authorised -- so a
+         rejected caller can never install their own. */
       const body = JSON.stringify({ encrypted: true, payload: encrypted, service,
                                     token: payload.config && payload.config.token,
-                                    secretProof });
+                                    secretProof,
+                                    recoveryProof: CONFIG.cloudRecovery,
+                                    webhookCapProof: await _cloudTokenHash(_cloudEnsureWebhookCap()) });
       // Bare `return` here logged nothing, so a household whose config grew
       // past the limit silently stopped syncing with no signal anywhere.
       if (body.length > 65536) {
@@ -3395,7 +3509,18 @@ function cloudSyncPush(payload) {
         console.warn('[CloudSync] ' + _cloudLastPushError);
         return;
       }
-      return fetch(CLOUD_SYNC_API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
+      return fetch(CLOUD_SYNC_API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
+        .then(async r => {
+          /* Read the reason off the body here, while the response is still
+             unconsumed, and hang it on the response for the handler below.
+             Done as its own step so a malformed or empty error body cannot
+             turn a rejected write into a thrown exception, which would land in
+             the outer catch and report a network failure instead of a 401. */
+          if (r && !r.ok) {
+            try { const j = await r.clone().json(); r._hestiaReason = j && j.reason; } catch (e) {}
+          }
+          return r;
+        });
     }).then(r => {
       if (!r) return;
       if (r.ok) {
@@ -3414,8 +3539,19 @@ function cloudSyncPush(payload) {
         // NEWLY generated token during setup 401s here indefinitely -- with the
         // old message, the only symptom was settings that never reached other
         // devices and no statement anywhere of why.
+        /* The reason now comes from the server rather than being assumed. Both
+           of config/index.js's 401s used to return a bare "unauthorized", so
+           this message named the Maker API token in every case -- including
+           when the real cause was a mismatched household key. A user followed
+           that wording and rebuilt the wrong thing. */
         if (r.status === 401) {
-          _cloudLastPushError = 'cloud rejected the write as unauthorized — the saved record for this connection was created with a different Maker API token. Use the token this household already had, in Settings → Hub & API.';
+          const reason = (r._hestiaReason || null);
+          _cloudLastPushError =
+            reason === 'bad-secret'
+              ? 'cloud rejected the write as unauthorized — this device\'s household key does not match the one this network\'s record was created with. Enter the right key in Settings → Diagnostics.'
+            : reason === 'legacy-record'
+              ? 'cloud rejected the write as unauthorized — this network\'s record is still in the older format. Open Hestia on a device that can reach your hub to migrate it.'
+            : 'cloud rejected the write as unauthorized — the saved record for this connection was created with a different Maker API token. Use the token this household already had, in Settings → Hub & API.';
         } else if (r.status === 409) {
           _cloudLastPushError = 'cloud refused to overwrite an existing record it could not read — enter your household key rather than setting up fresh.';
         } else {
@@ -3531,6 +3667,40 @@ function cloudDeclineConfig() {
   if (banner) banner.classList.remove('visible');
 }
 
+/* Device-local memory of household secrets that have ACTUALLY decrypted this
+   network's record. Deliberately outside CONFIG, like the companion-app
+   breaker state: CONFIG is published to the hub and to the cloud, and a list
+   of keys is not something to hand around. This never leaves the device.
+
+   This is what makes a wrongly-adopted secret recoverable without anyone
+   typing anything. The rule is "the secret that decrypts the record wins",
+   and that needs somewhere to keep the one that did.
+
+   It is not a weakening: the only way into this list is to have already
+   opened the household's own record, which is the same ownership proof
+   _cloudSecretDecryptedId is built on. */
+const CLOUD_SECRET_MEMO_KEY = 'hestia-cloud-secret-memo';
+const CLOUD_SECRET_MEMO_MAX = 3;
+
+function _cloudRememberGoodSecret(secret) {
+  if (!secret || !/^[0-9a-f]{64}$/.test(secret)) return;
+  try {
+    let list = JSON.parse(_LS.getItem(CLOUD_SECRET_MEMO_KEY) || '[]');
+    if (!Array.isArray(list)) list = [];
+    list = [secret].concat(list.filter(s => s !== secret)).slice(0, CLOUD_SECRET_MEMO_MAX);
+    _LS.setItem(CLOUD_SECRET_MEMO_KEY, JSON.stringify(list));
+  } catch (e) {}
+}
+
+function _cloudRememberedSecrets() {
+  try {
+    const list = JSON.parse(_LS.getItem(CLOUD_SECRET_MEMO_KEY) || '[]');
+    return Array.isArray(list)
+      ? list.filter(s => typeof s === 'string' && /^[0-9a-f]{64}$/.test(s))
+      : [];
+  } catch (e) { return []; }
+}
+
 async function cloudSyncDiscover() {
   try {
     const ip = await _cloudGetIp();
@@ -3556,6 +3726,35 @@ async function cloudSyncDiscover() {
           decrypted = await _cloudDecryptWithKey(data.payload, await _cloudKey(CONFIG.cloudSecret, ['decrypt']));
           viaSecret = true;
         } catch (e) {}
+        /* The secret this device holds is not necessarily the household's.
+           Two origins on one physical device can end up with different ones
+           (hestari.com cannot discover the companion app cross-origin, so it
+           used to mint its own), and the device that writes last re-encrypts
+           the shared record. Whoever loses that race can no longer read their
+           own settings.
+
+           So: if the held secret does not open the record, try the ones that
+           have opened it before. The record itself is the arbiter -- a key
+           that decrypts it IS the household's key, which is a stronger claim
+           than anything this device could assert about itself.
+
+           Note the direction. The earlier design kept the old secret and kept
+           AUTHORISING with it, which would re-encrypt the record under the
+           spurious one and lock out everybody holding the real key. This
+           adopts the working key instead of pushing the broken one. */
+        if (!decrypted) {
+          for (const prev of _cloudRememberedSecrets()) {
+            if (prev === CONFIG.cloudSecret) continue;
+            try {
+              decrypted = await _cloudDecryptWithKey(data.payload, await _cloudKey(prev, ['decrypt']));
+              viaSecret = true;
+              console.warn('[CloudSync] The secret on this device does not open this household\'s record; ' +
+                           'restoring the one that does. (A second secret was created here at some point.)');
+              CONFIG.cloudSecret = prev;
+              break;
+            } catch (e2) {}
+          }
+        }
         /* Deliberately NO legacy fallback here.
 
            The legacy key is SHA-256(publicIP + a constant in the public repo),
@@ -3587,7 +3786,12 @@ async function cloudSyncDiscover() {
       /* Only the household-secret path vouches. The legacy branch above uses
          SHA-256(publicIP + a constant in a public repo), which a neighbour can
          recompute, so a record it decrypts proves nothing about whose it is. */
-      if (viaSecret && out) _cloudSecretDecryptedId = _cloudHouseholdId(out);
+      if (viaSecret && out) {
+        _cloudSecretDecryptedId = _cloudHouseholdId(out);
+        // Proof this key opens this household's record. Remembered so a later
+        // mint or a config assignment that replaces it can be undone above.
+        _cloudRememberGoodSecret(CONFIG.cloudSecret);
+      }
       return out;
     }
     if (data.config) return data.config;
@@ -3608,15 +3812,30 @@ async function cloudSyncDiscover() {
    answer, no record at all) returns false and the ordinary wizard runs, so a
    real first-time setup is never blocked by a network hiccup. */
 async function cloudRecordLockedOut() {
+  // Honoured once and then cleared, so a deliberate new setup is not asked
+  // again on the next reload but also does not disarm the guard forever.
+  //
+  // The override is consumed HERE and only here. saveConfigToHub() needs the
+  // same record check before it mints, but must not eat this flag on the way
+  // past -- that would disarm the boot guard as a side effect of an unrelated
+  // save. Hence the split: the record test lives in _cloudRecordUnreadable()
+  // and carries no side effects at all.
   try {
-    // Honoured once and then cleared, so a deliberate new setup is not asked
-    // again on the next reload but also does not disarm the guard forever.
-    try {
-      if (_LS.getItem('hestia-cloud-lockout-override')) {
-        _LS.removeItem('hestia-cloud-lockout-override');
-        return false;
-      }
-    } catch (e) {}
+    if (_LS.getItem('hestia-cloud-lockout-override')) {
+      _LS.removeItem('hestia-cloud-lockout-override');
+      return false;
+    }
+  } catch (e) {}
+  return _cloudRecordUnreadable();
+}
+
+/* "A household already exists at this address and this device cannot read it."
+   Side-effect free and deliberately conservative: anything unclear (backend
+   unreachable, malformed answer, no record at all) returns false, so neither
+   a real first-time setup nor an ordinary save is ever blocked by a network
+   hiccup. */
+async function _cloudRecordUnreadable() {
+  try {
     if (_cloudHasSecret()) return false;   // we hold the key; not locked out
     // Signature is (url, ms, opts) -- the timeout is the SECOND argument.
     // Passing {} there made setTimeout fire immediately, so every call aborted
@@ -11573,7 +11792,7 @@ function spWallPanelBody() {
         <div id="sp-wp-url" style="background:var(--bg-card);border:1px solid var(--border);border-radius:7px;padding:10px 44px 10px 12px;font-size:12px;color:var(--amber);font-family:monospace;word-break:break-all;line-height:1.5;cursor:text;user-select:all">${h(displayUrl)}</div>
         <div onclick="spWallPanelCopy()" aria-label="Copy Wall Panel link" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);width:30px;height:30px;border-radius:6px;border:1px solid var(--border);background:var(--bg-panel);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--t2);font-size:16px;transition:all .15s" id="sp-wp-copy">⎘</div>
       </div>
-      <span class="sp-hint">This URL contains your API credentials. Do not share it publicly.</span>
+      <span class="sp-hint">This URL contains your hub credentials <strong>and your household key</strong> — everything needed to read your settings, including your PINs and camera URLs. Treat it like a password: never post it in a screenshot or a forum thread.</span>
       ${CONFIG.cloudSecret ? '' : `
       <div style="background:var(--amber-dim);border:1px solid var(--amber-bdr);border-radius:10px;padding:12px 14px;margin-top:12px">
         <div style="font-size:12px;font-weight:500;color:var(--amber);margin-bottom:4px">This link does not carry your household key</div>
@@ -12227,10 +12446,36 @@ async function pushRegisterMakerApiWebhook() {
   if (sbxBlocked('Maker API webhook registration')) return false;
   if (!CONFIG.hub || !CONFIG.appId || !CONFIG.token) return false;
   try {
-    const url = `${CONFIG.hub}/apps/api/${CONFIG.appId}/postURL/${encodeURIComponent(PUSH_WEBHOOK_URL)}?access_token=${CONFIG.token}`;
+    /* The capability goes in the PATH, not a query string on the target.
+       Hubitat documents /postURL/[URL] with the target "URL encoded" and says
+       nothing about whether a query string survives being encoded, stored and
+       replayed. That is unconfirmed platform behaviour, and this project has
+       three near-misses from building on exactly that kind of assumption. A
+       path segment cannot be dropped without breaking postURL for everyone, so
+       it needs no assumption at all.
+
+       Until this runs, the household's webhook is uncapped and anyone sharing
+       its public IP can POST fabricated device events to it -- including a
+       fake smoke alarm, which bypasses the armed-only gate by design. This
+       call is what closes that, and it runs on every boot while push or
+       announcements are on. */
+    const hadCap = !!CONFIG.pushWebhookCap;
+    const target = `${PUSH_WEBHOOK_URL}/${_cloudEnsureWebhookCap()}`;
+    const url = `${CONFIG.hub}/apps/api/${CONFIG.appId}/postURL/${encodeURIComponent(target)}?access_token=${CONFIG.token}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    console.log('[Push] Registered Maker API webhook');
+    /* The verifier only reaches the backend through a config write, so without
+       this the hub would POST a capability the server cannot check -- harmless
+       (it is treated as uncapped) but the household would sit in the grace
+       window forever.
+
+       Saved ONLY on the boot that mints the capability, not on every boot.
+       This function runs on every load while push or announcements are on, and
+       an unconditional save here would put a cloud write in the boot path of
+       every device every time -- the shape of the first-save-of-session race
+       that has already cost this project one sync bug. */
+    if (!hadCap) saveConfig();
+    console.log('[Push] Registered Maker API webhook (capability-bearing)');
     return true;
   } catch (e) {
     console.warn('[Push] Could not register Maker API webhook:', e.message);
@@ -12271,7 +12516,7 @@ async function pushResyncOnBoot() {
     }
     await fetch(PUSH_API + '/subscribe', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await _cloudAuthHeaders()) },
       body: JSON.stringify({ deviceId: DEVICE_ID, deviceName: DEVICE_NAME, mode: entry.mode, subscription: sub.toJSON() })
     });
     console.log('[Push] Boot resync confirmed registration with backend');
@@ -12306,7 +12551,7 @@ async function pushSubscribeThisDevice(mode) {
     }
     const res = await fetch(PUSH_API + '/subscribe', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await _cloudAuthHeaders()) },
       body: JSON.stringify({ deviceId: DEVICE_ID, deviceName: DEVICE_NAME, mode, subscription: sub.toJSON() })
     });
     if (!res.ok) throw new Error('subscribe request failed');
@@ -12355,7 +12600,7 @@ async function pushUnsubscribeDevice(id) {
   try {
     await fetch(PUSH_API + '/subscribe', {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await _cloudAuthHeaders()) },
       body: JSON.stringify({ deviceId: id })
     });
   } catch (e) { console.warn('[Push] Remote unsubscribe failed:', e.message); }
@@ -12646,6 +12891,15 @@ function spDiagnosticsBody() {
       </div>
       ${diagRow('push', 'Push Pipeline', 'Notification permission, service worker, and device registration')}
       ${diagRow('cloud', 'Cloud Sync', 'Reachability of the hestari.com backend')}
+      <div id="diag-hskey" style="margin:-2px 0 10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px">
+        <div class="sp-toggle-name" style="margin-bottom:4px">Household key</div>
+        <div class="sp-hint" style="margin-bottom:8px">Only needed if the check above says this device needs one. Paste the 64-character key, or the whole config page you copied it from. Hestia tests it against your saved settings before storing anything, so a wrong value cannot make this worse.</div>
+        <textarea class="sp-input" id="diag-hskey-input" rows="2" style="width:100%;font-family:monospace;font-size:11px;resize:vertical" placeholder="cloudSecret (64 characters)" aria-label="Household key"></textarea>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+          <button class="sp-btn sp-btn-secondary" style="height:28px;padding:0 12px;font-size:11px" id="diag-hskey-btn" onclick="diagApplyHouseholdKey()">Use this key</button>
+          <span class="sp-hint" id="diag-hskey-result" role="status"></span>
+        </div>
+      </div>
       ${diagRow('env', 'Browser / Environment', 'Browser, online state, and API support on this device')}
     </div>
     <div class="sp-sep"></div>
@@ -12931,6 +13185,146 @@ async function diagCheckGroovy() {
    household's own record: reachable, present, and readable by THIS device are
    three different things and the failures look identical without checking all
    three. */
+/* Whose record is this?
+
+   When a device cannot decrypt the record, two very different things look
+   identical: "this is my household and I lost the key" and "this is a
+   neighbour's household sharing my public address". The remedies are
+   opposites. Waiting for the 30-day TTL to lapse recovers the first; it never
+   recovers the second, because the neighbour's own saves keep refreshing that
+   TTL. Advising a wait without knowing which is a coin flip.
+
+   The record's SERVICE half is plaintext by design (discover.js returns it
+   verbatim), and it carries device ids. Comparing them against this device's
+   own config answers the question with evidence, for free, and discloses
+   nothing that was not already being served. */
+function _cloudRecordOwnershipHint(service) {
+  try {
+    if (!service) return '';
+    const idsOf = (src) => {
+      const out = new Set();
+      (src && src.locks || []).forEach(l => { if (l && l.id != null) out.add('l' + l.id); });
+      const s = (src && src.artemisSensors) || {};
+      ['contacts', 'motions', 'smokes', 'waters'].forEach(k => {
+        (s[k] || []).forEach(d => {
+          const id = (d && typeof d === 'object') ? d.id : d;
+          if (id != null) out.add('s' + id);
+        });
+      });
+      return out;
+    };
+    const theirs = idsOf(service);
+    const mine = idsOf(CONFIG);
+    if (!theirs.size || !mine.size) return '';   // nothing to compare; say nothing
+    let overlap = 0;
+    theirs.forEach(id => { if (mine.has(id)) overlap++; });
+    if (overlap === 0) {
+      return ` This record lists ${theirs.size} devices and none of them are yours, so it most likely belongs ` +
+             `to another home sharing this public address, not to you.`;
+    }
+    if (overlap * 2 >= theirs.size) {
+      return ` This record lists ${theirs.size} devices and ${overlap} of them are yours, so it IS your ` +
+             `household's record — you are locked out of your own settings, and nothing has been lost.`;
+    }
+    return ` This record lists ${theirs.size} devices and only ${overlap} match yours, so whose it is cannot be ` +
+           `determined from here.`;
+  } catch (e) { return ''; }
+}
+
+/* The household key, enterable on a device that is otherwise working.
+
+   Until now the only place to type one was the boot lockout screen, and every
+   caller of renderSetupOrLockout() sits inside boot's needsOnboarding()
+   branch -- so a device WITH a working config could never reach it, while
+   Diagnostics told that exact device to "paste it into the recovery screen".
+   Two users followed that advice and the only way they could find to reach a
+   recovery screen was to wipe the device and start over, which mints a fresh
+   secret and takes the rest of the household down with it.
+
+   Deliberately NOT routed through the hs= URL parameter. That path refuses to
+   overwrite a secret the device already holds, and it must keep refusing: "let
+   a link overwrite the secret this device already holds" is a mutation-test
+   finding that was driven to zero on purpose. A link is not a user. This is a
+   value typed and submitted by someone sitting in front of the device, which
+   is a different authority, so it gets its own path and dashboard.html's boot
+   check stays byte-for-byte as it was. */
+async function diagApplyHouseholdKey() {
+  const inp = document.getElementById('diag-hskey-input');
+  const out = document.getElementById('diag-hskey-result');
+  const btn = document.getElementById('diag-hskey-btn');
+  const say = (msg, ok) => {
+    if (!out) return;
+    out.textContent = msg;
+    out.style.color = ok ? 'var(--conn-ok)' : 'var(--conn-err)';
+  };
+  if (out) { out.textContent = ''; out.style.color = ''; }
+  const raw = inp ? String(inp.value || '') : '';
+  if (!raw.trim()) { say('Paste your household key first.', false); return; }
+  /* A labelled match wins over a bare one. A pasted config page also contains
+     a token hash and a secret proof, both 64 hex characters, so taking the
+     first run found would quietly adopt the wrong value and report failure
+     with no way to tell why. Same rule as cloudLockoutUseKey(). */
+  const low = raw.toLowerCase();
+  const m = low.match(/cloudsecret[^0-9a-f]{0,8}([0-9a-f]{64})/) || low.match(/([0-9a-f]{64})/);
+  if (!m) {
+    say('That does not contain a household key. It is 64 characters long and uses only the digits 0-9 and the letters a-f.', false);
+    return;
+  }
+  const candidate = m[1];
+  if (candidate === CONFIG.cloudSecret) { say('This device already holds that key.', true); return; }
+
+  if (btn) btn.disabled = true;
+  try {
+    say('Checking…', true);
+    /* VERIFY BEFORE COMMITTING. Storing an unverified key is the one way this
+       button could leave someone worse off than they started, by destroying a
+       working device's ability to read a record it can read today. */
+    const res = await _fetchWithTimeout(CLOUD_SYNC_API + '/discover', 6000);
+    if (!res || !res.ok) {
+      say(isServedFromHub()
+        ? 'This page was opened from your hub, so it cannot reach the backend to check the key. Open https://hestari.com and try there. Nothing was changed.'
+        : 'Could not reach the backend to check the key. Nothing was changed.', false);
+      return;
+    }
+    const data = await res.json();
+    if (!data || !data.found) {
+      say('There is no saved record for this network to check the key against. Nothing was changed.', false);
+      return;
+    }
+    if (!data.encrypted || !data.payload) {
+      say('The record for this network is not encrypted, so no household key is needed. Nothing was changed.', false);
+      return;
+    }
+    try {
+      await _cloudDecryptWithKey(data.payload, await _cloudKey(candidate, ['decrypt']));
+    } catch (e) {
+      say('That key does not open this network\'s settings. Nothing was changed — check you copied the value that comes after "cloudSecret".', false);
+      return;
+    }
+    /* Proven against the real record, so it is this household's key. Persist
+       only the key and reload, rather than applying the decrypted config here:
+       boot already has a tested path for adopting a household's settings, and
+       half-applying them from a settings panel is how partial states happen.
+       Nothing is pushed, so a sparse config on this device cannot overwrite
+       the household's good one. */
+    CONFIG.cloudSecret = candidate;
+    _cloudRememberGoodSecret(candidate);
+    try {
+      const stored = JSON.parse(_LS.getItem('dashboard-config') || '{}');
+      if (stored && typeof stored === 'object') {
+        stored.config = Object.assign({}, stored.config || {}, { cloudSecret: candidate });
+        _LS.setItem('dashboard-config', JSON.stringify(stored));
+      }
+    } catch (e) {}
+    say('Key accepted. Reloading to restore your settings…', true);
+    setTimeout(() => location.reload(), 700);
+  } catch (e) {
+    say('Could not check the key: ' + (e && e.message ? e.message : 'unknown error') + '. Nothing was changed.', false);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 async function diagCheckCloud() {
   let ip = null;
   try {
@@ -12938,13 +13332,43 @@ async function diagCheckCloud() {
     const data = await res.json();
     ip = data && data.ip;
   } catch (e) {
-    diagSetStatus('cloud', 'red', 'Unreachable', 'Could not reach the hestari.com backend. Cloud config sync, cross-device sync, and push notifications all depend on this.');
+    /* CLOUD_SYNC_API is a RELATIVE path, so from a hub-served page this request
+       never went to hestari.com at all: it went to the hub, which has no such
+       endpoint. Reporting that as "could not reach the hestari.com backend"
+       named a system that was never asked and is almost certainly fine, and
+       sent people to check their internet. Two users hit it within a day.
+
+       Still RED -- cloud sync genuinely does not work from this address. What
+       changes is that it names the real cause, reports the origin actually
+       used, and stops claiming the alarm path is down when it is not. */
+    if (isServedFromHub()) {
+      diagSetStatus('cloud', 'red', 'Not available on this address',
+        `This dashboard was opened from your hub (${window.location.origin}), so cloud requests go to the hub instead ` +
+        `of to hestari.com, and the hub has nothing to answer them with. ` +
+        `Unavailable from this address: cross-device settings sync, registering this device for push notifications, ` +
+        `and the Activity Log. ` +
+        `Unaffected: everything local, reminders (your hub fires those itself), and push delivery to devices that ` +
+        `are already registered. ` +
+        `To use the cloud features on this device, open https://hestari.com instead.`);
+      return;
+    }
+    diagSetStatus('cloud', 'red', 'Unreachable',
+      `Could not reach the hestari.com backend from ${window.location.origin}. ` +
+      `Cross-device settings sync, push registration and the Activity Log depend on it. ` +
+      `Reminders and push delivery to already-registered devices are relayed by your hub, not by this page, ` +
+      `so they are not affected.`);
     return;
   }
   if (!ip) { diagSetStatus('cloud', 'amber', 'Unexpected response', 'hestari.com answered but did not report this device\'s address.'); return; }
 
   try {
-    const res = await fetch(CLOUD_SYNC_API + '/discover');
+    /* Credentials matter here specifically. discover.js now withholds the
+       record's plaintext half from an unauthenticated caller, and that half is
+       what the ownership hint compares against local config to answer "is this
+       record mine or a neighbour's". A device in the state this check exists
+       for -- working config, cannot decrypt -- still holds the Maker token, so
+       it passes the gate and still gets its answer. */
+    const res = await fetch(CLOUD_SYNC_API + '/discover', { headers: await _cloudAuthHeaders() });
     if (!res.ok) {
       diagSetStatus('cloud', 'red', 'Backend error',
         `hestari.com is reachable (sees ${ip}) but returned HTTP ${res.status} for this household's record.`);
@@ -13011,16 +13435,41 @@ async function diagCheckCloud() {
          And it never mentioned _cloudLastPushError, so a household whose SAVES
          were being rejected was told only "you need your key" -- suppressing
          the one message that explains why setting up fresh does not stick. */
-      const why = _cloudLastPushError
-        ? ` The last save was also rejected: ${_cloudLastPushError}`
+      /* THIRD thing this branch got wrong, found 2026-10-02 from two field
+         reports. "The last save was also rejected" was true and badly
+         incomplete: an unauthorised write means the stored record still
+         carries the household's PREVIOUS Maker API token, and
+         functions/api/push/send.js:51 compares against that same stored hash.
+         That endpoint is the only path for HSM intrusion trips and arm/disarm
+         (its own comment at :55 says so), so those pushes are being refused
+         while door/window/motion pushes keep arriving through webhook.js,
+         which never checks the token. The household therefore sees
+         notifications working and concludes push is healthy, while the alarm
+         half is silently dead. Never report this state without saying that. */
+      const rejected = _cloudLastPushError || '';
+      const why = rejected ? ` The last save was also rejected: ${rejected}` : '';
+      const alarmDead = /unauthor/i.test(rejected)
+        ? ` IMPORTANT: the saved record still carries your previous Maker API token, and your hub's ` +
+          `notifications are checked against it — so intrusion and arm/disarm pushes are being refused. ` +
+          `Door, window, lock and motion pushes still arrive, which is why this is easy to miss. ` +
+          `The dashboard's own alarm screen and siren behaviour are not affected.`
         : '';
+      /* Build the URL rather than printing <hub>/<appId>/<token> placeholders
+         for the user to substitute. v2.1.3 learned this on the lockout screen
+         and this copy was left asking for hand assembly. */
+      const hubBase = (CONFIG.hub || '').replace(/\/+$/, '');
+      const cfgUrl = (hubBase && HUB_STORE && HUB_STORE.appId && HUB_STORE.token)
+        ? `${hubBase}/apps/api/${HUB_STORE.appId}/config?access_token=${HUB_STORE.token}`
+        : null;
+      const howToGetIt = cfgUrl
+        ? `Open this on your network and copy the 64-character value after "cloudSecret": ${cfgUrl}`
+        : `Your hub has the key: open ${hubBase || 'http://YOUR_HUB_IP'}/local/hestia-token.json on your network, ` +
+          `take "appId" and "token" from it (NOT makerApiAppId or makerApiToken), and use them to open ` +
+          `your hub's /apps/api/APPID/config?access_token=TOKEN — the 64-character value after "cloudSecret" is your key.`;
       diagSetStatus('cloud', 'amber', 'This device needs your household key',
         `Your settings are encrypted and this device does not have the key, so it cannot read them. ` +
-        `Your hub has the key: open ${(CONFIG.hub || 'http://YOUR_HUB_IP').replace(/\/+$/, '')}/local/hestia-token.json on your network, ` +
-        `take "appId" and "token" from it (NOT makerApiAppId or makerApiToken), and open ` +
-        `<hub>/apps/api/<appId>/config?access_token=<token> — the 64-character value after "cloudSecret" is your key. ` +
-        `Paste it into the recovery screen, or use Settings → Wall Panel on a device that still works. ` +
-        `(If this address is shared with other homes, as on some ISPs, the record may genuinely belong to someone else.)` + why);
+        howToGetIt + ` Then paste it into the Household key box below.` +
+        _cloudRecordOwnershipHint(data.service) + why + alarmDead);
     }
   } catch (e) {
     diagSetStatus('cloud', 'red', 'Record check failed', `Could not read this household's record: ${e.message}`);
@@ -13053,7 +13502,7 @@ async function diagCheckPush() {
         const entry = (CONFIG.pushDevices || []).find(d => d.id === DEVICE_ID);
         const res = await fetch(PUSH_API + '/subscribe', {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...(await _cloudAuthHeaders()) },
           body: JSON.stringify({ deviceId: DEVICE_ID, deviceName: DEVICE_NAME,
                                  mode: (entry && entry.mode) || 'always', subscription: sub.toJSON() })
         });
@@ -13207,8 +13656,16 @@ async function _diagFetchActivityPage(gen = _diagActivityGen) {
   try {
     const params = new URLSearchParams({ limit: '25' });
     if (_diagActivityCursor) params.set('cursor', _diagActivityCursor);
-    const res = await fetch(ACTIVITY_API + '?' + params.toString());
+    const res = await fetch(ACTIVITY_API + '?' + params.toString(), { headers: await _cloudAuthHeaders() });
     if (gen !== _diagActivityGen) return; // superseded by a newer diagLoadActivity() call -- discard
+    if (res.status === 401) {
+      /* The log is now readable only by the household, because it is an
+         occupancy record -- every door, every motion, every arm and disarm,
+         with device names -- and it used to be served to anyone sharing the
+         public IP. A 401 here means this device could not prove it belongs. */
+      el.innerHTML = '<span class="sp-hint" style="color:var(--conn-err)">This device could not prove it belongs to this household, so the Activity Log is not shown. Check Cloud Sync above.</span>';
+      return;
+    }
     if (!res.ok) {
       el.innerHTML = '<span class="sp-hint" style="color:var(--conn-err)">Activity Log server error (HTTP ' + res.status + '). Try refreshing in a moment.</span>';
       return;
@@ -18226,8 +18683,15 @@ window.addEventListener('resize', function() {
 
 function tick() {
   const n = new Date();
-  document.getElementById('clk').textContent = n.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  document.getElementById('dt').textContent  = n.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  /* Guarded because neither element exists while the onboarding wizard or the
+     lockout screen is showing, and this runs on a 15s interval from boot.
+     Unguarded it threw an uncaught TypeError every 15 seconds, forever, on
+     exactly the devices someone is most likely to be debugging -- burying real
+     errors in a console this project reads to diagnose field reports. */
+  const c = document.getElementById('clk');
+  const d = document.getElementById('dt');
+  if (c) c.textContent = n.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (d) d.textContent = n.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -19136,6 +19600,19 @@ function a11yInit() {
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', a11yInit);
 else a11yInit();
 
+/* True when this page was served BY the hub rather than by hestari.com.
+
+   Keyed off this page's OWN hostname, deliberately, rather than off CONFIG.hub:
+   it has to answer correctly on a device whose hub URL is not configured yet.
+
+   It decides more than it looks like it does. CLOUD_SYNC_API, PUSH_API and
+   ACTIVITY_API are all RELATIVE paths, so from a hub-served page they resolve
+   to the hub, which serves none of them. Cloud sync, push REGISTRATION and the
+   Activity Log therefore fail here by construction. Diagnostics used to report
+   that as "could not reach the hestari.com backend", naming a system the
+   request never went anywhere near. Push DELIVERY and hub-fired reminders are
+   unaffected, because the hub posts to absolute hestari.com URLs of its own
+   (HestiaDashboard.groovy:66-67) and does not care what served this page. */
 function isServedFromHub() {
   const h = window.location.hostname;
   return /^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\.|^localhost$|\.local$/.test(h);

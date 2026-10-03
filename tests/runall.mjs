@@ -10,7 +10,7 @@ import { fileURLToPath } from 'url';
 // them. They belong next to the code they test.
 const DIR = path.dirname(fileURLToPath(import.meta.url)) + path.sep;
 const SUITES = ['ringharness', 'hubharness', 'relinkharness', 'healthharness', 'cloudharness',
-                'garageharness', 'projection-equivalence', 'writeauth', 'cloudsecret',
+                'garageharness', 'projection-equivalence', 'writeauth', 'cloudsecret', 'endpointauth',
                 'reminderharness'];
 
 let total = 0, failed = 0, missing = 0, unreadable = 0;

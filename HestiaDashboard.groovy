@@ -1,5 +1,5 @@
 /**
- * Hestia™ Home Dashboard v2.1.4
+ * Hestia™ Home Dashboard v2.2.0
  * ════════════════════════════════════════════════════════════════
  * Lightweight companion app — discovery helper and config store.
  *
@@ -55,7 +55,7 @@ preferences {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
-@Field static final String APP_VERSION        = "2.1.4"
+@Field static final String APP_VERSION        = "2.2.0"
 @Field static final String TOKEN_FILENAME      = "hestia-token.json"
 @Field static final String CONFIG_FILENAME     = "hestia-config.json"
 @Field static final String DASHBOARD_FILENAME  = "index.html"
@@ -868,14 +868,45 @@ def saveConfig() {
             try {
                 def parsed = new groovy.json.JsonSlurper().parseText(body)
                 def incoming = (parsed instanceof Map) ? parsed.config : null
-                if (incoming instanceof Map && incoming.cloudSecret == null) {
+                if (incoming instanceof Map) {
                     def prev = new groovy.json.JsonSlurper().parseText(state.config)
                     def prevCfg = (prev instanceof Map) ? prev.config : null
                     def keep = (prevCfg instanceof Map) ? prevCfg.cloudSecret : null
                     if (keep) {
-                        incoming.cloudSecret = keep
-                        body = new groovy.json.JsonBuilder(parsed).toString()
-                        log.info "Hestia: preserved household cloud secret across an older client's save"
+                        if (incoming.cloudSecret == null) {
+                            incoming.cloudSecret = keep
+                            body = new groovy.json.JsonBuilder(parsed).toString()
+                            log.info "Hestia: preserved household cloud secret across an older client's save"
+                        } else if (incoming.cloudSecret != keep) {
+                            // THE CHOKE POINT. Every household split reported so far
+                            // has travelled through this line.
+                            //
+                            // A device that cannot see the companion app -- which is the
+                            // ORDINARY state on hestari.com, where discovering it is
+                            // CORS-blocked, and whenever the stale-app-id breaker is open
+                            // -- used to mint its own household key. It then saved it
+                            // here, the hub accepted it without looking, and every other
+                            // device inherited it on next boot through the dashboard's
+                            // unconditional config assign. One device re-keyed the whole
+                            // house, and the others could no longer read their own
+                            // settings.
+                            //
+                            // The dashboard has guards of its own now, but this is the
+                            // one place EVERY client must pass through, so the guard
+                            // here holds even when a client's does not, including older
+                            // clients that will never be updated.
+                            //
+                            // Deliberately silent to the caller: the save still succeeds,
+                            // it just does not get to change the household's identity.
+                            // Refusing the save outright would break a device that is
+                            // otherwise working perfectly well.
+                            incoming.cloudSecret = keep
+                            body = new groovy.json.JsonBuilder(parsed).toString()
+                            log.warn "Hestia: REFUSED a household key change from a client and kept the existing key. " +
+                                     "A device tried to replace this household's cloud secret with a different one. " +
+                                     "If you are deliberately starting a new household, clear the companion app's " +
+                                     "config first."
+                        }
                     }
                 }
             } catch(e) {

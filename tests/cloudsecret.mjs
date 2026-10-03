@@ -60,10 +60,17 @@ function world({ cloudSecret = 'a'.repeat(64), hubOk = true, status = null } = {
     ${fn('_cloudEncryptWithKey')}
     ${fn('_cloudDecryptWithKey')}
     ${fn('_cloudTokenHash')}
+    /* Real, not stubbed. R is the credential that survives a Maker API token
+       rotation, and the whole point of it is that the value written into the
+       ENCRYPTED half and the hash published in the plaintext half are produced
+       in the same operation and cannot disagree. A stub would let them. */
+    ${fn('_cloudEnsureRecovery')}
+    ${fn('_cloudEnsureWebhookCap')}
     ${fn('buildServiceHalf')}
     ${fn('cloudSyncPush')}
     return { push: (p) => cloudSyncPush(p), key: (s,u) => _cloudKey(s,u),
-             dec: (b,k) => _cloudDecryptWithKey(b,k), err: () => _cloudLastPushError };
+             dec: (b,k) => _cloudDecryptWithKey(b,k), err: () => _cloudLastPushError,
+             cfg: () => CONFIG };
   `)(globalThis.crypto, globalThis.btoa, globalThis.atob, TextEncoder, TextDecoder,
      (b) => sent.push(b), (m) => logs.push(m));
   return { api, sent, logs };
@@ -194,13 +201,17 @@ console.log('\n=== 4. A rejected write is surfaced, never silent ===');
 console.log('\n=== 5. Minting is gated on the hub accepting the write ===');
 {
   // Real saveConfigToHub, with hubStoreFetch stubbed to fail.
-  const mk = (ok) => new Function('crypto', '__calls', `
+  const mk = (ok, recordUnreadable = false) => new Function('crypto', '__calls', `
     const CONFIG = {};
     const SANDBOX = false;
     const HUB_STORE = { appId: '1', token: 't' };
     const console = { log(){}, warn(){} };
     function sbxBlocked(){ return false; }
     function hubStoreFetch(){ __calls('write'); return Promise.resolve({ ok: ${ok} }); }
+    /* Mirrors dashboard.html's _cloudRecordUnreadable(): async, resolves to a
+       boolean, no side effects. It MUST stay async -- saveConfigToHub awaits
+       it, and a synchronous stub would let a truthy-Promise bug pass. */
+    function _cloudRecordUnreadable(){ return Promise.resolve(${recordUnreadable}); }
     ${fn('saveConfigToHub')}
     return { save: (p) => saveConfigToHub(p), cfg: () => CONFIG };
   `)(globalThis.crypto, () => {});
@@ -218,6 +229,25 @@ console.log('\n=== 5. Minting is gated on the hub accepting the write ===');
   check('a FAILED hub write mints nothing', ok2 === false && !bad.cfg().cloudSecret,
     'otherwise this device holds a secret no one else has');
   check('and the failed payload is not left carrying one', p2.config.cloudSecret === undefined);
+
+  /* The HUB-REACHABLE mint, which had no guard at all until 2026-10-02 while
+     the unreachable one had two.
+
+     exportSettings() does not include cloudSecret, so importing a settings
+     file onto a device that holds none leaves CONFIG without one. saveConfig()
+     then builds a payload without one, this mints a brand new household key
+     and POSTs it to the hub, and every other device inherits it on next boot
+     through applyParsedConfig()'s unconditional assign. One import re-keys the
+     whole household and nobody can read their own cloud record again. */
+  const foreign = mk(true, true);
+  const p3 = { config: { token: 'x' } };
+  const ok3 = await foreign.save(p3);
+  check('a record this device cannot read blocks the hub-reachable mint too',
+    !foreign.cfg().cloudSecret && p3.config.cloudSecret === undefined,
+    'this is the path an imported settings file travels; the !HUB_STORE guards never see it');
+  check('...and the hub write itself still goes through',
+    ok3 === true,
+    'refusing the whole save would break a device that is otherwise fine -- only the re-key is refused');
 
   // Two devices, both failing to reach the hub, must not diverge.
   const a = mk(false), b = mk(false);
@@ -285,7 +315,14 @@ console.log('\n=== 7. A minting save must land the secret in localStorage ===');
     function cloudSyncPush(){}
     function buildConfigPayload(){ return { config: { token: 'maker', appId: '219', cloudSecret: CONFIG.cloudSecret }, savedAt: 1 }; }
     ${fn('_cloudHasSecret')}
-    ${fn('saveConfigToHub')}
+        /* Mirrors dashboard.html's _cloudRecordUnreadable(): async, resolves to a
+       boolean, side-effect free. It MUST stay async -- saveConfigToHub awaits
+       it, and a synchronous stub would let a truthy-Promise bug pass here,
+       which is exactly how an earlier guard in this file failed open on every
+       device while the suite stayed green. False = no foreign record in the
+       way, which is the scenario each of these sections is actually about. */
+    function _cloudRecordUnreadable(){ return Promise.resolve(false); }
+${fn('saveConfigToHub')}
     ${fn('saveConfig')}
     return { save: () => saveConfig(), cfg: () => CONFIG };
   `)(globalThis.crypto, (k, v) => { store[k] = v; });
@@ -330,6 +367,16 @@ console.log('\n=== 8. A device holding a secret must not read legacy records ===
       ${fn('_cloudDecryptWithKey')}
       ${fn('_cloudDeriveKey')}
       ${fn('_cloudDecrypt')}
+      /* Present so a missing binding cannot fake this section's result.
+         cloudSyncDiscover() wraps everything in one try/catch, so an undefined
+         helper throws, is swallowed, and returns null -- which is exactly the
+         outcome these assertions want. The forged record would then be
+         "refused" by a ReferenceError rather than by the guard under test. */
+      const _LS = { getItem: () => null, setItem(){}, removeItem(){} };
+      const CLOUD_SECRET_MEMO_KEY = 'hestia-cloud-secret-memo';
+      const CLOUD_SECRET_MEMO_MAX = 3;
+      ${fn('_cloudRememberGoodSecret')}
+      ${fn('_cloudRememberedSecrets')}
       ${fn('cloudSyncDiscover')}
       return { discover: () => cloudSyncDiscover() };
     `)(globalThis.crypto, globalThis.btoa, globalThis.atob, TextEncoder, TextDecoder, m => logs.push(m));
@@ -421,7 +468,8 @@ console.log('\n=== 11. Minting on a household with no companion app ===');
      minted at all and their push died silently when the pre-split record hit
      its TTL. It is the one place a secret is created without a hub to confirm
      it, so its guards are the only thing standing between it and a write-war. */
-  const run = ({ hubStore = null, sandbox = false, cfg = {}, payload }) => {
+  const run = ({ hubStore = null, sandbox = false, cfg = {}, payload,
+                 recordUnreadable = false }) => {
     const logs = [];
     const api = new Function('crypto', '__log', `
       let HUB_STORE = ${JSON.stringify(hubStore)};
@@ -432,6 +480,12 @@ console.log('\n=== 11. Minting on a household with no companion app ===');
       // sandbox, which is what actually stops a sandbox mint.
       function sbxBlocked(){ return SANDBOX; }
       function hubStoreFetch(){ return Promise.resolve({ ok: true }); }
+      /* Mirrors dashboard.html's _cloudRecordUnreadable(): async, resolves to a
+         boolean, no side effects. The real one fetches /api/config/discover and
+         attempts a decrypt; the scenario supplies the answer. It must stay
+         async -- saveConfigToHub awaits it, and a synchronous stub would make
+         a truthy-Promise bug pass here. */
+      function _cloudRecordUnreadable(){ return Promise.resolve(${recordUnreadable}); }
       ${fn('saveConfigToHub')}
       return { save: (p) => saveConfigToHub(p), cfg: () => CONFIG };
     `)(globalThis.crypto, m => logs.push(m));
@@ -466,6 +520,39 @@ console.log('\n=== 11. Minting on a household with no companion app ===');
   check('a device that already holds a secret does not mint a second one',
     already.api.cfg().cloudSecret === 'a'.repeat(64),
     'two secrets for one household is the write-war this design exists to avoid');
+
+  /* The two guards added 2026-10-02, from two field reports.
+
+     `!HUB_STORE` does NOT mean "this household has no companion app". It is
+     also true when the device simply cannot reach it, which is the ORDINARY
+     state on hestari.com -- discoverHubStore()'s fetch of
+     /local/hestia-token.json is CORS-blocked cross-origin -- and whenever the
+     stale-app-id breaker is open. Minting on that signal gave one physical
+     device two different secrets across its two origins, and whichever wrote
+     last re-encrypted the shared record and locked the other out. */
+  const unreachable = run({ cfg: { hestiaAppId: '1042' }, payload: creds() });
+  await unreachable.api.save(unreachable.payload);
+  check('a known companion app that is merely unreachable does NOT mint',
+    !unreachable.api.cfg().cloudSecret,
+    'this is the hestari.com origin of a household that HAS a hub; the hub owns the secret');
+  check('...and the payload it was saving is left clean',
+    !unreachable.payload.config.cloudSecret,
+    'a secret left on the payload would be persisted and published by the caller');
+
+  const foreign = run({ payload: creds(), recordUnreadable: true });
+  await foreign.api.save(foreign.payload);
+  check('an existing record this device cannot read does NOT mint',
+    !foreign.api.cfg().cloudSecret,
+    'minting over a household already here encrypts a second record and locks out the real key');
+
+  /* Fail OPEN. A genuine first-time setup must never be blocked by the record
+     check having a bad moment, which is _cloudRecordUnreadable()'s own stated
+     contract. */
+  const genuinelyNew = run({ payload: creds(), recordUnreadable: false });
+  await genuinelyNew.api.save(genuinelyNew.payload);
+  check('a genuinely new household still mints',
+    /^[0-9a-f]{64}$/.test(genuinelyNew.api.cfg().cloudSecret || ''),
+    'the guards must not block the households this branch was added for');
 }
 
 console.log('\n=== 12. The key really is HKDF-SHA256 over the secret ===');
@@ -533,28 +620,49 @@ console.log('\n=== 13. Diagnostics must not report a forged record as Synced ===
   }
 
   const SECRET = 'e'.repeat(64);
-  const run = async (secret, payload) => {
+  const run = async (secret, payload, pushError = null, opts = {}) => {
+    const { hubUrl = null, hostname = 'hestari.com', origin = 'https://hestari.com',
+            fetchThrows = false } = opts;
     const out = [];
     const api = new Function('crypto', 'btoa', 'atob', 'TextEncoder', 'TextDecoder', '__set', `
-      const CONFIG = { cloudSecret: ${JSON.stringify(secret)} };
+      const CONFIG = { cloudSecret: ${JSON.stringify(secret)}, hub: ${JSON.stringify(hubUrl)} };
       const _CLOUD_INFO_ENC = 'hestia-enc';
       const CLOUD_SYNC_API = '/api/config';
       let _cloudLastPushError = null;
       const console = { log(){}, warn(){} };
       function diagSetStatus(id, colour, label, detail){ __set({ id, colour, label, detail }); }
       function fetch(url){
+        /* A relative path from a hub-served page reaches the hub, which has no
+           such endpoint, so the real failure here is a rejected fetch -- not a
+           non-ok response. That is the branch fix A lives in. */
+        if (${fetchThrows}) return Promise.reject(new TypeError('Failed to fetch'));
         if (String(url).endsWith('/whoami')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ ip: ${JSON.stringify(IP)} }) });
         return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(
           { found: true, encrypted: true, payload: ${JSON.stringify(payload)} }) });
       }
+      const HUB_STORE = null;
+      let _sharedHubUrl = null;
+      const window = { location: { origin: ${JSON.stringify(origin)}, hostname: ${JSON.stringify(hostname)} } };
       ${fn('_cloudKey')}
       ${fn('_cloudDecryptWithKey')}
       ${fn('_cloudDeriveKey')}
       ${fn('_cloudDecrypt')}
+      /* Real, not stubbed: the ownership hint is appended to the message this
+         section asserts on, so a stub would be asserting on the stub. */
+      ${fn('_cloudRecordOwnershipHint')}
+      ${fn('isServedFromHub')}
+      /* Real, not stubbed. discover.js now withholds the record's plaintext
+         half from an unauthenticated caller, and that half is what the
+         ownership hint reads -- so if this device stopped sending credentials,
+         the hint would silently go quiet and these assertions would be testing
+         an empty string. */
+      ${fn('_cloudTokenHash')}
+      ${fn('_cloudHasSecret')}
+      ${fn('_cloudAuthHeaders')}
       ${fn('diagCheckCloud')}
-      return { go: () => diagCheckCloud() };
+      return { go: (err) => { _cloudLastPushError = err || null; return diagCheckCloud(); } };
     `)(globalThis.crypto, globalThis.btoa, globalThis.atob, TextEncoder, TextDecoder, r => out.push(r));
-    await api.go();
+    await api.go(pushError);
     return out[out.length - 1] || {};
   };
 
@@ -581,8 +689,72 @@ console.log('\n=== 13. Diagnostics must not report a forged record as Synced ===
      belongs to a different household sharing this public address" -- alarming,
      usually wrong, and with nothing to act on. A real user hit exactly this on
      v2.0.1 and concluded their settings were gone. */
+  /* It used to point at "Settings -> Wall Panel on a device that still works".
+     For the households that reach this message there IS no working device --
+     that is the definition of the state -- so the only route they could find
+     was to wipe a device and start over, which mints a fresh secret and takes
+     the rest of the household down with it. Two users did exactly that. The
+     advice has to name something reachable from where they are standing. */
   check('...and tells them how to actually recover',
-    /Wall Panel/i.test(junk.detail || ''), junk.detail || '(no detail)');
+    /Household key box below/i.test(junk.detail || ''), junk.detail || '(no detail)');
+  check('...and does not send them to a device that still works',
+    !/device that still works/i.test(junk.detail || ''),
+    'impossible for exactly the households that read this message');
+
+  /* Behavioural, not source-text. An unauthorised write means the stored record
+     still carries the household's PREVIOUS Maker API token, and
+     functions/api/push/send.js:51 compares against that same stored hash. That
+     endpoint is the only path for HSM intrusion trips and arm/disarm, so those
+     are refused -- while webhook.js never checks the token and keeps delivering
+     door, window, lock and motion. The household sees notifications arriving
+     and concludes push is healthy while the alarm half is dead. */
+  const UNREADABLE = { iv: btoa('0'.repeat(12)), data: btoa('unreadable-by-anyone') };
+  const rejected = await run(SECRET, UNREADABLE,
+    'cloud rejected the write as unauthorized — the saved record for this connection was created with a different Maker API token');
+  check('a 401 on the write warns that ALARM pushes specifically are refused',
+    /intrusion and arm\/disarm pushes are being refused/i.test(rejected.detail || ''),
+    rejected.detail || '(no detail)');
+  check('...and explains why that is easy to miss',
+    /still arrive/i.test(rejected.detail || ''),
+    'door and window pushes keep working, which is exactly what hides this');
+  const notRejected = await run(SECRET, UNREADABLE, null);
+  check('...and does not cry wolf when no write was rejected',
+    !/intrusion and arm\/disarm/i.test(notRejected.detail || ''),
+    'the warning is tied to the 401, not printed on every unreadable record');
+
+  /* Fix A, 2026-10-02, from jkudave. CLOUD_SYNC_API is a RELATIVE path, so on a
+     hub-served page it resolves to the hub, which serves no such endpoint. The
+     request never goes near hestari.com -- and the old message said "could not
+     reach the hestari.com backend", sending people to check a service that was
+     never asked. It also claimed push was down, when push DELIVERY and hub-fired
+     reminders go hub -> hestari.com directly (HestiaDashboard.groovy:66-67 are
+     absolute URLs) and do not care what served this page. */
+  const onHub = await run(SECRET, UNREADABLE, null,
+    { hubUrl: 'http://192.168.50.139', hostname: '192.168.50.139',
+      origin: 'http://192.168.50.139', fetchThrows: true });
+  check('a hub-served page is told the real cause, not that hestari.com is down',
+    /not available on this address/i.test(onHub.label || ''),
+    `${onHub.colour} / ${onHub.label}`);
+  check('...and it stays RED, because cloud sync really is unavailable here',
+    onHub.colour === 'red',
+    'naming the cause is not the same as softening the alarm');
+  check('...and it does not blame a backend it never contacted',
+    !/could not reach the hestari\.com backend/i.test(onHub.detail || ''),
+    onHub.detail || '(no detail)');
+  check('...and it says reminders and existing push are NOT affected',
+    /reminders/i.test(onHub.detail || '') && /already registered/i.test(onHub.detail || ''),
+    'telling a security household its alarms are down when they are not is its own harm');
+  check('...and it names the address that actually served the page',
+    (onHub.detail || '').includes('192.168.50.139'),
+    'the check knows its own origin; printing it ends the guessing');
+
+  const offHub = await run(SECRET, UNREADABLE, null, { fetchThrows: true });
+  check('a hestari.com page that genuinely cannot reach the backend still says so',
+    offHub.colour === 'red' && /unreachable/i.test(offHub.label || ''),
+    `${offHub.colour} / ${offHub.label}`);
+  check('...so the two causes are reported differently, which is the whole fix',
+    offHub.label !== onHub.label,
+    'if these collapse to one message the branch is doing nothing');
 }
 
 console.log('\n=== 14. Boot mints the secret without the user touching Settings ===');
@@ -725,7 +897,14 @@ console.log('\n=== 16. A device without the key must not start a fresh household
       ${fn('_cloudHasSecret')}
       ${fn('_cloudDeriveKey')}
       ${fn('_cloudDecrypt')}
+      /* Both halves are extracted, not stubbed. cloudRecordLockedOut() was
+         split in two on 2026-10-02 so saveConfigToHub() could reuse the record
+         test without consuming the one-shot lockout override on its way past.
+         The split is an implementation detail of the same behaviour, so this
+         section keeps asserting the whole thing rather than mocking the half
+         that does the actual work. */
       ${fn('cloudRecordLockedOut')}
+      ${fn('_cloudRecordUnreadable')}
       return cloudRecordLockedOut();
     `)(globalThis.crypto, globalThis.btoa, globalThis.atob, TextEncoder, TextDecoder, store);
   };
@@ -783,6 +962,7 @@ console.log('\n=== 16. A device without the key must not start a fresh household
     ${fn('_cloudDeriveKey')}
     ${fn('_cloudDecrypt')}
     ${fn('cloudRecordLockedOut')}
+    ${fn('_cloudRecordUnreadable')}
     return cloudRecordLockedOut();
   `)(globalThis.crypto, globalThis.btoa, globalThis.atob, TextEncoder, TextDecoder);
   check('the IP lookup failing fails OPEN, it is not evidence of a lockout',
@@ -812,6 +992,7 @@ console.log('\n=== 16. A device without the key must not start a fresh household
     ${fn('_cloudDeriveKey')}
     ${fn('_cloudDecrypt')}
     ${fn('cloudRecordLockedOut')}
+    ${fn('_cloudRecordUnreadable')}
     return (async () => {
       const first  = await cloudRecordLockedOut();
       const second = await cloudRecordLockedOut();
@@ -1044,10 +1225,26 @@ console.log('\n=== 18. Recovering when NO device still has the key ===');
      variable name appear elsewhere in this function, so asserting they exist
      passed with the branch hard-wired off -- the third time tonight a
      text-presence assertion agreed with a disabled feature. */
+  /* Comments stripped FIRST, every time, in this section. Three assertions in
+     one release series passed by matching the explanatory comment above the
+     code they were meant to prove. */
+  const decomment = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const diagCode = decomment(diag);
   check('...and surfaces a rejected write instead of suppressing it',
-    /const why = _cloudLastPushError/.test(diag) &&
-    /last save was also rejected/.test(diag),
+    /const rejected = _cloudLastPushError/.test(diagCode) &&
+    /last save was also rejected/.test(diagCode),
     'a 401 explains why setting up fresh does not stick; hiding it wastes the user\'s time');
+  /* 2026-10-02. An unauthorised write means the stored record still carries the
+     household's PREVIOUS Maker API token -- and functions/api/push/send.js:51
+     compares against that same stored hash. That endpoint is the only path for
+     HSM intrusion trips and arm/disarm, so those pushes are refused, while
+     webhook.js never checks the token and keeps delivering door/window/motion.
+     The household sees notifications arriving and concludes push is healthy
+     while the alarm half is dead. Reported by two users. */
+  check('...and names the notifications an unauthorised write actually kills',
+    /\/unauthor\/i\.test\(rejected\)/.test(diagCode) &&
+    /intrusion and arm\/disarm pushes are being refused/.test(diagCode),
+    'saying "the last save was rejected" without this lets a household believe its alarm pushes work');
   check('...and no longer claims nothing has been lost',
     !/nothing has been lost/.test(lock),
     'untrue for the household that already lost it, which is who reads this');
@@ -1117,6 +1314,14 @@ console.log('\n=== 19. Holding the household secret IS the proof of ownership ==
     ${fn('_cloudLocalHouseholdId')}
     let _cloudSecretDecryptedId = null;
     ${fn('_cloudConfigTrusted')}
+    /* Real functions, not stubs. _LS.getItem returns null here, so the memo is
+       empty and the "try a previously working secret" fallback is inert --
+       which is what these assertions want: they are about the PRIMARY key
+       path, and a fallback firing would mask a regression in it. */
+    const CLOUD_SECRET_MEMO_KEY = 'hestia-cloud-secret-memo';
+    const CLOUD_SECRET_MEMO_MAX = 3;
+    ${fn('_cloudRememberGoodSecret')}
+    ${fn('_cloudRememberedSecrets')}
     ${fn('cloudSyncDiscover')}
     return cloudSyncDiscover().then(cfg => ({
       got: !!cfg,
@@ -1167,8 +1372,217 @@ console.log('\n=== 19. Holding the household secret IS the proof of ownership ==
   check('the vouching flag is cleared on every call before anything sets it',
     /_cloudSecretDecryptedId = null;[\s\S]{0,200}viaSecret = false/.test(src),
     'a stale flag would vouch for a record it never read');
+  /* Still pins the GUARD, not the occurrence: the assignment has to sit inside
+     `if (viaSecret && out)`. It became a block on 2026-10-02 when remembering
+     the proven secret was added beside it. */
   check('...and only the secret path sets it',
-    /if \(viaSecret && out\) _cloudSecretDecryptedId = _cloudHouseholdId\(out\)/.test(src));
+    /if \(viaSecret && out\) \{\s*_cloudSecretDecryptedId = _cloudHouseholdId\(out\);/.test(src));
+}
+
+console.log('\n=== 20. A device that ended up with the wrong secret heals itself ===');
+{
+  /* Two field reports, 2026-10-02. One physical device can hold two different
+     secrets across its two origins: hestari.com cannot discover the companion
+     app cross-origin (CORS), so saveConfigToHub()'s !HUB_STORE branch minted
+     its own. Whichever origin wrote last re-encrypted the shared record and
+     the other could no longer read its own settings.
+
+     The rule is "the secret that decrypts the record wins". The record is the
+     arbiter, which is a stronger claim than anything a device can assert about
+     itself. Note the direction: this ADOPTS the working key rather than
+     authorising with the broken one, which would re-encrypt the record under
+     the spurious secret and lock out everybody holding the real one. */
+  const REAL = '7'.repeat(64);
+  const WRONG = '9'.repeat(64);
+  const OTHER = 'c'.repeat(64);
+  const IP = '203.0.113.9';
+  const BODY = { config: { hub: 'http://192.168.50.139', appId: '219', token: 't' },
+                 rooms: [{ id: 'r1', name: 'Kitchen' }] };
+
+  const seal = async (secret, body) => {
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), 'HKDF', false, ['deriveKey']);
+    const key = await crypto.subtle.deriveKey(
+      { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: new TextEncoder().encode('hestia-enc') },
+      base, { name: 'AES-GCM', length: 256 }, false, ['encrypt']);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key,
+      new TextEncoder().encode(JSON.stringify({ config: body }))));
+    return { iv: btoa(String.fromCharCode(...iv)), data: btoa(String.fromCharCode(...ct)) };
+  };
+
+  const run = async ({ secret, memo, payload }) => await new Function(
+    'crypto', 'btoa', 'atob', 'TextEncoder', 'TextDecoder', '__payload', '__store', `
+    const CONFIG = { cloudSecret: ${JSON.stringify(secret)} };
+    const _CLOUD_INFO_ENC = 'hestia-enc';
+    const CLOUD_SYNC_API = '/api/config';
+    const CLOUD_HOUSEHOLD_KEY = 'hestia-cloud-household';
+    const CLOUD_SECRET_MEMO_KEY = 'hestia-cloud-secret-memo';
+    const CLOUD_SECRET_MEMO_MAX = 3;
+    const _LS = {
+      getItem: k => (k in __store ? __store[k] : null),
+      setItem: (k, v) => { __store[k] = v; },
+      removeItem: k => { delete __store[k]; },
+    };
+    const console = { log(){}, warn(){} };
+    function _cloudGetIp(){ return Promise.resolve(${JSON.stringify(IP)}); }
+    function fetch(){ return Promise.resolve({ ok: true, json: () => Promise.resolve(
+      { found: true, encrypted: true, payload: __payload }) }); }
+    ${fn('_cloudKey')}
+    ${fn('_cloudDeriveKey')}
+    ${fn('_cloudDecrypt')}
+    ${fn('_cloudDecryptWithKey')}
+    ${fn('_cloudHouseholdId')}
+    ${fn('_cloudLocalHouseholdId')}
+    let _cloudSecretDecryptedId = null;
+    ${fn('_cloudConfigTrusted')}
+    ${fn('_cloudRememberGoodSecret')}
+    ${fn('_cloudRememberedSecrets')}
+    ${fn('cloudSyncDiscover')}
+    return cloudSyncDiscover().then(cfg => ({
+      got: !!cfg,
+      rooms: cfg && cfg.rooms ? cfg.rooms.length : 0,
+      adopted: CONFIG.cloudSecret,
+      memo: JSON.parse(__store[CLOUD_SECRET_MEMO_KEY] || '[]'),
+      flag: _cloudSecretDecryptedId,
+    }));
+  `)(globalThis.crypto, globalThis.btoa, globalThis.atob, TextEncoder, TextDecoder,
+     payload, { 'hestia-cloud-secret-memo': JSON.stringify(memo) });
+
+  const record = await seal(REAL, BODY);
+
+  const healed = await run({ secret: WRONG, memo: [REAL], payload: record });
+  check('a wrong secret plus a remembered working one: the record IS read',
+    healed.got === true && healed.rooms === 1,
+    JSON.stringify({ got: healed.got, rooms: healed.rooms }));
+  check('...and the working secret is adopted back onto the device',
+    healed.adopted === REAL,
+    'without this the device stays split from its own household forever');
+  check('...and it still vouches for the household it just opened',
+    healed.flag !== null,
+    'a record opened by a proven key is this household\'s, so boot may apply it');
+
+  /* Does the memo actually do the work? Without it the same inputs must fail.
+     If this passes, the assertions above prove nothing. */
+  const noMemo = await run({ secret: WRONG, memo: [], payload: record });
+  check('...and without the remembered secret it still fails, so the memo bites',
+    noMemo.got === false && noMemo.adopted === WRONG,
+    JSON.stringify({ got: noMemo.got, adopted: noMemo.adopted.slice(0, 6) }));
+
+  const junkMemo = await run({ secret: WRONG, memo: [OTHER], payload: record });
+  check('a remembered secret that does NOT open the record is not adopted',
+    junkMemo.got === false && junkMemo.adopted === WRONG,
+    'only a key proven against the live record may replace the held one');
+
+  const proved = await run({ secret: REAL, memo: [], payload: record });
+  check('a secret that opens the record is remembered for next time',
+    proved.got === true && proved.memo.includes(REAL),
+    'this is what makes the recovery above possible at all');
+}
+
+console.log('\n=== 21. The household key box verifies BEFORE it commits ===');
+{
+  /* The entry field exists because the only previous place to type a key was
+     the boot lockout screen, which a device with a working config can never
+     reach -- while Diagnostics told that exact device to "paste it into the
+     recovery screen". The one way this button could leave someone worse off is
+     by storing an unverified key, destroying a device's ability to read a
+     record it can read today. So it is tested for refusal first. */
+  const REAL = '4'.repeat(64);
+  const WRONG = '5'.repeat(64);
+
+  const seal = async (secret) => {
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), 'HKDF', false, ['deriveKey']);
+    const key = await crypto.subtle.deriveKey(
+      { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: new TextEncoder().encode('hestia-enc') },
+      base, { name: 'AES-GCM', length: 256 }, false, ['encrypt']);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key,
+      new TextEncoder().encode(JSON.stringify({ config: { rooms: [] } }))));
+    return { iv: btoa(String.fromCharCode(...iv)), data: btoa(String.fromCharCode(...ct)) };
+  };
+
+  const run = async ({ typed, payload, found = true }) => await new Function(
+    'crypto', 'btoa', 'atob', 'TextEncoder', 'TextDecoder', '__payload', '__store', `
+    const CONFIG = { cloudSecret: null, hub: 'http://192.168.50.139' };
+    const _CLOUD_INFO_ENC = 'hestia-enc';
+    const CLOUD_SYNC_API = '/api/config';
+    const CLOUD_SECRET_MEMO_KEY = 'hestia-cloud-secret-memo';
+    const CLOUD_SECRET_MEMO_MAX = 3;
+    let _sharedHubUrl = null;
+    const window = { location: { origin: 'https://hestari.com', hostname: 'hestari.com' } };
+    let reloaded = false;
+    const location = { reload: () => { reloaded = true; } };
+    const setTimeout = (f) => { f(); return 0; };
+    const _LS = {
+      getItem: k => (k in __store ? __store[k] : null),
+      setItem: (k, v) => { __store[k] = v; },
+      removeItem: k => { delete __store[k]; },
+    };
+    const els = {
+      'diag-hskey-input':  { value: ${JSON.stringify(typed)} },
+      'diag-hskey-result': { textContent: '', style: {} },
+      'diag-hskey-btn':    { disabled: false },
+    };
+    const document = { getElementById: id => els[id] || null };
+    /* Real signature: (url, ms, opts). The timeout is the SECOND argument --
+       a stub ignoring it is how an earlier guard passed while every real call
+       aborted immediately. */
+    function _fetchWithTimeout(url, ms){
+      if (typeof ms !== 'number' || !isFinite(ms)) {
+        throw new Error('_fetchWithTimeout called with a non-numeric timeout: ' + JSON.stringify(ms));
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(
+        { found: ${found}, encrypted: true, payload: __payload }) });
+    }
+    ${fn('_cloudKey')}
+    ${fn('_cloudDeriveKey')}
+    ${fn('_cloudDecryptWithKey')}
+    ${fn('isServedFromHub')}
+    ${fn('_cloudRememberGoodSecret')}
+    ${fn('_cloudRememberedSecrets')}
+    ${fn('diagApplyHouseholdKey')}
+    return diagApplyHouseholdKey().then(() => ({
+      secret: CONFIG.cloudSecret,
+      said: els['diag-hskey-result'].textContent,
+      stored: __store['dashboard-config'] || null,
+      reloaded,
+    }));
+  `)(globalThis.crypto, globalThis.btoa, globalThis.atob, TextEncoder, TextDecoder,
+     payload, { 'dashboard-config': JSON.stringify({ config: { hub: 'http://192.168.50.139' } }) });
+
+  const record = await seal(REAL);
+
+  const bad = await run({ typed: WRONG, payload: record });
+  check('a key that does not open the record is REFUSED',
+    bad.secret === null,
+    'storing it would break a device that can currently read its own settings');
+  check('...and nothing is persisted', !/cloudSecret/.test(bad.stored || ''), bad.stored || '(none)');
+  check('...and it says so rather than failing silently',
+    /does not open/i.test(bad.said || ''), bad.said || '(said nothing)');
+  check('...and it does not reload on a refusal', bad.reloaded === false);
+
+  const good = await run({ typed: REAL, payload: record });
+  check('a key proven against the live record is accepted', good.secret === REAL, good.said);
+  check('...and is persisted so the reload keeps it',
+    /cloudSecret/.test(good.stored || '') && good.stored.includes(REAL),
+    good.stored || '(none)');
+  check('...and reloads so boot applies the household through its tested path',
+    good.reloaded === true,
+    'half-applying a config from a settings panel is how partial states happen');
+
+  /* A pasted config page contains a token hash and a secret proof too, both 64
+     hex. Taking the first run found would adopt the wrong value and report a
+     failure the user cannot explain. v2.1.3 learned this on the lockout screen. */
+  const blob = await run({
+    typed: '{"tokenHash":"' + 'b'.repeat(64) + '","cloudSecret":"' + REAL + '"}',
+    payload: record });
+  check('a pasted config blob picks the labelled cloudSecret, not the first 64 hex run',
+    blob.secret === REAL, blob.said);
+
+  const noRecord = await run({ typed: REAL, payload: record, found: false });
+  check('no record to check against: refuse rather than store unverified',
+    noRecord.secret === null && /no saved record/i.test(noRecord.said || ''),
+    noRecord.said || '(said nothing)');
 }
 
 console.log(`\n${PASS} passed, ${FAIL} failed`);
