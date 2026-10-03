@@ -154,6 +154,14 @@ function buildAppAssets(html) {
     modelCount++;
   }
 
+  /* The bridge shim travels as an asset rather than a <script> tag in the
+     page, because native has to evaluate it BEFORE the dashboard's own scripts
+     run. It is source, not generated, so it lives in android/bridge/ and is
+     copied here. dashboard.html never references it. */
+  const SHIM = path.join('android', 'bridge', 'hestia-bridge.js');
+  if (!fs.existsSync(SHIM)) throw new Error('app assets: the bridge shim is missing from ' + SHIM);
+  fs.copyFileSync(SHIM, path.join(ASSETS, 'hestia-bridge.js'));
+
   const mb = (b) => (b / 1048576).toFixed(1) + ' MB';
   console.log(`  app assets: ${ortRefs} ORT + ${modelRefs} model refs localised, ` +
               `${modelCount} models (${mb(modelBytes)}), runtime ${mb(ortBytes)}, ` +
