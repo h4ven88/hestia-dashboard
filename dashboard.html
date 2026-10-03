@@ -13271,7 +13271,17 @@ async function diagApplyHouseholdKey() {
     return;
   }
   const candidate = m[1];
-  if (candidate === CONFIG.cloudSecret) { say('This device already holds that key.', true); return; }
+  /* Deliberately NOT an early return.
+
+     It was one, and a locked-out user pasted the key straight off his own hub
+     and got "This device already holds that key." True, and useless: it stopped
+     before the only fact that mattered, which is that the key he holds does not
+     open his network's record. That is WHY he is locked out, and the message
+     sent him away thinking he had mis-copied something.
+
+     So a matching key still goes through verification below. The outcome is
+     reported differently, but it is always the real one. */
+  const alreadyHeld = (candidate === CONFIG.cloudSecret);
 
   if (btn) btn.disabled = true;
   try {
@@ -13298,7 +13308,13 @@ async function diagApplyHouseholdKey() {
     try {
       await _cloudDecryptWithKey(data.payload, await _cloudKey(candidate, ['decrypt']));
     } catch (e) {
-      say('That key does not open this network\'s settings. Nothing was changed — check you copied the value that comes after "cloudSecret".', false);
+      say(alreadyHeld
+        ? 'This device already holds that key, and it does NOT open this network\'s saved settings. So the key is not the problem — the saved copy was written by something else, or it belongs to another home sharing your address. Run the checks above: Cloud Sync now says which.'
+        : 'That key does not open this network\'s settings. Nothing was changed — check you copied the value that comes after "cloudSecret".', false);
+      return;
+    }
+    if (alreadyHeld) {
+      say('This device already holds that key, and it does open this network\'s settings — so nothing needed changing here.', true);
       return;
     }
     /* Proven against the real record, so it is this household's key. Persist

@@ -1501,9 +1501,9 @@ console.log('\n=== 21. The household key box verifies BEFORE it commits ===');
     return { iv: btoa(String.fromCharCode(...iv)), data: btoa(String.fromCharCode(...ct)) };
   };
 
-  const run = async ({ typed, payload, found = true }) => await new Function(
+  const run = async ({ typed, payload, found = true, held = null }) => await new Function(
     'crypto', 'btoa', 'atob', 'TextEncoder', 'TextDecoder', '__payload', '__store', `
-    const CONFIG = { cloudSecret: null, hub: 'http://192.168.50.139' };
+    const CONFIG = { cloudSecret: ${JSON.stringify(held)}, hub: 'http://192.168.50.139' };
     const _CLOUD_INFO_ENC = 'hestia-enc';
     const CLOUD_SYNC_API = '/api/config';
     const CLOUD_SECRET_MEMO_KEY = 'hestia-cloud-secret-memo';
@@ -1583,6 +1583,28 @@ console.log('\n=== 21. The household key box verifies BEFORE it commits ===');
   check('no record to check against: refuse rather than store unverified',
     noRecord.secret === null && /no saved record/i.test(noRecord.said || ''),
     noRecord.said || '(said nothing)');
+
+  /* Field report within hours of v2.2.0, from the household this box was built
+     for. He pasted the key straight off his own hub and got "This device
+     already holds that key" -- an early return that fired BEFORE verification.
+     True, useless, and actively misleading: the fact that mattered is that the
+     key he holds does NOT open his record, which is exactly why he is locked
+     out. He went away thinking he had mis-copied something.
+
+     A key that matches the held one must still be verified, and the answer must
+     distinguish "you have it and it works" from "you have it and it does not". */
+  const heldButWrong = await run({ typed: WRONG, payload: record, held: WRONG });
+  check('a key the device already holds is STILL checked against the record',
+    /does NOT open/i.test(heldButWrong.said || ''),
+    heldButWrong.said || '(said nothing)');
+  check('...and says the key is not the problem, so they stop hunting for a better one',
+    /not the problem/i.test(heldButWrong.said || ''),
+    'otherwise the only actionable fact is withheld at the moment it is needed');
+
+  const heldAndRight = await run({ typed: REAL, payload: record, held: REAL });
+  check('a held key that DOES open the record says so plainly',
+    /does open/i.test(heldAndRight.said || '') && heldAndRight.reloaded === false,
+    heldAndRight.said || '(said nothing)');
 }
 
 console.log(`\n${PASS} passed, ${FAIL} failed`);
