@@ -122,6 +122,24 @@ console.log('=== 1. discover.js must not hand the service half to a stranger ===
   const wrong = await discover.onRequestGet({
     request: new Request('https://hestari.com/api/config/discover', { headers: hdr({ 'X-Hestia-Token': 'not-the-token' }) }), env: env(kv) });
   check('a wrong token is not a credential', !('service' in await wrong.json()));
+
+  /* The expiry is lifted OUT of the gated half on purpose. It is the one fact
+     a locked-out household needs, and a locked-out household is by definition
+     the one that cannot authenticate -- so behind the gate it reached only the
+     people who did not need it. It names no device and carries no credential. */
+  const kvE = makeKV();
+  const shE = await shortHashOf(IP);
+  const rec = JSON.parse(kv._m.get(`ip:${shE}`));
+  rec.service.expiresAt = 1793577600000;
+  kvE._m.set(`ip:${shE}`, JSON.stringify(rec));
+  const anonE = await (await discover.onRequestGet({
+    request: new Request('https://hestari.com/api/config/discover', { headers: hdr() }), env: env(kvE) })).json();
+  check('an unauthenticated caller DOES get the expiry',
+    anonE.expiresAt === 1793577600000,
+    'it answers "will waiting clear this", which is the only question they can act on');
+  check('...and still gets nothing else from the gated half',
+    !('service' in anonE),
+    JSON.stringify(Object.keys(anonE)));
 }
 
 console.log('\n=== 2. The device-event webhook capability ===');

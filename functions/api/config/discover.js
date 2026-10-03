@@ -48,6 +48,25 @@ export async function onRequestGet({ request, env }) {
 
     const body = { found: true, ...parsed };
 
+    /* The expiry is lifted OUT of the gated half deliberately.
+     *
+     * It is the one fact a locked-out household actually needs, and a
+     * locked-out household is by definition the one that cannot authenticate.
+     * Leaving it behind the gate meant the only people it was written for were
+     * the only people who could never see it.
+     *
+     * Safe to serve openly: it says when this record was last written, which
+     * tells an attacker nothing they cannot already infer from the record
+     * being here at all. It carries no device, no name and no credential.
+     *
+     * And it answers the question that actually decides what someone should
+     * do. A date that stays put means nothing is writing this record, so it
+     * will lapse and waiting works. A date that keeps moving means something
+     * IS writing it, so it is not abandoned and waiting never will. */
+    if (body.service && typeof body.service.expiresAt === 'number') {
+      body.expiresAt = body.service.expiresAt;
+    }
+
     if (body.service) {
       /* Credentials ride in headers because this is a GET. The raw Maker token
          already reaches this origin on every config save, so presenting it

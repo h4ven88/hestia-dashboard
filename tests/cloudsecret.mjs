@@ -659,6 +659,8 @@ console.log('\n=== 13. Diagnostics must not report a forged record as Synced ===
       ${fn('_cloudTokenHash')}
       ${fn('_cloudHasSecret')}
       ${fn('_cloudAuthHeaders')}
+      const CLOUD_EXPIRY_SEEN_KEY = 'hestia-cloud-expiry-seen';
+      ${fn('_cloudRecordExpiryHint')}
       ${fn('diagCheckCloud')}
       return { go: (err) => { _cloudLastPushError = err || null; return diagCheckCloud(); } };
     `)(globalThis.crypto, globalThis.btoa, globalThis.atob, TextEncoder, TextDecoder, r => out.push(r));
@@ -1605,6 +1607,77 @@ console.log('\n=== 21. The household key box verifies BEFORE it commits ===');
   check('a held key that DOES open the record says so plainly',
     /does open/i.test(heldAndRight.said || '') && heldAndRight.reloaded === false,
     heldAndRight.said || '(said nothing)');
+}
+
+console.log('\n=== 22. "Will waiting clear this record?" ===');
+{
+  /* The record's 30-day expiry is refreshed by a SUCCESSFUL write and nothing
+     else, so the date is evidence rather than just a countdown. A date that
+     stays put means the record is abandoned and will lapse. A date that moves
+     means something is writing it, so waiting never clears it. That is the
+     only question a locked-out household can act on, and it previously had no
+     way to ask it.
+
+     This replaced a device-id comparison, which needed the gated half (so the
+     households it was built for could never reach it) and would have been an
+     enumeration oracle if served openly. */
+  const run = ({ expiresAt, seen = null, now = 1793577600000 }) => new Function(
+    '__store', '__now', `
+    const _LS = {
+      getItem: k => (k in __store ? __store[k] : null),
+      setItem: (k, v) => { __store[k] = v; },
+    };
+    const Date = class extends globalThis.Date {
+      constructor(...a){ super(...(a.length ? a : [__now])); }
+      static now(){ return __now; }
+    };
+    /* Declared because fn() extracts the FUNCTION, not the module-level const
+       it reads. Without it the lookup throws a ReferenceError straight into
+       the function's own try/catch, "moved" silently stays false, and the one
+       assertion that matters passes against a branch that never ran. */
+    const CLOUD_EXPIRY_SEEN_KEY = 'hestia-cloud-expiry-seen';
+    ${fn('_cloudRecordExpiryHint')}
+    return { said: _cloudRecordExpiryHint(${JSON.stringify(expiresAt)}), store: __store };
+  `)(seen === null ? {} : { 'hestia-cloud-expiry-seen': String(seen) }, now);
+
+  const none = run({ expiresAt: undefined });
+  check('a record with no stamp says the date is not known, rather than nothing',
+    /not known/i.test(none.said),
+    none.said);
+  check('...and does not imply it never clears',
+    !/never/i.test(none.said),
+    '"we do not know" and "it never clears" are different facts, and conflating them is how someone wipes a device');
+
+  const stamped = run({ expiresAt: 1793577600000 + 5 * 86400000 });
+  check('a stamped record gives a real date and a day count',
+    /clears on/i.test(stamped.said) && /5 days/.test(stamped.said),
+    stamped.said);
+  check('...and reassures that local settings are unaffected',
+    /unaffected/i.test(stamped.said));
+
+  /* The case that changes the advice. */
+  const moved = run({ expiresAt: 1793577600000 + 10 * 86400000,
+                      seen: 1793577600000 + 2 * 86400000 });
+  check('a record whose date MOVED says waiting will not clear it',
+    /will not clear it/i.test(moved.said),
+    moved.said);
+  /* Asserted on a value that actually CHANGED. Checking persistence in the
+     unchanged case proves nothing, because the seeded value already satisfies
+     it -- which let a mutant that deleted the write survive. */
+  check('...and the new date is written back, or movement is undetectable next time',
+    moved.store['hestia-cloud-expiry-seen'] === String(1793577600000 + 10 * 86400000),
+    moved.store['hestia-cloud-expiry-seen'] || '(nothing stored)');
+
+  /* Without this slack a household's own ordinary save would read as "a
+     stranger is writing your record", which is alarming and wrong. */
+  const sameish = run({ expiresAt: 1793577600000 + 5 * 86400000,
+                        seen: 1793577600000 + 5 * 86400000 });
+  check('an unchanged date is not reported as someone else writing',
+    !/will not clear it/i.test(sameish.said),
+    sameish.said);
+  check('...and the newest value is remembered for the next check',
+    sameish.store['hestia-cloud-expiry-seen'] === String(1793577600000 + 5 * 86400000),
+    'without persisting it, movement could never be detected');
 }
 
 console.log(`\n${PASS} passed, ${FAIL} failed`);

@@ -13341,6 +13341,49 @@ async function diagApplyHouseholdKey() {
   }
 }
 
+/* When does this record clear, and is waiting actually going to work?
+ *
+ * The record's 30-day expiry is refreshed by every SUCCESSFUL write and by
+ * nothing else. So the date is not just a countdown, it is evidence:
+ *
+ *   a date that stays put  -> nothing is writing this record. It is abandoned,
+ *                             it will lapse on that date, and waiting works.
+ *   a date that moves      -> something IS writing it. It is somebody's live
+ *                             record, and waiting will never clear it.
+ *
+ * That is the whole question a locked-out household has, and it used to have
+ * no way to ask it. Deliberately served outside the authenticated half, since
+ * the households that need it are exactly the ones that cannot authenticate.
+ *
+ * Records written before v2.2.0 carry no stamp at all. Say so rather than
+ * staying silent: "we do not know" is a different fact from "it never clears",
+ * and conflating them is how people end up wiping a device. */
+const CLOUD_EXPIRY_SEEN_KEY = 'hestia-cloud-expiry-seen';
+
+function _cloudRecordExpiryHint(expiresAt) {
+  if (typeof expiresAt !== 'number' || !isFinite(expiresAt) || expiresAt <= 0) {
+    return ' This saved copy predates the expiry stamp, so its clear date is not known yet.';
+  }
+  const when = new Date(expiresAt);
+  if (isNaN(when.getTime())) return '';
+  const days = Math.max(0, Math.ceil((expiresAt - Date.now()) / 86400000));
+  const date = when.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+
+  let moved = false;
+  try {
+    const prev = Number(_LS.getItem(CLOUD_EXPIRY_SEEN_KEY) || 0);
+    // A few seconds of slack: the stamp is written server-side per save, and a
+    // single ordinary save by this very household would otherwise read as "a
+    // stranger is writing it".
+    if (prev && expiresAt > prev + 60000) moved = true;
+    if (expiresAt !== prev) _LS.setItem(CLOUD_EXPIRY_SEEN_KEY, String(expiresAt));
+  } catch (e) {}
+
+  return moved
+    ? ` This saved copy was rewritten since the last check, so something is actively using it. Waiting for it to expire will not clear it.`
+    : ` This saved copy clears on ${date} (about ${days} day${days === 1 ? '' : 's'}) unless something writes to it before then, and your settings here are unaffected either way.`;
+}
+
 async function diagCheckCloud() {
   let ip = null;
   try {
@@ -13485,7 +13528,7 @@ async function diagCheckCloud() {
       diagSetStatus('cloud', 'amber', 'This device needs your household key',
         `Your settings are encrypted and this device does not have the key, so it cannot read them. ` +
         howToGetIt + ` Then paste it into the Household key box below.` +
-        _cloudRecordOwnershipHint(data.service) + why + alarmDead);
+        _cloudRecordOwnershipHint(data.service) + _cloudRecordExpiryHint(data.expiresAt) + why + alarmDead);
     }
   } catch (e) {
     diagSetStatus('cloud', 'red', 'Record check failed', `Could not read this household's record: ${e.message}`);
