@@ -1,0 +1,18 @@
+[versions]
+agp = "9.4.1"
+coreKtx = "1.15.0"
+appcompat = "1.7.0"
+webkit = "1.12.1"
+
+[libraries]
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+# WebViewAssetLoader and addDocumentStartJavaScript both live here. Without it
+# the page would have to load from file://, which is not a secure context --
+# and the dashboard's entire household-key system is built on crypto.subtle.
+androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }
+
+[plugins]
+# AGP 9 carries Kotlin support itself; adding org.jetbrains.kotlin.android
+# alongside it is now a hard error, not a warning.
+android-application = { id = "com.android.application", version.ref = "agp" }

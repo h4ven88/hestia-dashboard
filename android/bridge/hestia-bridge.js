@@ -139,4 +139,15 @@
   // Native reaches these two and nothing else.
   window.__hestiaNativeSettle = settle;
   window.__hestiaNativeEmit = emit;
+
+  /* Says so, in the page's own console, following this codebase's
+     "[Module] message" convention. Without it the bridge is invisible from
+     outside the WebView: "present and empty" and "never installed" look
+     identical, and those are exactly the two states Phase 1 has to tell
+     apart. */
+  if (window.console && console.log) {
+    console.log('[Bridge] installed — contract v' + api.version + ', ' + api.platform +
+                ' app ' + api.appVersion + ', capabilities: ' +
+                (api.capabilities.length ? api.capabilities.join(', ') : '(none)'));
+  }
 })();

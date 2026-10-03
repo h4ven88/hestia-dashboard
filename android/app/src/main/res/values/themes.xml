@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches the dashboard's own page background so the window behind the
+         WebView does not flash white before the page paints. -->
+    <style name="Theme.Hestia" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@color/hestia_bg</item>
+        <item name="android:statusBarColor">@color/hestia_bg</item>
+        <item name="android:navigationBarColor">@color/hestia_bg</item>
+    </style>
+</resources>
