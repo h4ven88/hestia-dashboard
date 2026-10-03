@@ -6,3 +6,20 @@
 # not part of the public site.
 /sandbox.html   /   302
 /sandbox         /   302
+
+# The Android app's source ships in the repo but is not part of the public
+# site. Pages deploys the repository root with no build step, so without this
+# every tracked file under android/ would be served as a static download.
+#
+# This works because Pages evaluates redirects ahead of assets: "Redirects are
+# always followed, regardless of whether or not an asset matches the incoming
+# request" (developers.cloudflare.com/pages/configuration/redirects, checked
+# 2026-10-01). The splat makes it one of the 100 dynamic rules, not the 2,000
+# static ones.
+#
+# This is tidiness, NOT the protection for secrets. A keystore or a
+# local.properties must never be committed in the first place -- see the
+# Android block in .gitignore. Anything gitignored is never uploaded to Pages
+# at all, which is the real boundary.
+/android/*      /   302
+/android         /   302

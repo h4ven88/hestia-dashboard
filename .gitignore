@@ -64,3 +64,35 @@ release-notes/*reply*.md
 
 # Agent/session config, including local permissions.
 .claude/
+
+# ── Android app ───────────────────────────────────────────────────────────
+# Ignored rather than left untracked, per the rule this project learned at
+# cost: untracked-and-unignored is one `git clean -fd` from gone AND one
+# `git add -A` from published. Ignoring protects against both.
+#
+# Signing material and anything carrying a secret. A keystore in a public repo
+# lets anyone ship an update that overwrites a user's install, and it cannot be
+# rotated -- Play ties the app identity to it permanently. This block exists
+# before android/ does, deliberately, so the window where it could be
+# committed by accident never opens.
+*.jks
+*.keystore
+android/keystore.properties
+android/local.properties
+android/app/google-services.json
+
+# Generated build output.
+android/build/
+android/app/build/
+android/.gradle/
+android/.idea/
+android/.cxx/
+android/captures/
+*.apk
+*.aab
+
+# Build output copied IN by build.js: the dashboard and the wake word models
+# are generated assets here, not source. One source, one build, three
+# consumers. Consequence to keep in the README: the app cannot be built from a
+# clean checkout without running `node build.js` first.
+android/app/src/main/assets/

@@ -1,6 +1,9 @@
 {
   "devDependencies": {
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/outfit": "^5.3.0",
     "clean-css": "^5.3.3",
+    "onnxruntime-web": "^1.18.0",
     "terser": "^5.46.2",
     "web-push-browser": "^1.4.2"
   },
