@@ -90,7 +90,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        bridge = HestiaBridge(webView, BuildConfig.VERSION_NAME)
+        bridge = HestiaBridge(applicationContext, webView, BuildConfig.VERSION_NAME)
         webView.addJavascriptInterface(bridge, HestiaBridge.JS_NAME)
         installBridgeShim()
 
