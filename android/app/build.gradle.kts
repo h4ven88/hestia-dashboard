@@ -62,4 +62,5 @@ dependencies {
     implementation(libs.androidx.webkit)
     implementation(libs.okhttp)
     implementation(libs.coroutines.android)
+    testImplementation(libs.junit)
 }

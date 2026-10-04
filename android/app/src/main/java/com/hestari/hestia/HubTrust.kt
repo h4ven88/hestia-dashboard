@@ -1,9 +1,9 @@
 package com.hestari.hestia
 
 import android.content.Context
-import android.util.Base64
 import okhttp3.OkHttpClient
 import java.security.MessageDigest
+import java.util.Base64
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.time.Duration
@@ -60,10 +60,33 @@ object HubTrust {
     private const val KEY_PIN = "spki_pin"
     private const val KEY_ORIGIN = "origin"
 
-    /** SHA-256 over the certificate's SubjectPublicKeyInfo, base64. */
+    /**
+     * SHA-256 over the certificate's SubjectPublicKeyInfo, base64.
+     *
+     * java.util.Base64 rather than android.util.Base64 deliberately: it exists
+     * from API 26, which is this app's minSdk, and unlike the Android one it
+     * is real in a plain JVM unit test. The pin comparison is the most
+     * security-critical logic in the app, and it should not need an emulator
+     * or a shim to be tested.
+     */
     fun pinOf(cert: X509Certificate): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(cert.publicKey.encoded)
-        return Base64.encodeToString(digest, Base64.NO_WRAP)
+        return Base64.getEncoder().encodeToString(digest)
+    }
+
+    /**
+     * The whole trust decision, as one pure function so it can be tested
+     * without a network, an emulator or a running app.
+     *
+     * @return the pin actually presented
+     * @throws PinMismatch when [expected] is set and the chain does not match
+     */
+    fun checkChain(expected: String?, chain: Array<X509Certificate>): String {
+        val leaf = chain.firstOrNull() ?: throw PinMismatch(expected.orEmpty(), "")
+        val presented = pinOf(leaf)
+        // null means first use: record it, do not judge it.
+        if (expected != null && presented != expected) throw PinMismatch(expected, presented)
+        return presented
     }
 
     fun storedPin(ctx: Context): String? = prefs(ctx).getString(KEY_PIN, null)
@@ -103,13 +126,14 @@ object HubTrust {
             }
 
             override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {
-                val leaf = chain.firstOrNull()
-                    ?: throw PinMismatch(expectedPin.orEmpty(), "")
-                val presented = pinOf(leaf)
-                observedPin = presented
-                // null means first use: record it, do not judge it.
-                if (expectedPin != null && presented != expectedPin) {
-                    throw PinMismatch(expectedPin, presented)
+                /* The decision itself lives in checkChain so it is testable
+                   without a network. Recording what was seen happens even on
+                   a mismatch, so a caller can report WHICH key turned up. */
+                try {
+                    observedPin = checkChain(expectedPin, chain)
+                } catch (e: PinMismatch) {
+                    observedPin = e.actual.ifEmpty { null }
+                    throw e
                 }
             }
 
