@@ -251,8 +251,24 @@ export async function onRequestPut({ request, env }) {
        back in. It can still lose the slot in that window -- an empty slot is
        genuinely anonymous and TOFU is the only option -- but it keeps the
        credential, so it can take the record back on its next save. */
+    /* WRITE ONLY ON CHANGE, and the reason is a real outage rather than
+       tidiness. v2.2.0 took a config save from two KV writes to three by
+       adding the webhook verifier, and both verifiers were rewritten on EVERY
+       save even though they almost never change. The dashboard pushes config
+       on every boot of every device, so a household testing across a few
+       devices exhausted Cloudflare's daily KV write allowance and the backend
+       began returning 500 to every write -- settings silently stopped
+       reaching other devices, which is the exact failure this release existed
+       to end. Reported from the field within a day of shipping.
+
+       A read costs a fraction of a write and the allowance for them is far
+       larger, so comparing first is cheaper in every case except the one where
+       the value genuinely changed.
+
+       The TTL refresh these writes also performed is preserved by the client,
+       which forces a periodic save well inside the 30-day record TTL. */
     const mayReplaceVerifier = !storedSecretHash || secretProves || tokenProved;
-    if (secretProof && mayReplaceVerifier) {
+    if (secretProof && mayReplaceVerifier && secretProof !== storedSecretHash) {
       await env.HESTIA_KV.put(wcapKey, secretProof, { expirationTtl: 2592000 * 2 });
     }
 
@@ -267,7 +283,13 @@ export async function onRequestPut({ request, env }) {
      * Its presence is also what closes the webhook's grace window for THIS
      * household: once this key exists, webhook.js refuses uncapped POSTs. */
     if (webhookCapProof && /^[0-9a-f]{64}$/.test(webhookCapProof)) {
-      await env.HESTIA_KV.put(`hcap:${shortHash}`, webhookCapProof, { expirationTtl: 2592000 * 2 });
+      // Same change-only rule as wcap above. This capability is minted once
+      // per household and then never moves, so rewriting it on every save was
+      // pure cost.
+      const storedCap = await env.HESTIA_KV.get(`hcap:${shortHash}`);
+      if (storedCap !== webhookCapProof) {
+        await env.HESTIA_KV.put(`hcap:${shortHash}`, webhookCapProof, { expirationTtl: 2592000 * 2 });
+      }
     }
 
     return Response.json({ status: 'ok' });
