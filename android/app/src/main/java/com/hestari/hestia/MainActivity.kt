@@ -90,6 +90,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        ensureLocalNetworkPermission()
+
         bridge = HestiaBridge(applicationContext, webView, BuildConfig.VERSION_NAME)
         webView.addJavascriptInterface(bridge, HestiaBridge.JS_NAME)
         installBridgeShim()
@@ -103,6 +105,48 @@ class MainActivity : AppCompatActivity() {
         })
 
         if (savedInstanceState == null) webView.loadUrl(START_URL)
+    }
+
+    /**
+     * Without this the app cannot reach the hub AT ALL.
+     *
+     * Not a nicety, and not only about discovery. Proven on a Galaxy A16 by
+     * opting in to the Android 17 behaviour early:
+     *
+     *   adb shell am compat enable RESTRICT_LOCAL_NETWORK com.hestari.hestia
+     *
+     * Before opting in, hub access worked and no permission was needed. After,
+     * every path failed identically: the subnet sweep found nothing, a bare
+     * TCP connect to the hub timed out, and an OkHttp request that had
+     * succeeded minutes earlier returned "failed to connect ... after 5000ms".
+     * Declaring the permission in the manifest changed none of it, because it
+     * is a RUNTIME permission and declaring is not granting.
+     *
+     * That gap is the trap worth naming: on every device we own today this
+     * code is unnecessary, and on every device once they reach Android 17 the
+     * app is dead without it. The failure has no distinctive signature either
+     * -- it looks exactly like a hub that is switched off.
+     *
+     * Android 16 names the permission NEARBY_WIFI_DEVICES; Android 17 renames
+     * it ACCESS_LOCAL_NETWORK. Both are requested by string rather than by
+     * constant, so this compiles against either SDK.
+     *
+     * Requested here at startup for now. It wants a priming screen that earns
+     * the yes before the system dialog appears, which is first-run design work
+     * rather than plumbing, and a denial is sticky.
+     */
+    private fun ensureLocalNetworkPermission() {
+        val permission =
+            if (android.os.Build.VERSION.SDK_INT >= 37) "android.permission.ACCESS_LOCAL_NETWORK"
+            else "android.permission.NEARBY_WIFI_DEVICES"
+
+        val granted = androidx.core.content.ContextCompat.checkSelfPermission(this, permission) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        android.util.Log.i("Hestia", "local network permission ($permission): " +
+            if (granted) "granted" else "NOT granted, requesting")
+        if (!granted) {
+            androidx.core.app.ActivityCompat.requestPermissions(this, arrayOf(permission), REQ_LOCAL_NETWORK)
+        }
     }
 
     /**
@@ -136,6 +180,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
+        private const val REQ_LOCAL_NETWORK = 1001
+
         /** Reserved by Google for exactly this; it resolves to nothing public. */
         private const val ASSET_DOMAIN = "appassets.androidplatform.net"
         private const val START_URL = "https://$ASSET_DOMAIN/assets/index.html"

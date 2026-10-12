@@ -6,6 +6,40 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- THE PERMISSION THIS ENTIRE APP DEPENDS ON.
+
+         Verified against developer.android.com/privacy-and-security/local-network-permission
+         on 2026-10-12 rather than assumed:
+
+           "The ACCESS_LOCAL_NETWORK permission is required only if your app
+            targets Android 17 (SDK 37) or higher. If your app targets SDK 36
+            or lower, local network access is implicitly granted using the
+            INTERNET permission."
+
+         We target 37, so it is required. It gates far more than discovery:
+         "Traffic to and from a local network address requires local network
+         access permission", across "all networking APIs", OkHttp included.
+         Without it the app cannot reach the hub at all. Not to poll, not to
+         arm, not to unlock a door.
+
+         WebView traffic inherits the host app's state, so the dashboard's own
+         fetches are covered by this too.
+
+         On Android 16 the restriction is opt-in and this is a no-op, which is
+         why hub access worked on a Galaxy A16 before the permission existed.
+         From Android 17 it is enforced by default. That gap is a trap: it
+         works on every device we own today, and breaks on all of them once
+         they update.
+
+         NEARBY_WIFI_DEVICES is the Android 16 stand-in named by the same page
+         ("temporarily implemented as NEARBY_WIFI_DEVICES"), and carries
+         neverForLocation so it does not drag in a location prompt for a
+         feature that has nothing to do with location. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation" />
+
     <application
         android:allowBackup="false"
         android:label="@string/app_name"

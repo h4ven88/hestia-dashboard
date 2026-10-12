@@ -78,6 +78,7 @@ class HestiaBridge(
         scope.launch {
             try {
                 val result: Any = when (method) {
+                    "hub.discover" -> JSONObject().put("hubs", HubDiscovery.toJson(HubDiscovery.scan(ctx)))
                     "hub.request" -> hubRequest(params)
                     "hub.configure" -> HubClient.configure(ctx, params.optString("origin"))
                     "hub.info" -> hubInfo()
