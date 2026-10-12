@@ -2997,6 +2997,21 @@ let _cfgAppliedSavedAt = null;
 let _sharedHubUrl = null;
 
 function _hubUrlForThisDevice(url) {
+  /* The app reaches the hub only over the origin it PINNED, so that origin is
+     this device's answer no matter what the household shares. Same rule as the
+     hub-served page below, for the same reason: how a device connects is local
+     to that device and must never be synced.
+
+     Without this the household's shared http:// url overwrites the pinned
+     https:// one on the first config load, the relay refuses the mismatch --
+     correctly, since it cannot tell a typo from a redirect to another hub --
+     and the app lands on "Hub unreachable" seconds after a successful setup.
+     Observed on a Galaxy A16, not predicted. */
+  if (_nativeHubOrigin && url) {
+    try {
+      if (new URL(url).hostname === new URL(_nativeHubOrigin).hostname) return _nativeHubOrigin;
+    } catch(e) {}
+  }
   if (!url || !isServedFromHub()) return url;
   try {
     if (new URL(url).hostname === window.location.hostname) return window.location.origin;
@@ -19784,6 +19799,271 @@ const _autoHub = (function() {
   return '';
 })();
 
+/* ═══════════════════════════════════════════════════════
+   NATIVE FIRST RUN — the app's own setup, before the wizard
+═══════════════════════════════════════════════════════ */
+/* Replaces the hardest thing in the product with the shortest.
+ *
+ * On the web, a new device needs a hub address, an app id and a token typed in
+ * by hand, then a certificate accepted once per device. Four releases in three
+ * days went to recovery paths for when that goes wrong. In the app none of it
+ * is necessary: mDNS finds the hub, the user confirms it by NAME, the native
+ * layer pins its certificate, and the hub's own token file supplies every
+ * credential.
+ *
+ * ITS ONLY JOB IS TO PIN A HUB AND HAND BOOT A HUB URL. Everything after that
+ * is the existing boot sequence, unchanged -- discoverHubStore() fetches the
+ * token file over the now-pinned relay exactly as it would over the network,
+ * and loadConfigFromHub() brings the household's real configuration down. A
+ * second implementation of any of that would be a second thing to keep correct.
+ *
+ * Browser-inert by construction: nativeFirstRunNeeded() returns false without
+ * the 'hub' capability, so none of this renders and boot is untouched.
+ */
+let NFR = null;              // the running flow's state, null when not running
+let _nfrResolve = null;      // boot is awaiting this
+
+function nativeFirstRunNeeded() {
+  if (!nativeHub()) return false;      // a browser: there is nothing to pin
+  if (_nativeHubOrigin) return false;  // this device already trusts a hub
+  return true;
+}
+
+/** Resolves with the hub origin to boot from, or null to carry on without one. */
+function nativeFirstRun() {
+  if (!nativeFirstRunNeeded()) return Promise.resolve(null);
+  NFR = { step: 'welcome', hubs: [], pick: null, fp: '', pinned: false,
+          err: '', manual: '', busy: false, denied: false };
+  nfrRender();
+  nfrLockBodyScroll(true);
+  return new Promise(res => { _nfrResolve = res; });
+}
+
+function nfrLockBodyScroll(on) {
+  try { document.body.style.overflow = on ? 'hidden' : ''; } catch(e) {}
+}
+
+function nfrDone(origin) {
+  const w = document.getElementById('nfr-wrap');
+  if (w) w.remove();
+  nfrLockBodyScroll(false);
+  NFR = null;
+  const r = _nfrResolve; _nfrResolve = null;
+  if (r) r(origin || null);
+}
+
+function nfrGo(step) { if (NFR) { NFR.step = step; NFR.err = ''; nfrRender(); } }
+
+/* ── Screen 02: looking for the hub ──────────────────────────────────────── */
+async function nfrScan() {
+  nfrGo('searching');
+  let denied = false;
+  try {
+    const r = await window.hestiaNative.call('hub.discover');
+    NFR.hubs = (r && r.hubs) || [];
+    /* "Permission denied" and "no hub here" are different problems with
+       different remedies, and only one of them is fixed by typing an address.
+       Reporting the first as the second sends the user hunting for a hub that
+       was never missing. */
+    denied = !!r && r.permitted === false;
+  } catch(e) {
+    NFR.hubs = [];
+    NFR.err = e && e.message ? e.message : 'the search could not run';
+  }
+  if (!NFR) return;                       // user left while it was running
+  NFR.denied = denied;
+  NFR.step = NFR.hubs.length ? 'found' : 'notfound';
+  NFR.pick = NFR.hubs.length ? 0 : null;
+  nfrRender();
+}
+
+/* ── Screen 04: show the certificate before committing to it ─────────────── */
+async function nfrInspect(origin) {
+  NFR.busy = true; NFR.err = ''; nfrRender();
+  try {
+    /* commit:false deliberately. Pinning first and showing the fingerprint
+       afterwards would make the next screen a notification rather than a
+       decision. */
+    const r = await window.hestiaNative.call('hub.configure', { origin, commit: false });
+    NFR.pick = { origin, name: r.name || origin, model: r.model || '', version: r.version || '' };
+    NFR.fp = r.fingerprint || '';
+    NFR.pinned = !!r.pinned;
+    NFR.busy = false;
+    nfrGo('trust');
+  } catch(e) {
+    NFR.busy = false;
+    NFR.err = nfrReason(e);
+    nfrRender();
+  }
+}
+
+/* ── Screen 04 action: pin it, then hand boot the address ────────────────── */
+async function nfrTrust() {
+  NFR.busy = true; NFR.err = ''; nfrRender();
+  const origin = NFR.pick.origin;
+  try {
+    await window.hestiaNative.call('hub.configure', { origin, commit: true });
+    await nativeHubSync();               // hubFetch needs the pin before it will relay
+    nfrDone(origin);
+  } catch(e) {
+    NFR.busy = false;
+    NFR.err = nfrReason(e);
+    nfrRender();
+  }
+}
+
+/* A hub the user typed in. Same path as a discovered one from here on. */
+function nfrManualConnect() {
+  const v = (document.getElementById('nfr-addr') || {}).value || '';
+  const host = v.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  if (!host) { NFR.err = 'Enter your hub’s address first.'; nfrRender(); return; }
+  /* https always: the app never sends cleartext, and a hub reached over http
+     has no key to pin, which is the protection this screen is about. */
+  nfrInspect('https://' + host);
+}
+
+/* Native reasons are prefixed by the bridge; a user should see the cause, not
+   the protocol. */
+function nfrReason(e) {
+  const m = (e && e.message) ? String(e.message) : '';
+  if (/pin-mismatch/.test(m)) return 'This hub presented a different certificate than expected.';
+  if (/not-configured/.test(m)) return 'The app could not reach that hub.';
+  if (/answered \d+/.test(m)) return 'Something answered, but it was not a Hubitat hub.';
+  if (/timeout|timed out|failed to connect/i.test(m)) return 'No answer from that address.';
+  return m || 'That did not work.';
+}
+
+function nfrRender() {
+  if (!NFR) return;
+  let wrap = document.getElementById('nfr-wrap');
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.id = 'nfr-wrap'; wrap.className = 'ob-wrap';
+    document.body.appendChild(wrap);
+  }
+  wrap.innerHTML = `<div class="ob-card" style="max-width:420px">${nfrBody()}</div>`;
+}
+
+const NFR_ERR = (m) => m
+  ? `<div style="background:var(--card);border:1px solid var(--conn-err);border-radius:9px;
+       padding:10px 12px;font-size:12.5px;line-height:1.5;color:var(--t1);margin:10px 0">${escapeHtml(m)}</div>`
+  : '';
+
+function nfrBody() {
+  const s = NFR.step;
+  if (s === 'welcome')   return nfrWelcome();
+  if (s === 'searching') return nfrSearching();
+  if (s === 'found')     return nfrFound();
+  if (s === 'notfound')  return nfrNotFound();
+  if (s === 'trust')     return nfrTrustScreen();
+  return '';
+}
+
+function nfrWelcome() {
+  return `<div style="padding:34px 26px 26px;text-align:center">
+    ${obHestiaMarkSVG(76)}
+    <div style="font-family:'Outfit',system-ui,sans-serif;font-size:21px;font-weight:200;
+      letter-spacing:.3em;color:var(--t1);text-transform:uppercase;margin-top:4px">HESTIA&trade;</div>
+    <div style="font-size:10px;color:var(--t3);letter-spacing:.12em;margin-top:6px;
+      text-transform:uppercase">Your safe haven, at a glance.</div>
+    <p style="font-size:13.5px;line-height:1.65;color:var(--t2);margin:26px 0 0">
+      Hestia will look for your Hubitat hub on this network. Nothing to type in.</p>
+    <button class="ob-next" style="width:100%;margin-top:26px" onclick="nfrScan()">Get started</button>
+  </div>`;
+}
+
+function nfrSearching() {
+  return `<div style="padding:30px 26px 26px">
+    <h3 style="font-size:19px;font-weight:300;margin:0 0 8px">Looking for your hub</h3>
+    <p style="font-size:13px;line-height:1.6;color:var(--t2);margin:0 0 20px">
+      Checking the network you&rsquo;re on. This takes a few seconds.</p>
+    <div style="height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin:0 0 22px">
+      <div style="height:100%;width:40%;background:var(--amber);border-radius:2px;
+        animation:nfrsweep 1.4s ease-in-out infinite"></div></div>
+    <button class="ob-back" style="width:100%" onclick="nfrGo('notfound')">Enter the address myself</button>
+  </div>
+  <style>@keyframes nfrsweep{0%{margin-left:0}50%{margin-left:60%}100%{margin-left:0}}</style>`;
+}
+
+function nfrHubCard(h, selected) {
+  return `<div onclick="nfrSelect('${escapeHtml(h.origin)}')" role="button" tabindex="0"
+    style="background:${selected ? 'var(--amber-dim)' : 'var(--card)'};
+      border:1px solid ${selected ? 'var(--amber)' : 'var(--border)'};border-radius:11px;
+      padding:13px 14px;display:flex;align-items:center;gap:12px;margin:0 0 10px;cursor:pointer">
+    <div style="flex:1;min-width:0">
+      <div style="font-size:13.5px;font-weight:500;color:var(--t1)">${escapeHtml(h.name || 'Hubitat hub')}</div>
+      <div style="font-size:11px;color:var(--t3);margin-top:3px">
+        ${escapeHtml([h.model, h.ip].filter(Boolean).join(' · '))}</div>
+    </div>
+    <span style="width:7px;height:7px;border-radius:50%;flex:0 0 auto;
+      background:${h.reachable ? 'var(--conn-ok)' : 'var(--t4)'}"></span>
+  </div>`;
+}
+
+function nfrSelect(origin) { nfrInspect(origin); }
+
+function nfrFound() {
+  const many = NFR.hubs.length > 1;
+  return `<div style="padding:30px 26px 26px">
+    <h3 style="font-size:19px;font-weight:300;margin:0 0 8px">
+      ${many ? 'Found ' + NFR.hubs.length + ' hubs' : 'Found your hub'}</h3>
+    <p style="font-size:13px;line-height:1.6;color:var(--t2);margin:0 0 18px">
+      ${many ? 'Pick the one that belongs to this home.'
+             : 'It answered with its own name, so this should look familiar.'}</p>
+    ${NFR.hubs.map(h => nfrHubCard(h, false)).join('')}
+    ${NFR_ERR(NFR.err)}
+    ${NFR.busy ? '<p style="font-size:12px;color:var(--t3);margin:8px 0 0">Checking…</p>' : ''}
+    <button class="ob-back" style="width:100%;margin-top:14px" onclick="nfrScan()">Not this one &mdash; search again</button>
+    <button class="ob-back" style="width:100%;margin-top:8px;border:none" onclick="nfrGo('notfound')">Enter the address myself</button>
+  </div>`;
+}
+
+function nfrNotFound() {
+  return `<div style="padding:30px 26px 26px">
+    <h3 style="font-size:19px;font-weight:300;margin:0 0 8px">${NFR.denied
+      ? 'Hestia needs local network access' : 'Enter your hub&rsquo;s address'}</h3>
+    <p style="font-size:13px;line-height:1.6;color:var(--t2);margin:0 0 16px">${NFR.denied
+      ? 'Without it the app cannot see your hub, or reach it afterwards. You can grant it in Android Settings &rarr; Apps &rarr; Hestia &rarr; Permissions. Or enter the address below &mdash; though the app will still need the permission to connect.'
+      : 'Hestia didn&rsquo;t find a Hubitat announcing itself here. That&rsquo;s normal on guest Wi&#8209;Fi, and on networks that keep devices apart.'}</p>
+    <label class="ob-label" style="display:block;font-size:11px;letter-spacing:.07em;
+      text-transform:uppercase;color:var(--t3);margin:0 0 6px">Hub address</label>
+    <input id="nfr-addr" class="ob-input" inputmode="decimal" autocomplete="off"
+      placeholder="192.168.1.100" value="${escapeHtml(NFR.manual)}"
+      style="width:100%;font-family:ui-monospace,Menlo,monospace">
+    ${NFR_ERR(NFR.err)}
+    <button class="ob-next" style="width:100%;margin-top:16px" ${NFR.busy ? 'disabled' : ''}
+      onclick="nfrManualConnect()">${NFR.busy ? 'Checking…' : 'Connect'}</button>
+    <button class="ob-back" style="width:100%;margin-top:8px" onclick="nfrScan()">Search again</button>
+  </div>`;
+}
+
+function nfrTrustScreen() {
+  const h = NFR.pick;
+  /* An http hub has no key, so there is no fingerprint and nothing to promise.
+     Saying so beats showing a blank box where a guarantee should be. */
+  const fp = NFR.fp
+    ? `<div style="background:var(--card);border:1px solid var(--border);border-radius:9px;
+         padding:11px 12px;margin:4px 0 0;font-family:ui-monospace,Menlo,monospace;
+         font-size:11px;line-height:1.75;color:var(--t2);word-break:break-all">${escapeHtml(NFR.fp)}</div>`
+    : `<p style="font-size:12px;line-height:1.55;color:var(--t3);margin:4px 0 0">
+         This hub answered without encryption, so there is no certificate to remember.</p>`;
+  return `<div style="padding:30px 26px 26px">
+    <h3 style="font-size:19px;font-weight:300;margin:0 0 8px">Securing the connection</h3>
+    <p style="font-size:13px;line-height:1.6;color:var(--t2);margin:0 0 16px">
+      <b style="color:var(--t1);font-weight:500">${escapeHtml(h.name)}</b>
+      ${h.model ? '· ' + escapeHtml(h.model) : ''}<br>
+      Your hub uses a certificate it made itself, so Hestia will remember this exact one.
+      If it ever changes, you&rsquo;ll hear about it before anything connects.</p>
+    <label style="display:block;font-size:11px;letter-spacing:.07em;text-transform:uppercase;
+      color:var(--t3);margin:0">This hub&rsquo;s fingerprint</label>
+    ${fp}
+    ${NFR_ERR(NFR.err)}
+    <button class="ob-next" style="width:100%;margin-top:18px" ${NFR.busy ? 'disabled' : ''}
+      onclick="nfrTrust()">${NFR.busy ? 'Connecting…' : 'Trust this hub'}</button>
+    <button class="ob-back" style="width:100%;margin-top:8px" onclick="nfrScan()">Choose a different hub</button>
+  </div>`;
+}
+
 let OB = {
   step: 1,          // 1=connect 2=inventory 3=rooms 4=assign
   hub:    _autoHub,
@@ -19869,22 +20149,13 @@ function isDualCapability(caps) {
 }
 
 /* ── Render shell ── */
-function renderOnboarding() {
-  document.querySelector('.panel').style.display = 'none';
-  let wrap = document.getElementById('ob-wrap');
-  if (!wrap) {
-    wrap = document.createElement('div');
-    wrap.id = 'ob-wrap'; wrap.className = 'ob-wrap';
-    document.body.appendChild(wrap);
-  }
-  const TOTAL = 4;
-  const pct = (((OB.step - 1) / (TOTAL - 1)) * 100).toFixed(0);
-  const stepLabels = ['Connect','Inventory','Rooms','Assign'];
-  wrap.innerHTML = `
-    <div class="ob-card">
-      <div class="ob-progress"><div class="ob-progress-bar" style="width:${pct}%"></div></div>
-      <div style="text-align:center;padding:20px 0 4px">
-        ${OB.step === 1 ? `<svg viewBox="0 0 80 90" xmlns="http://www.w3.org/2000/svg" width="64" height="72" style="display:block;margin:0 auto 0px">
+/* The Hestia mark, verbatim from the web onboarding it was drawn for.
+   One copy: the app's first run shows the same mark, and a second hand-drawn
+   version is exactly how this project once ended up with two garage icons in
+   two different visual languages. */
+function obHestiaMarkSVG(w) {
+  const h = Math.round(w * 90 / 80);
+  return `<svg viewBox="0 0 80 90" xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" style="display:block;margin:0 auto 0px">
   <polygon points="40,5 68,21 68,57 40,73 12,57 12,21" fill="none" stroke="#F59E0B" stroke-width="1.5" stroke-linejoin="miter"/>
   <polygon points="40,5 68,21 54,33 26,33 12,21" fill="#F0EEE8"/>
   <polygon points="40,5 12,21 26,33" fill="#E4E2DA"/>
@@ -19906,7 +20177,25 @@ function renderOnboarding() {
   <line x1="12" y1="45" x2="54" y2="33" stroke="#475569" stroke-width=".6" opacity=".18"/>
   <line x1="68" y1="45" x2="26" y2="33" stroke="#475569" stroke-width=".6" opacity=".18"/>
   <circle cx="40" cy="73" r="2.5" fill="#94A3B8" opacity=".3"/>
-</svg>
+</svg>`;
+}
+
+function renderOnboarding() {
+  document.querySelector('.panel').style.display = 'none';
+  let wrap = document.getElementById('ob-wrap');
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.id = 'ob-wrap'; wrap.className = 'ob-wrap';
+    document.body.appendChild(wrap);
+  }
+  const TOTAL = 4;
+  const pct = (((OB.step - 1) / (TOTAL - 1)) * 100).toFixed(0);
+  const stepLabels = ['Connect','Inventory','Rooms','Assign'];
+  wrap.innerHTML = `
+    <div class="ob-card">
+      <div class="ob-progress"><div class="ob-progress-bar" style="width:${pct}%"></div></div>
+      <div style="text-align:center;padding:20px 0 4px">
+        ${OB.step === 1 ? `${obHestiaMarkSVG(64)}
         <div style="font-family:'Outfit',system-ui,sans-serif;font-size:22px;font-weight:200;letter-spacing:.3em;color:var(--t1);text-transform:uppercase;margin-top:2px">HESTIA™</div>
         <div style="font-size:10px;color:var(--t3);letter-spacing:.12em;margin-top:4px">YOUR SAFE HAVEN, AT A GLANCE.</div>` : ''}
       </div>
@@ -20523,6 +20812,21 @@ function launchOnboarding() {
   if (_urlHub) {
     _hubHint = _urlHub.startsWith('http') ? _urlHub : ('http://' + _urlHub);
     console.log('[Boot] Hub hint from URL parameter:', _hubHint);
+  }
+
+  /* The app's first run, and ONLY in the app: it finds the hub, the user
+     confirms it by name, and the native layer pins its certificate. All it
+     hands back is a hub address, which is exactly what a Wall Panel link
+     supplies -- so everything below runs unchanged and reads the credentials
+     off the hub's own token file over the now-pinned connection.
+
+     A no-op in a browser (no 'hub' capability) and on a device that already
+     trusts a hub, so this resolves immediately in both cases. */
+  const _nativeHub = await nativeFirstRun();
+  if (_nativeHub) {
+    _hubHint = _nativeHub;
+    CONFIG.hub = _nativeHub;
+    console.log('[Boot] Hub pinned by first run:', _nativeHub);
   }
 
   // If full credentials are in the URL, construct HUB_STORE directly —

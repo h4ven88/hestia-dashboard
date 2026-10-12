@@ -14,10 +14,14 @@ function extractFn(name) {
 const code = ['isServedFromHub', '_hubUrlForThisDevice', '_hubUrlToShare'].map(extractFn).join('\n');
 
 // One simulated device = its own page location + its own CONFIG.
-function device(pageUrl) {
+function device(pageUrl, pinnedOrigin = null) {
   const loc = new URL(pageUrl);
   return new Function('window', `
     let CONFIG = { hub: '' }, _sharedHubUrl = null;
+    /* Mirrors dashboard.html's _nativeHubOrigin: the origin the native app has
+       pinned, null in every browser. _hubUrlForThisDevice() reads it, so
+       without this stub the whole suite throws rather than failing. */
+    let _nativeHubOrigin = ${JSON.stringify(pinnedOrigin)};
     ${code}
     return {
       // what applyParsedConfig() now does with a synced/cached config
@@ -80,5 +84,39 @@ const moving = device('https://192.168.1.50/local/index.html'); moving.load('htt
 moving.saveSettings('http://192.168.1.77');
 eq('connects to the new hub', moving.connectsWith(), 'http://192.168.1.77');
 eq('new hub address is shared', moving.shares(), 'http://192.168.1.77');
+
+/* ── The native app: it reaches the hub only over the origin it pinned ──────
+   Observed on a Galaxy A16 rather than predicted. First run pins
+   https://<hub>, then the household's own config arrives carrying http://<hub>
+   and overwrites it. The relay then refuses the mismatch -- correctly, since it
+   cannot tell a typo from a redirect to a different hub -- and the app shows
+   "Hub unreachable" seconds after a setup that worked. */
+const APP = 'https://appassets.androidplatform.net/assets/index.html';
+const app = device(APP, 'https://192.168.50.139');
+app.load('http://192.168.50.139');
+eq('the app connects over the origin it pinned', app.connectsWith(), 'https://192.168.50.139');
+/* And must NOT publish it. The household's URL is how every OTHER device
+   reaches the hub, and a phone rewriting it to its own pinned form is the May
+   cross-device bug with the roles reversed. */
+eq('...and still shares the household\'s own url', app.shares(), 'http://192.168.50.139');
+
+const app8443 = device(APP, 'https://192.168.50.139');
+app8443.load('https://192.168.50.139:8443');
+eq('a shared :8443 url also resolves to the pinned origin here',
+   app8443.connectsWith(), 'https://192.168.50.139');
+eq('...and :8443 is still what the household shares',
+   app8443.shares(), 'https://192.168.50.139:8443');
+
+/* A DIFFERENT hub must not be hijacked onto the pinned one. Someone moving to a
+   new hub needs to see it fail and re-pin, not have the app silently keep
+   talking to the old one. */
+const moved = device(APP, 'https://192.168.50.139');
+moved.load('http://192.168.50.77');
+eq('a different hub is left alone', moved.connectsWith(), 'http://192.168.50.77');
+
+/* A browser must be untouched by any of this. */
+const plain = device('https://hestari.com/');
+plain.load('http://192.168.50.139');
+eq('a browser is unaffected by pinning', plain.connectsWith(), 'http://192.168.50.139');
 
 console.log(`\n${pass} passed, ${fail} failed`);

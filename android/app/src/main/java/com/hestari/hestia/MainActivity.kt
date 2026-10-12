@@ -90,9 +90,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        ensureLocalNetworkPermission()
-
-        bridge = HestiaBridge(applicationContext, webView, BuildConfig.VERSION_NAME)
+        bridge = HestiaBridge(applicationContext, webView, BuildConfig.VERSION_NAME,
+            ::ensureLocalNetworkPermission)
         webView.addJavascriptInterface(bridge, HestiaBridge.JS_NAME)
         installBridgeShim()
 
@@ -190,11 +189,19 @@ class MainActivity : AppCompatActivity() {
      * it ACCESS_LOCAL_NETWORK. Both are requested by string rather than by
      * constant, so this compiles against either SDK.
      *
-     * Requested here at startup for now. It wants a priming screen that earns
-     * the yes before the system dialog appears, which is first-run design work
-     * rather than plumbing, and a denial is sticky.
+     * ASKED WHEN THE PAGE ASKS, NOT AT STARTUP. It used to fire from onCreate,
+     * and a screenshot of the first run showed why that is wrong: Android's
+     * dialog -- "allow Hestia to find, connect to, and determine the relative
+     * position of nearby devices" -- appeared over the welcome screen, covering
+     * the button, before the user had read a word about what the app does.
+     *
+     * A denial is sticky, so that question gets one good asking. It is now
+     * requested by the first hub.discover call, which happens the instant the
+     * user taps "Get started" underneath a screen that has just said Hestia is
+     * about to look for their hub on this network. Same dialog, asked after the
+     * reason instead of before it.
      */
-    private fun ensureLocalNetworkPermission() {
+    private fun ensureLocalNetworkPermission(onResult: (Boolean) -> Unit) {
         val permission =
             if (android.os.Build.VERSION.SDK_INT >= 37) "android.permission.ACCESS_LOCAL_NETWORK"
             else "android.permission.NEARBY_WIFI_DEVICES"
@@ -203,9 +210,28 @@ class MainActivity : AppCompatActivity() {
             android.content.pm.PackageManager.PERMISSION_GRANTED
         android.util.Log.i("Hestia", "local network permission ($permission): " +
             if (granted) "granted" else "NOT granted, requesting")
-        if (!granted) {
-            androidx.core.app.ActivityCompat.requestPermissions(this, arrayOf(permission), REQ_LOCAL_NETWORK)
-        }
+        if (granted) { onResult(true); return }
+
+        /* One outstanding request at a time. A second would orphan the first
+           callback, and the caller waiting on it would never be answered. */
+        if (permissionWaiter != null) { onResult(false); return }
+        permissionWaiter = onResult
+        androidx.core.app.ActivityCompat.requestPermissions(this, arrayOf(permission), REQ_LOCAL_NETWORK)
+    }
+
+    private var permissionWaiter: ((Boolean) -> Unit)? = null
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQ_LOCAL_NETWORK) return
+        val waiter = permissionWaiter
+        permissionWaiter = null
+        /* An empty grantResults means the request was cancelled, which is a
+           denial for our purposes: we still cannot reach the network. */
+        waiter?.invoke(grantResults.isNotEmpty() &&
+            grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED)
     }
 
     /**

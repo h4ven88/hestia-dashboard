@@ -418,5 +418,74 @@ console.log('\n=== 13. Nothing aimed at the hub bypasses the doorway ===');
     'one line covers all 13 hubStoreFetch callers');
 }
 
+console.log('\n=== 14. First run belongs to the app and nowhere else ===');
+{
+  const FIRSTRUN_SRC = ['nativeHub', 'nativeFirstRunNeeded', 'nativeFirstRun', 'nfrReason',
+    'nfrManualConnect'].map(extractFn).join('\n\n');
+
+  function firstRun({ capabilities = ['hub'], pinned = null, addr = '' } = {}) {
+    const inspected = [];
+    const win = { location: { href: 'https://appassets.androidplatform.net/assets/index.html' } };
+    if (capabilities !== null) win.hestiaNative = { capabilities, call: () => Promise.resolve({}) };
+    return new Function('window', 'document', `
+      let _nativeHubOrigin = ${JSON.stringify(pinned)};
+      let NFR = { err: '', manual: '' }, _nfrResolve = null;
+      const inspected = [];
+      function nfrRender() {}
+      function nfrLockBodyScroll() {}
+      function nfrInspect(origin) { inspected.push(origin); }
+      ${FIRSTRUN_SRC}
+      return { nativeFirstRunNeeded, nativeFirstRun, nfrReason, nfrManualConnect,
+               inspected, NFR };
+    `)(win, { getElementById: () => ({ value: addr }) });
+  }
+
+  /* The gate. If this is ever true in a browser, every hestari.com user is
+     shown a setup flow for a capability their browser does not have. */
+  check('a browser never needs first run',
+    firstRun({ capabilities: null }).nativeFirstRunNeeded() === false);
+  check('...nor does a bridge that does not offer hub',
+    firstRun({ capabilities: ['mic'] }).nativeFirstRunNeeded() === false);
+  check('a device that already trusts a hub is not asked again',
+    firstRun({ pinned: 'https://192.168.50.139' }).nativeFirstRunNeeded() === false,
+    'first run is for the first run');
+  check('a fresh app install does need it',
+    firstRun().nativeFirstRunNeeded() === true);
+
+  /* Boot AWAITS this, so a wrong answer here does not show a stray screen --
+     it hangs the dashboard before anything renders. */
+  const skipped = firstRun({ capabilities: null });
+  check('when it is not needed it resolves immediately rather than blocking boot',
+    (await skipped.nativeFirstRun()) === null);
+
+  /* The app never sends cleartext -- that is what lets the manifest keep
+     usesCleartextTraffic false -- and an http hub has no key to pin, which is
+     the entire subject of the screen that follows. */
+  for (const typed of ['192.168.1.100', 'http://192.168.1.100', 'HTTP://192.168.1.100/',
+                       'https://192.168.1.100', '  192.168.1.100  ']) {
+    const f = firstRun({ addr: typed });
+    f.nfrManualConnect();
+    check(`a typed address becomes https: ${JSON.stringify(typed)}`,
+      f.inspected.length === 1 && f.inspected[0] === 'https://192.168.1.100',
+      f.inspected[0]);
+  }
+  const empty = firstRun({ addr: '   ' });
+  empty.nfrManualConnect();
+  check('an empty address asks again instead of connecting to nothing',
+    empty.inspected.length === 0 && /address/i.test(empty.NFR.err));
+
+  /* The bridge prefixes its own reasons. A user should be told the cause, not
+     handed the protocol. */
+  const r = firstRun();
+  check('a certificate change is named as one',
+    /different certificate/i.test(r.nfrReason(new Error('pin-mismatch: abc vs def'))));
+  check('an unreachable hub is not reported as a certificate problem',
+    /could not reach/i.test(r.nfrReason(new Error('not-configured: no hub'))));
+  check('something that is not a hub says so',
+    /not a Hubitat/i.test(r.nfrReason(new Error('hub answered 404 rather than identifying itself'))));
+  check('an unknown failure still says something rather than nothing',
+    r.nfrReason(new Error('')).length > 0);
+}
+
 console.log(`\n${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL ? 1 : 0);

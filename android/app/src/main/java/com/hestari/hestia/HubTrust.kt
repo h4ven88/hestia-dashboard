@@ -75,6 +75,22 @@ object HubTrust {
     }
 
     /**
+     * The same bytes as the pin, in the encoding a person can read.
+     *
+     * Base64 is for storage and comparison; nobody reads it off a screen or
+     * repeats it over the phone. Colon-separated uppercase hex is the form
+     * every other tool shows a certificate fingerprint in, which is what makes
+     * it comparable against one at all.
+     *
+     * Empty for an unpinned (http) hub rather than a placeholder, so the UI has
+     * to decide what to say instead of displaying something that looks like a
+     * fingerprint and is not.
+     */
+    fun fingerprintOf(pin: String): String = runCatching {
+        Base64.getDecoder().decode(pin).joinToString(":") { String.format("%02X", it) }
+    }.getOrDefault("")
+
+    /**
      * The whole trust decision, as one pure function so it can be tested
      * without a network, an emulator or a running app.
      *

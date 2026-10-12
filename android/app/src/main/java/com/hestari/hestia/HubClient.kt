@@ -100,7 +100,7 @@ object HubClient {
      * hub that is not there -- the failure mode that would otherwise look
      * identical to the hub being offline.
      */
-    fun configure(ctx: Context, origin: String): JSONObject {
+    fun configure(ctx: Context, origin: String, commit: Boolean = true): JSONObject {
         val normalised = origin.trimEnd('/')
         if (!normalised.startsWith("https://") && !normalised.startsWith("http://")) {
             throw IllegalArgumentException("hub origin must start with http:// or https://")
@@ -115,14 +115,20 @@ object HubClient {
                 throw Exception("hub answered ${res.code} rather than identifying itself")
             }
             val seen = pinned.observedPin
+            /* commit=false looks without remembering, so first-run can SHOW the
+               fingerprint on the screen that asks the user to trust it. Pinning
+               first and displaying afterwards would make that screen a
+               notification rather than a decision. */
             // http:// has no key to pin. Allowed, but recorded as unpinned so
             // the UI can say so rather than implying a protection it lacks.
-            HubTrust.remember(ctx, normalised, seen.orEmpty())
+            if (commit) HubTrust.remember(ctx, normalised, seen.orEmpty())
 
             val info = runCatching { JSONObject(text) }.getOrElse { JSONObject() }
             return JSONObject()
                 .put("origin", normalised)
                 .put("pinned", seen != null)
+                .put("committed", commit)
+                .put("fingerprint", HubTrust.fingerprintOf(seen.orEmpty()))
                 .put("hubId", info.optString("hubId"))
                 .put("name", info.optString("name"))
                 .put("model", info.optString("model"))

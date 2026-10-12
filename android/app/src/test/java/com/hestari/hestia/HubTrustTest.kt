@@ -96,4 +96,34 @@ class HubTrustTest {
         val pinOfLeaf = HubTrust.pinOf(certA)
         assertEquals(pinOfLeaf, HubTrust.checkChain(null, arrayOf(certA, certB)))
     }
+
+    /* The fingerprint is shown to a user and asked to be trusted, so it has to
+       be the same bytes as the pin in a readable encoding -- not a separate
+       digest that could agree by coincidence and diverge silently. */
+    @Test
+    fun `the fingerprint is the pin, re-encoded for a human`() {
+        val pin = HubTrust.pinOf(load("hub-a.pem"))
+        val fp = HubTrust.fingerprintOf(pin)
+        assertEquals(32, fp.split(":").size)          // SHA-256 is 32 bytes
+        assertTrue(fp.matches(Regex("([0-9A-F]{2}:){31}[0-9A-F]{2}")))
+        // Decoding the display form must return exactly the pinned bytes.
+        val back = java.util.Base64.getEncoder().encodeToString(
+            fp.split(":").map { it.toInt(16).toByte() }.toByteArray())
+        assertEquals(pin, back)
+    }
+
+    @Test
+    fun `two different hubs do not share a fingerprint`() {
+        assertNotEquals(
+            HubTrust.fingerprintOf(HubTrust.pinOf(load("hub-a.pem"))),
+            HubTrust.fingerprintOf(HubTrust.pinOf(load("hub-b.pem"))))
+    }
+
+    /* An http hub has no key to pin. Showing something that merely looks like a
+       fingerprint would claim a protection that is not there. */
+    @Test
+    fun `an unpinned hub has no fingerprint rather than a fake one`() {
+        assertEquals("", HubTrust.fingerprintOf(""))
+        assertEquals("", HubTrust.fingerprintOf("not base64 at all !!"))
+    }
 }

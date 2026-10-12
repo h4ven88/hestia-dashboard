@@ -38,9 +38,30 @@ class HestiaBridge(
     private val ctx: Context,
     private val webView: WebView,
     private val appVersion: String,
+    /* Supplied by the Activity, because only an Activity can ask. Called on the
+       main thread; answers true once the permission is held. */
+    private val ensureLocalNetwork: ((Boolean) -> Unit) -> Unit = { it(true) },
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * Holds a discovery call until the local network permission is settled.
+     *
+     * Discovery is the first thing that touches the network and the first thing
+     * the user asks for, so this is where the question belongs. Scanning without
+     * it would find nothing and report "no hub on this network", which is the
+     * same words as a genuinely empty network and sends the user to type in an
+     * address that was never the problem.
+     */
+    private suspend fun awaitLocalNetwork(): Boolean =
+        kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+            webView.post {
+                ensureLocalNetwork { granted ->
+                    if (cont.isActive) cont.resumeWith(Result.success(granted))
+                }
+            }
+        }
 
     @JavascriptInterface
     fun handshake(): String = JSONObject().apply {
@@ -78,9 +99,23 @@ class HestiaBridge(
         scope.launch {
             try {
                 val result: Any = when (method) {
-                    "hub.discover" -> JSONObject().put("hubs", HubDiscovery.toJson(HubDiscovery.scan(ctx)))
+                    "hub.discover" -> {
+                        val allowed = awaitLocalNetwork()
+                        JSONObject()
+                            .put("hubs", if (allowed) HubDiscovery.toJson(HubDiscovery.scan(ctx)) else JSONArray())
+                            /* Reported so the page can say "permission denied"
+                               rather than "no hub found". They are different
+                               problems with different remedies, and only one of
+                               them is fixed by typing an address. */
+                            .put("permitted", allowed)
+                    }
                     "hub.request" -> hubRequest(params)
-                    "hub.configure" -> HubClient.configure(ctx, params.optString("origin"))
+                    /* commit defaults TRUE so an older page that knows nothing
+                       about the flag still pins, as it always did. */
+                    "hub.configure" -> HubClient.configure(
+                        ctx, params.optString("origin"),
+                        if (params.has("commit")) params.optBoolean("commit") else true,
+                    )
                     "hub.info" -> hubInfo()
                     else -> {
                         settle(id, null, "no such capability: $method")
