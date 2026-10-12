@@ -46,6 +46,13 @@ let _artemisAlarmDevices = [];
 let deviceLookup = null;
 function apiUrl(p){ return p; }
 async function _fetchWithTimeout(u){ __log('LOOKUP ' + u); return deviceLookup ? { ok: true, json: async () => deviceLookup } : { ok: false }; }
+/* Mirrors dashboard.html's hubFetch (the single doorway for hub-bound
+   requests, defined beside _fetchWithTimeout). Routed to the same stub
+   because in a browser -- which is what this harness simulates -- hubFetch
+   IS fetch; the relay only engages behind the native 'hub' capability.
+   Added when the device lookup moved onto this doorway: without it the
+   lookup threw and the test silently exercised the fallback path instead. */
+async function hubFetch(u, opts, ms){ return _fetchWithTimeout(u, ms, opts); }
 function parseAttrs(d){ return d.attributes || {}; }
 async function cmd(id, c, a){ __log('CMD ' + id + ' ' + c + (a !== undefined ? ' ' + a : '')); return true; }
 async function fetch(){ return { ok: true, json: async () => ({ hsm: hsmResp }) }; }

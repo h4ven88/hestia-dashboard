@@ -179,5 +179,244 @@ console.log('\n=== 8. Installing twice is a no-op ===');
     'reinjection on a client-side navigation would otherwise orphan every pending call');
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   PHASE 2: the hub relay, against the real functions from dashboard.html.
+
+   Extracted rather than reimplemented. Two copies of the same assumption
+   agreeing proves nothing, and this is the code path that decides whether a
+   browser user's traffic changes at all.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Captures the optional `async `, which a bare /function <name>\(/ would drop
+   -- taking the keyword off an async function silently turns every `await`
+   inside it into a syntax error. */
+function extractFn(name) {
+  const m = new RegExp('(async\\s+)?function\\s+' + name + '\\s*\\(').exec(DASH);
+  if (!m) throw new Error('missing ' + name + ' in dashboard.html');
+  let depth = 0;
+  for (let j = DASH.indexOf('{', m.index); j < DASH.length; j++) {
+    if (DASH[j] === '{') depth++;
+    else if (DASH[j] === '}' && --depth === 0) return DASH.slice(m.index, j + 1);
+  }
+  throw new Error('unbalanced braces in ' + name);
+}
+
+const RELAY_SRC = ['_originOf', 'nativeHub', 'nativeHubSync', '_nativeHubFetch',
+  'hubFetch', '_fetchWithTimeout'].map(extractFn).join('\n\n');
+
+/* The sentinel is the whole trick for the browser-equivalence tests: if
+   hubFetch returns the very object the stub fetch returned, it cannot have
+   wrapped, retried or rerouted anything. */
+const SENTINEL = { iAmTheBrowserResponse: true };
+
+function relay({ capabilities = ['hub'], pinned = null, onRequest = null, infoThrows = false } = {}) {
+  const calls = [];      // what reached "native"
+  const fetches = [];    // what went out as an ordinary browser fetch
+  // Mutable so a test can make a LATER hub.info fail after an earlier one
+  // succeeded, which is the only way a stale pinned origin can exist.
+  const ctl = { infoThrows };
+  const win = {
+    location: { href: 'https://appassets.androidplatform.net/assets/index.html' },
+  };
+  if (capabilities !== null) {
+    win.hestiaNative = {
+      capabilities,
+      call(method, params) {
+        calls.push({ method, params });
+        if (method === 'hub.info') {
+          return ctl.infoThrows ? Promise.reject(new Error('relay unavailable'))
+                                : Promise.resolve({ origin: pinned, pinned: !!pinned });
+        }
+        if (method === 'hub.request') {
+          return onRequest ? onRequest(params) : Promise.resolve({ status: 200, body: '{"ok":1}' });
+        }
+        return Promise.reject(new Error('no such capability: ' + method));
+      },
+    };
+  }
+  const fakeFetch = (url, opts) => { fetches.push({ url, opts }); return Promise.resolve(SENTINEL); };
+  const api = new Function('window', 'console', 'URL', 'Response', 'TypeError', 'Number',
+    'fetch', 'AbortController', 'setTimeout', 'clearTimeout', `
+      let _nativeHubOrigin = null;
+      ${RELAY_SRC}
+      return { hubFetch, nativeHub, nativeHubSync, _originOf,
+               pin(v) { _nativeHubOrigin = v; }, pinned() { return _nativeHubOrigin; } };
+    `)(win, { log() {}, warn() {} }, URL, Response, TypeError, Number,
+       fakeFetch, AbortController, setTimeout, clearTimeout);
+  return { ...api, calls, fetches, win, ctl };
+}
+
+const HUB = 'https://192.168.50.139';
+const MAKER = `${HUB}/apps/api/42/devices/all?access_token=abc123`;
+
+console.log('\n=== 9. In a browser, hubFetch IS fetch ===');
+{
+  /* The load-bearing invariant. If this holds, a browser user cannot reach the
+     relay code at all, so a defect in it has to surface in the app. */
+  const noBridge = relay({ capabilities: null });
+  const r1 = await noBridge.hubFetch(MAKER);
+  check('with no bridge, the browser Response is returned untouched',
+    r1 === SENTINEL, 'not wrapped, not re-created');
+  check('...called with exactly the url and options it was given',
+    noBridge.fetches.length === 1 && noBridge.fetches[0].url === MAKER &&
+    noBridge.fetches[0].opts === undefined,
+    JSON.stringify(noBridge.fetches[0]));
+
+  /* Present-and-empty is what Phase 1 shipped to real devices, so it is the
+     state that can regress, exactly as section 3 argues. */
+  const empty = relay({ capabilities: [] });
+  check('present-and-empty behaves identically',
+    (await empty.hubFetch(MAKER)) === SENTINEL && empty.calls.length === 0);
+
+  /* Capability, not bridge presence: a future build offering mic but not hub
+     must still use the browser path for hub traffic. */
+  const otherCap = relay({ capabilities: ['mic', 'notify'] });
+  check('a bridge without the hub capability uses the browser path',
+    (await otherCap.hubFetch(MAKER)) === SENTINEL && otherCap.calls.length === 0);
+
+  const withTimeout = relay({ capabilities: null });
+  await withTimeout.hubFetch(MAKER, null, 4000);
+  check('a timeout is applied only when the caller asks for one',
+    withTimeout.fetches.length === 1 && !!withTimeout.fetches[0].opts.signal,
+    'hubStoreFetch relies on its 4s guard surviving this change');
+
+  /* No caller does this TODAY -- the nine Maker API sites are all bare GETs and
+     hubStoreFetch always passes a timeout. It is asserted because a doorway
+     that silently drops a POST body is a defect waiting for its first caller,
+     and the failure would look like a config save that reported success and
+     changed nothing. Found by the mutation gate, not by review. */
+  const untimedPost = relay({ capabilities: null });
+  const postOpts = { method: 'POST', body: '{"a":1}' };
+  await untimedPost.hubFetch(MAKER, postOpts);
+  check('options survive the untimed browser path',
+    untimedPost.fetches[0].opts === postOpts,
+    'a dropped body would be a save that succeeds and writes nothing');
+}
+
+console.log('\n=== 10. In the app, the request is relayed over the pinned hub ===');
+{
+  const r = relay({ pinned: HUB });
+  await r.nativeHubSync();
+  const res = await r.hubFetch(MAKER);
+  const sentReq = r.calls.find(c => c.method === 'hub.request');
+  check('the request reaches native, not the network',
+    !!sentReq && r.fetches.length === 0);
+
+  /* THE ONE THAT WOULD BREAK EVERYTHING SILENTLY. apiUrl() puts the Maker API
+     token in the query string, so dropping the search turns every single
+     request into a 401 and the dashboard would look authenticated-but-empty. */
+  check('the query string survives, token and all',
+    sentReq.params.path === '/apps/api/42/devices/all?access_token=abc123',
+    sentReq.params.path);
+  check('it is a path, never an absolute url',
+    sentReq.params.path.startsWith('/') && !/^https?:/.test(sentReq.params.path));
+  check('the relayed reply is a real Response the caller can use',
+    res.ok === true && res.status === 200);
+  check('...with a readable body', (await res.json()).ok === 1);
+
+  const post = relay({ pinned: HUB });
+  await post.nativeHubSync();
+  await post.hubFetch(`${HUB}/apps/api/42/config`, {
+    method: 'POST', body: '{"a":1}', headers: { 'Content-Type': 'application/json' },
+  });
+  const p = post.calls.find(c => c.method === 'hub.request').params;
+  check('method, body and content type are forwarded',
+    p.method === 'POST' && p.body === '{"a":1}' && p.contentType === 'application/json',
+    JSON.stringify(p));
+}
+
+console.log('\n=== 11. The relay refuses rather than guessing ===');
+{
+  /* hub.request takes a path and sends it to the origin NATIVE pinned. If the
+     page asks for a different hub, relaying anyway would deliver the request
+     to the wrong house while the UI reported the right one. */
+  const wrong = relay({ pinned: HUB });
+  await wrong.nativeHubSync();
+  let err = null;
+  await wrong.hubFetch('https://192.168.50.40/apps/api/42/devices/all').catch(e => { err = e; });
+  check('an origin mismatch rejects', !!err, err && err.message);
+  check('...and nothing is sent to the wrong hub',
+    !wrong.calls.some(c => c.method === 'hub.request'),
+    'silently-wrong-hub is worse than unreachable');
+
+  const unpinned = relay({ pinned: null });
+  await unpinned.nativeHubSync();
+  let err2 = null;
+  await unpinned.hubFetch(MAKER).catch(e => { err2 = e; });
+  check('with nothing pinned yet it rejects like an unreachable hub',
+    !!err2 && !unpinned.calls.some(c => c.method === 'hub.request'),
+    'every existing "Hub unreachable" path then applies unchanged');
+
+  /* new Response() throws a RangeError below 200, which would surface as a
+     confusing bug instead of the transport failure it is. */
+  const noStatus = relay({ pinned: HUB, onRequest: () => Promise.resolve({ status: 0, body: '' }) });
+  await noStatus.nativeHubSync();
+  let err3 = null;
+  await noStatus.hubFetch(MAKER).catch(e => { err3 = e; });
+  check('a reply with no usable status rejects as a transport failure',
+    !!err3 && err3 instanceof TypeError, err3 && err3.message);
+
+  const noContent = relay({ pinned: HUB, onRequest: () => Promise.resolve({ status: 204, body: '' }) });
+  await noContent.nativeHubSync();
+  const r204 = await noContent.hubFetch(MAKER);
+  check('204 is passed through rather than throwing on its own body',
+    r204.status === 204, 'the Response constructor rejects a body on 204/205');
+
+  const hubDown = relay({ pinned: HUB, onRequest: () => Promise.reject(new Error('pin-mismatch: xyz')) });
+  await hubDown.nativeHubSync();
+  let err4 = null;
+  await hubDown.hubFetch(MAKER).catch(e => { err4 = e; });
+  check('a native failure propagates with its own reason',
+    !!err4 && /pin-mismatch/.test(err4.message), err4 && err4.message);
+}
+
+console.log('\n=== 12. Learning which hub is pinned ===');
+{
+  const none = relay({ capabilities: null });
+  check('with no bridge the sync is a no-op',
+    (await none.nativeHubSync()) === null && none.fetches.length === 0);
+
+  const trailing = relay({ pinned: 'https://192.168.50.139/' });
+  await trailing.nativeHubSync();
+  check('the pinned origin is normalised before comparison',
+    trailing.pinned() === HUB, trailing.pinned());
+
+  /* If hub.info fails the relay must not fall back to a plain fetch that
+     cannot work -- it must look unreachable, which is honest. */
+  const broken = relay({ pinned: HUB, infoThrows: true });
+  await broken.nativeHubSync();
+  let err = null;
+  await broken.hubFetch(MAKER).catch(e => { err = e; });
+  check('a failed hub.info leaves the relay refusing, not falling back',
+    broken.pinned() === null && !!err && broken.fetches.length === 0);
+
+  /* The case that actually needs the reset: a sync that SUCCEEDED, then a
+     later one that failed. Keeping the old origin means the wrong-hub guard
+     is comparing against a value native may no longer be pinned to, which is
+     the exact silently-wrong-hub outcome the guard exists to prevent. A fresh
+     relay cannot show this -- its origin starts null either way -- so the
+     mutation gate found it where the first test agreed with the code. */
+  const wentStale = relay({ pinned: HUB });
+  await wentStale.nativeHubSync();
+  check('a good sync records the origin', wentStale.pinned() === HUB);
+  wentStale.ctl.infoThrows = true;
+  await wentStale.nativeHubSync();
+  check('...and a later failed sync clears it rather than trusting it',
+    wentStale.pinned() === null,
+    'a stale origin makes the mismatch guard compare against the wrong hub');
+}
+
+console.log('\n=== 13. Nothing aimed at the hub bypasses the doorway ===');
+{
+  const code = DASH.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const bare = code.match(/(?<!hub)[Ff]etch(WithTimeout)?\s*\(\s*apiUrl\s*\(/g) || [];
+  check('no Maker API call still uses a bare fetch', bare.length === 0, bare.join(', '));
+  const routed = (code.match(/hubFetch\s*\(\s*apiUrl\s*\(/g) || []).length;
+  check('every Maker API call site goes through hubFetch', routed === 9, `found ${routed}, expected 9`);
+  check('the companion-app doorway is routed too',
+    /const res = await hubFetch\(url, fetchOpts, 4000\);/.test(code),
+    'one line covers all 13 hubStoreFetch callers');
+}
+
 console.log(`\n${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL ? 1 : 0);

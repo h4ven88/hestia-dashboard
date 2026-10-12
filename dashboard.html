@@ -1873,7 +1873,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '2.2.0';
-const HESTIA_BUILD_DATE = '2026-10-03';
+const HESTIA_BUILD_DATE = '2026-10-12';
 
 /* ═══════════════════════════════════════════════════════
    SANDBOX MODE
@@ -2600,6 +2600,99 @@ const h = escapeHtml; // short alias for use in template literals
 ═══════════════════════════════════════════════════════ */
 let HUB_STORE = null; // { appId, token } once discovered
 
+/* ── Native hub relay (optional) ───────────────────────────────────────────
+   The native app cannot reach the hub the way a browser does, and this is the
+   only place in the dashboard that knows it.
+
+   In the app the page is served from https://appassets.androidplatform.net,
+   so an http:// hub is blocked as mixed content and an https:// hub presents a
+   self-signed certificate a WebView gives no way to accept. Neither is fixable
+   from JavaScript. The native layer therefore owns the connection: it pins the
+   hub's public key and relays requests over it.
+
+   INVARIANTS -- these are the point, not the plumbing:
+
+   1. The ONLY thing branched on is the 'hub' capability. Never the platform,
+      never the user agent. One web layer, not one per target.
+   2. With no bridge, or a bridge that does not offer 'hub', hubFetch() IS
+      fetch() -- same call, same arguments, same Response object. A browser
+      user cannot reach a different code path, so a regression here has to
+      surface in the app rather than silently on hestari.com.
+   3. A relay that cannot be made rejects the way an unreachable hub already
+      does, so every existing "Hub unreachable" path still applies instead of
+      the page needing a second kind of failure to understand.             */
+let _nativeHubOrigin = null;   // the origin the native layer has pinned, if any
+
+function _originOf(url) {
+  try { return new URL(url, window.location.href).origin; } catch(e) { return null; }
+}
+
+/* Null unless a bridge is present AND offers the hub capability. Capability,
+   not platform: a build whose native half is older than this code reports no
+   'hub' and correctly gets the browser behaviour. */
+function nativeHub() {
+  const n = window.hestiaNative;
+  return (n && n.capabilities && n.capabilities.indexOf('hub') >= 0) ? n : null;
+}
+
+/* Asks the native layer which hub it is pinned to, and caches it. Cached
+   because this is a bridge round trip and the device poll runs every second.
+   Call again after anything that changes the pinned hub. */
+async function nativeHubSync() {
+  const n = nativeHub();
+  if (!n) { _nativeHubOrigin = null; return null; }
+  try {
+    const info = await n.call('hub.info');
+    _nativeHubOrigin = (info && info.origin) ? _originOf(info.origin) : null;
+    console.log('[Native] Hub relay available, pinned to', _nativeHubOrigin || '(nothing yet)');
+  } catch(e) {
+    _nativeHubOrigin = null;
+    console.warn('[Native] Hub relay present but hub.info failed:', e && e.message);
+  }
+  return _nativeHubOrigin;
+}
+
+/* Relays one request, shaped as a real Response so no caller changes. */
+async function _nativeHubFetch(n, url, opts) {
+  const target = _originOf(url);
+  /* The bridge takes a PATH and sends it to the origin IT pinned, so an
+     origin mismatch would quietly deliver this request to a different hub
+     than the one CONFIG names. Refuse: silently-wrong-hub is worse than
+     unreachable, and unreachable is a state the page already handles. */
+  if (!target || !_nativeHubOrigin || target !== _nativeHubOrigin) {
+    throw new TypeError('native hub relay is not pinned to ' + target);
+  }
+  const u = new URL(url, window.location.href);
+  const hdrs = (opts && opts.headers) || {};
+  const res = await n.call('hub.request', {
+    path: u.pathname + u.search,
+    method: (opts && opts.method) || 'GET',
+    body: (opts && opts.body) || null,
+    contentType: hdrs['Content-Type'] || hdrs['content-type'] || null,
+  });
+  const status = (res && Number(res.status)) || 0;
+  // Outside this range the Response constructor throws a RangeError, which
+  // would surface as a confusing bug rather than as the transport failure it
+  // actually is.
+  if (status < 200 || status > 599) throw new TypeError('native hub relay returned no status');
+  // 204/205 must carry no body or the constructor throws.
+  const body = (status === 204 || status === 205) ? null : (res.body != null ? res.body : '');
+  return new Response(body, { status });
+}
+
+/* The single doorway for every request aimed at the hub. Both callers that
+   build hub URLs -- apiUrl() for Maker API and hubStoreFetch() for the
+   companion app -- go through here, so there is nowhere else to forget.
+
+   `ms` is the browser-path timeout only. Omit it to get a bare fetch() with
+   exactly today's semantics; the native path carries its own timeouts in
+   OkHttp and is not affected either way. */
+function hubFetch(url, opts, ms) {
+  const n = nativeHub();
+  if (n) return _nativeHubFetch(n, url, opts);
+  return ms ? _fetchWithTimeout(url, ms, opts) : fetch(url, opts);
+}
+
 // Real-world failure mode confirmed from a user's DevTools screenshot: a
 // plain fetch() to an http:// local hub from an https:// page (hestari.com)
 // can sit at "(pending)" indefinitely in some browsers instead of failing
@@ -2635,7 +2728,11 @@ async function discoverHubStore(explicitHubUrl) {
     try {
       const base = explicitHubUrl.replace(/\/+$/, '');
       const url = base + '/local/hestia-token.json';
-      const res = await _fetchWithTimeout(url, 4000);
+      /* Routed through the relay so the native app can read this at all: it is
+         the file that carries the companion app id, its token and the Maker API
+         pair, so reaching it is the difference between the app configuring
+         itself and asking the user to type four credentials. */
+      const res = await hubFetch(url, null, 4000);
       if (res.ok) {
         const data = await res.json();
         if (data && data.appId && data.token) {
@@ -2767,7 +2864,7 @@ async function hubStoreFetch(path, fetchOpts, opts) {
   // an older companion app simply doesn't have that path. Callers handle
   // their own backoff.
   try {
-    const res = await _fetchWithTimeout(url, 4000, fetchOpts);
+    const res = await hubFetch(url, fetchOpts, 4000);
     if (opts.isolated) return { ok: res.ok, blocked: false, res };
     if (res.status === 404 || res.status === 410) {
       _clearStaleHubStore();
@@ -4782,7 +4879,7 @@ setInterval(function() {
 
 async function fetchDevice(id) {
   try {
-    const res = await fetch(apiUrl(`/devices/${id}`));
+    const res = await hubFetch(apiUrl(`/devices/${id}`));
     if (!res.ok) throw new Error(res.status);
     const data = await res.json();
     const attrs = parseAttrs(data);
@@ -5039,7 +5136,7 @@ function artemisAlarmHealthSync(conns, panels) {
 }
 
 async function fetchAllDevices() {
-  const res = await fetch(apiUrl('/devices/all'));
+  const res = await hubFetch(apiUrl('/devices/all'));
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const devices = await res.json();
   lastPollDevices = devices;
@@ -5202,7 +5299,7 @@ async function cmd(id, command, arg) {
     ? `/devices/${id}/${command}/${encodeURIComponent(arg)}`
     : `/devices/${id}/${command}`;
   try {
-    const res = await fetch(apiUrl(path));
+    const res = await hubFetch(apiUrl(path));
     if (res.ok) {
       setConn('ok');
       if (_pollFailCount > 0) {
@@ -11245,7 +11342,7 @@ async function artemisAlarmPanelCmd(hsmCmd, panelId) {
     // which command style the panel takes, and guessing wrong on a disarm
     // leaves Ring armed, so ask the hub.
     try {
-      const res = await _fetchWithTimeout(apiUrl(`/devices/${id}`), 4000);
+      const res = await hubFetch(apiUrl(`/devices/${id}`), null, 4000);
       if (res.ok) {
         const data = await res.json();
         const a = parseAttrs(data);
@@ -12975,7 +13072,7 @@ async function diagCheckHubGroup() {
 
   let res = null, text = '', err = null;
   try {
-    res = await fetch(apiUrl('/devices/all'));
+    res = await hubFetch(apiUrl('/devices/all'));
     text = await res.text();
   } catch (e) {
     err = e;
@@ -14215,7 +14312,7 @@ async function artemisWarnIfCapabilityMismatch(id, newCat) {
   const wantType = ARTEMIS_CAT_TYPE[newCat];
   if (!wantType) return;
   try {
-    const res = await fetch(apiUrl(`/devices/${id}`));
+    const res = await hubFetch(apiUrl(`/devices/${id}`));
     if (!res.ok) return;
     const data = await res.json();
     const actualType = capToType(data.capabilities, data.label || data.name);
@@ -14287,7 +14384,7 @@ async function artemisOpenPicker(defaultCat, catLabel) {
   listEl.innerHTML = '<div style="padding:12px;font-size:12px;color:var(--t3)">Loading devices…</div>';
 
   try {
-    const res = await fetch(apiUrl('/devices'));
+    const res = await hubFetch(apiUrl('/devices'));
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
 
@@ -17558,7 +17655,7 @@ async function spAddLock() {
   const btn = document.querySelector('[onclick="spAddLock()"]');
   if (btn) { btn.disabled = true; btn.textContent = 'Loading devices…'; }
   try {
-    const res = await fetch(apiUrl('/devices/all'));
+    const res = await hubFetch(apiUrl('/devices/all'));
     if (!res.ok) throw new Error('API error');
     const devices = await res.json();
     // Exclude locks already saved AND any device already picked in an
@@ -18479,7 +18576,7 @@ async function spScanDevices() {
   const btn = document.querySelector('[onclick="spScanDevices()"]');
   if (btn) { btn.disabled = true; btn.textContent = '⟳ Scanning…'; }
   try {
-    const res = await fetch(apiUrl('/devices/all'));
+    const res = await hubFetch(apiUrl('/devices/all'));
     if (!res.ok) throw new Error('API error');
     const devices = await res.json();
     const prevStaging = staging.length;
@@ -20351,6 +20448,11 @@ function launchOnboarding() {
   loadTheme();
   loadDisplayMode();
   artemisRestoreLockout();
+
+  /* Before any hub traffic, because hubFetch() needs to know which hub the
+     native layer pinned and every later step talks to the hub. A no-op in a
+     browser: nativeHub() is null, so this returns immediately. */
+  await nativeHubSync();
 
   // ── Safari redirect: WebKit blocks HTTPS→HTTP to private IPs ──
   // Redirect Safari users from hestari.com to the hub's local HTTPS URL

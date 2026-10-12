@@ -113,9 +113,13 @@ Always present, from Phase 1:
 
 Added by their own phases:
 
-| Capability | Members | Phase |
+Everything below is reached through `call(method, params)`, never as a
+namespaced member. One entry point means one place to audit, and the page's
+capability check is the only gate.
+
+| Capability | Methods | Phase |
 |---|---|---|
-| `hub` | `hub.discover()`, `hub.request(path, opts)`, `hub.trustState()` | 2 |
+| `hub` | `hub.discover`, `hub.request`, `hub.configure`, `hub.info` | 2 ✅ |
 | `mic` | `mic.hold()`, `mic.release()`, `mic.state()` | 3 |
 | `notify` | `notify.show(n)`, `notify.permissionState()`, `notify.requestPermission()` | 4 |
 | `localPush` | `net.localEndpoint()` | 4 |
@@ -126,12 +130,65 @@ JavaScript**, so no audio crosses the bridge.
 
 ---
 
-## Prerequisite found 2026-10-01, not yet satisfied
+## Phase 2: how the page uses `hub`
+
+The web layer touches the relay in exactly one place,
+[dashboard.html](../dashboard.html)'s `hubFetch(url, opts, ms)`, declared beside
+`_fetchWithTimeout`. Both existing hub doorways route through it: `apiUrl()` for
+Maker API traffic (nine call sites) and `hubStoreFetch()` for the companion app
+(one line, thirteen callers behind it). Nothing else in the page is allowed to
+aim a request at the hub.
+
+**The load-bearing property: with no bridge, or a bridge that does not offer
+`hub`, `hubFetch` IS `fetch`.** Same call, same arguments, the same `Response`
+object handed straight back. A browser user cannot reach the relay, so a defect
+in it has to surface in the app rather than silently on hestari.com. The suite
+asserts this by identity, not by behaviour: the stubbed `fetch` returns a
+sentinel object and `hubFetch` must return that exact object.
+
+`ms` is the browser-path timeout only. Omitted, the call is a bare `fetch` with
+today's semantics; the native path carries its own timeouts in OkHttp. This
+matters because adding a timeout where there was none would change behaviour
+for every existing browser user on a slow hub.
+
+**`hub.request` takes a PATH and sends it to the origin native pinned**, so the
+page compares origins before relaying and refuses on a mismatch. Delivering a
+request to a different hub than the one `CONFIG` names would be a UI reporting
+one house while acting on another; refusing instead lands in the "Hub
+unreachable" path the page already handles. For the same reason a failed
+`hub.info` clears the cached origin rather than leaving a stale one for that
+comparison to trust.
+
+Why a relay is needed at all: in the app the page is served from
+`https://appassets.androidplatform.net`, so an `http://` hub is blocked as mixed
+content and an `https://` hub presents a self-signed certificate a WebView gives
+no way to accept. Neither is fixable from JavaScript.
+
+What this buys, concretely: `hubFetch` reaching
+`<hub>/local/hestia-token.json` returns all four credentials plus `hubIp` over
+the pinned connection. Verified on a Galaxy A16 against a real C-8 Pro. Together
+with mDNS discovery that is "install it, it finds your hub" with nothing typed,
+which is the sentence that justifies building a native app.
+
+---
+
+## Prerequisite found 2026-10-01, SATISFIED
 
 **The bundled page must stop loading third-party JavaScript before the bridge
-ships.** Today [dashboard.html:1457](../dashboard.html) loads ONNX Runtime from
-`cdnjs.cloudflare.com` and [:6097](../dashboard.html) points its WASM path at
-the same CDN. Fonts come from Google at :25-31.
+ships.** `dashboard.html` loaded ONNX Runtime from `cdnjs.cloudflare.com`,
+pointed its WASM path at the same CDN, and pulled fonts from Google.
+
+Closed by `build.js`'s fourth output, `buildAppAssets()`: it rewrites the ORT
+script URL, the model paths, the `wasmPaths` assignment and the Google Fonts
+links to local paths, counting and asserting every rewrite so a silent miss
+fails the build instead of shipping a CDN reference into the app. Result is
+24.2 MB of bundled assets: 11 models, the runtime, and 9 fonts. **The source
+file is unchanged** and still uses the CDN for the web build, so hestari.com is
+unaffected.
+
+The reasoning below is kept because it is why this outranked its original
+"running alongside" ranking, and because any future third-party script added to
+the page reopens it.
 
 By invariant 4 and the documentation quoted there, a WebView that executes
 JavaScript we did not write cannot safely expose a bridge at all. The CDN is
