@@ -96,7 +96,7 @@ class MainActivity : AppCompatActivity() {
         webView.addJavascriptInterface(bridge, HestiaBridge.JS_NAME)
         installBridgeShim()
 
-        setContentView(webView)
+        setContentView(fitToSystemBars(webView))
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -105,6 +105,65 @@ class MainActivity : AppCompatActivity() {
         })
 
         if (savedInstanceState == null) webView.loadUrl(START_URL)
+    }
+
+    /**
+     * Keeps the page out from under the status and navigation bars.
+     *
+     * REPORTED FROM A REAL DEVICE, not anticipated: the dashboard's top ribbon
+     * sat beneath the system clock and the edges of the page were cut off, with
+     * no way to zoom out of it.
+     *
+     * The cause is edge-to-edge, which is MANDATORY at the SDK this app
+     * targets. From Android 15 an app is laid out edge to edge whether it asks
+     * or not, so the WebView filled the whole window including the bar areas.
+     *
+     * The trap is that themes.xml looks like it already handles this: it sets
+     * android:statusBarColor and android:navigationBarColor to the page's own
+     * background. Both attributes are DEPRECATED AND IGNORED at this SDK, so
+     * they read as a fix while doing nothing at all -- and they were written
+     * before any device had run the app.
+     *
+     * So the insets are applied as padding on a container rather than on the
+     * WebView itself. Padding the WebView would reveal the WebView's own
+     * background in the bar areas, which is white by default and would frame a
+     * dark page in two white strips. The container carries the page's
+     * background colour instead.
+     *
+     * displayCutout is included with systemBars because a punch-hole or notch
+     * in landscape is a cut-off edge for exactly the same reason, and a wall
+     * tablet is the device most likely to be mounted that way.
+     *
+     * The keyboard is folded into the bottom inset because first-run asks for
+     * an address and two API keys. Without it the keyboard covers the field
+     * being typed into, which is the sort of defect that only shows up on a
+     * phone and never in a desktop browser.
+     *
+     * KNOWN LIMIT: the bar area takes the page's DEFAULT (dark) background, not
+     * the live theme. A household on the Light or Cream theme gets two dark
+     * strips. Fixing that properly means the page telling the native layer
+     * which theme is active, which is a web-layer change and belongs with the
+     * rest of the theme work rather than smuggled into a layout fix.
+     */
+    private fun fitToSystemBars(content: WebView): android.view.View {
+        val root = android.widget.FrameLayout(this).apply {
+            setBackgroundColor(androidx.core.content.ContextCompat.getColor(context, R.color.hestia_bg))
+            addView(content)
+        }
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val bars = insets.getInsets(
+                androidx.core.view.WindowInsetsCompat.Type.systemBars() or
+                androidx.core.view.WindowInsetsCompat.Type.displayCutout()
+            )
+            val ime = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime())
+            v.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
+            androidx.core.view.WindowInsetsCompat.CONSUMED
+        }
+        /* Dark bars need light icons. The default is dark-on-light, which on
+           this background renders the clock and battery nearly invisible. */
+        androidx.core.view.WindowCompat.getInsetsController(window, root)
+            .isAppearanceLightStatusBars = false
+        return root
     }
 
     /**
