@@ -125,7 +125,7 @@ class MainActivity : AppCompatActivity() {
                     view: WebView, request: WebResourceRequest
                 ): WebResourceResponse? =
                     assetLoader.shouldInterceptRequest(request.url)
-                        ?: HubProxy.serve(applicationContext, request.url, request.method)
+                        ?: HubProxy.serve(applicationContext, request)
 
                 /**
                  * Navigation is locked to the asset origin. Android's own

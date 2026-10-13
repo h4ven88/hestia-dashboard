@@ -16093,7 +16093,10 @@ async function camDiagnoseOffline(i) {
   const cam = (CONFIG.cameras || [])[i];
   if (!cam || !cam.snapshotUrl) return;
   let reason = null;
-  if (_camIsMixedContent(cam.snapshotUrl)) {
+  /* The rewritten url, or the app would report "Mixed content" for a camera
+     that renders perfectly through the rewrite. A diagnostic that describes a
+     url nobody loads is worse than none. */
+  if (_camIsMixedContent(camDeviceUrl(cam.snapshotUrl))) {
     reason = 'Mixed content (HTTP on HTTPS page)';
   } else {
     try {
@@ -16172,7 +16175,17 @@ function camAutoRefreshTick() {
     if (!cam || !cam.snapshotUrl || !img.complete) return;
     const bust = Date.now();
     CAM_STATE[i] = Object.assign({}, CAM_STATE[i], { cacheBust: bust });
-    const next = cam.snapshotUrl + (cam.snapshotUrl.includes('?') ? '&' : '?') + '_hb=' + bust;
+    /* Through camDeviceUrl like every other path, and the cache-buster is
+       appended to the REWRITTEN url so `includes('?')` is evaluated against
+       what is actually loaded.
+
+       This was the one site that used the raw value, and in the app it broke
+       the view it refreshes: first paint went through the rewrite and worked,
+       then five seconds later this tick set img.src back to http://, the
+       renderer blocked it as mixed content, and every camera flipped to
+       Offline having just rendered. */
+    const base = camDeviceUrl(cam.snapshotUrl);
+    const next = base + (base.includes('?') ? '&' : '?') + '_hb=' + bust;
     camArmLoadTimer(i, next); // same reason as the enlarged view: a stalled frame must still time out
     img.src = next;
   });
@@ -20165,7 +20178,13 @@ function nfmArtemis() {
       <b style="font-weight:500;color:var(--t1)">${label}</b>
       <span style="color:var(--t2)">${c}</span></div>`).join('');
   return `<div style="padding:26px 26px 24px">
-    ${nfmHeader(artemisGemMark(42), 'Artemis&trade;', 'Home security')}
+    ${nfmHeader(
+      /* Both dimensions, because the default height is 25 against a 28x32
+         viewBox: passing width alone squashes the gem and flattens the green
+         arrow that distinguishes Artemis from the plain Hestia mark into
+         nothing. 42x48 keeps the aspect and matches obHestiaMarkSVG(42). */
+      `<div style="display:flex;justify-content:center">${artemisGemMark(42, 48)}</div>`,
+      'Artemis&trade;', 'Home security')}
     <p style="font-size:13px;line-height:1.6;color:var(--t2);margin:14px 0 2px">
       Every door, window and sensor, on one screen.</p>
     ${NFM_BULLET([

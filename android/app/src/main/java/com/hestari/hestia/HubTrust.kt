@@ -110,10 +110,15 @@ object HubTrust {
 
     fun remember(ctx: Context, origin: String, pin: String) {
         prefs(ctx).edit().putString(KEY_ORIGIN, origin).putString(KEY_PIN, pin).apply()
+        // Or the cached client keeps trusting the key we just replaced.
+        invalidatePinnedClient()
     }
 
     /** Deliberate re-pin, e.g. after the user regenerates the hub's certificate. */
-    fun forget(ctx: Context) = prefs(ctx).edit().clear().apply()
+    fun forget(ctx: Context) {
+        prefs(ctx).edit().clear().apply()
+        invalidatePinnedClient()
+    }
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -171,7 +176,46 @@ object HubTrust {
                 .connectTimeout(Duration.ofSeconds(5))
                 .readTimeout(Duration.ofSeconds(10))
                 .retryOnConnectionFailure(false)
+                /* Redirects are NOT followed. The hub has no legitimate reason
+                   to redirect an API path or a snapshot, and a redirect to
+                   http:// would walk a pinned request straight out of TLS.
+                   Today that fails closed only because the manifest forbids
+                   cleartext, which is an accident rather than a decision. */
+                .followRedirects(false)
+                .followSslRedirects(false)
                 .build()
         }
     }
+
+    /* ── One client per pinned identity ───────────────────────────────────
+     * Pinned() builds an SSLContext, a trust manager, a connection pool and a
+     * dispatcher every time it is constructed. Camera snapshots refresh as
+     * often as once a second across several tiles, so constructing per request
+     * meant a full TLS handshake several times a second with no connection
+     * reuse, plus abandoned pools holding idle connections and threads until
+     * collected. OkHttp's own guidance is to share one instance.
+     *
+     * Keyed on origin AND pin so a re-pin cannot keep serving over a client
+     * that still trusts the old key. */
+    private var cachedKey: String? = null
+    private var cachedClient: OkHttpClient? = null
+
+    @Synchronized
+    fun pinnedClient(ctx: Context): OkHttpClient {
+        val origin = storedOrigin(ctx).orEmpty()
+        /* Empty is normalised to null: an http-configured hub stores "" rather
+           than null, and passing "" as the expected pin would make every TLS
+           connection mismatch against a pin nothing can present, while also
+           blocking the trust-on-first-use path. */
+        val pin = storedPin(ctx)?.ifEmpty { null }
+        val key = "$origin|${pin.orEmpty()}"
+        cachedClient?.let { if (cachedKey == key) return it }
+        val built = Pinned(pin).client
+        cachedKey = key
+        cachedClient = built
+        return built
+    }
+
+    @Synchronized
+    private fun invalidatePinnedClient() { cachedKey = null; cachedClient = null }
 }
