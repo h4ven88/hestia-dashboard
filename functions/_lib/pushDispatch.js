@@ -88,15 +88,42 @@ export function selectEligible(devices, { category, armed, targetDeviceId }) {
 /**
  * Is this response a dead registration rather than a transient failure?
  *
- * Web Push says 404/410. FCM says 404 UNREGISTERED, and 400 for a malformed
- * token. Everything else is a failure to count and retry later, never a reason
- * to delete somebody's device: a 500 from a push service is a bad afternoon,
- * and pruning on it would quietly unregister a household mid-outage.
+ * Web Push says 404/410. FCM says 404 UNREGISTERED and nothing else; see
+ * fcmTokenIsDead for why 400 is excluded even though it often does mean a bad
+ * token.
+ *
+ * Everything else is a failure to count and retry later, never a reason to
+ * delete somebody's device: a 500 from a push service is a bad afternoon, and
+ * pruning on it would quietly unregister a household mid-outage.
  */
 export function shouldPrune(device, status) {
   return isFcmDevice(device)
     ? fcmTokenIsDead(status)
     : (status === 404 || status === 410);
+}
+
+/**
+ * Does the record now in KV still refer to the registration we just failed to
+ * reach, and may therefore be deleted?
+ *
+ * Dispatch can take PUSH_SEND_TIMEOUT_MS per device, which is plenty of time
+ * for the user to re-register from another tab or for the app to come back
+ * with a rotated token. `ref` is what we actually sent to; this compares it
+ * against whatever the FRESH record carries, so anything that changed in the
+ * meantime survives.
+ *
+ * A shape mismatch means "leave it alone": a device that re-registered as the
+ * other transport is a different registration entirely, and the value to
+ * compare lives in a different field.
+ *
+ * Exported because it is the one place a LIVE device can be deleted, and an
+ * adversarial review found it was also the one piece of this change with no
+ * test touching it.
+ */
+export function prunableNow(fresh, ref) {
+  if (!fresh) return false;                  // already gone; nothing to delete
+  const current = isFcmDevice(fresh) ? fresh.token : (fresh.subscription || {}).endpoint;
+  return current === ref;
 }
 
 export async function dispatchPush(env, shortHash, { category, title, body, armed, targetDeviceId }) {
@@ -172,14 +199,7 @@ export async function dispatchPush(env, shortHash, { category, title, body, arme
     // device, plenty of time for a subscribe/unsubscribe to land in between.
     await mutatePushDevices(env, `push:${shortHash}`, (freshDevices) => {
       pruned.forEach(({ id, ref }) => {
-        const fresh = freshDevices[id];
-        if (!fresh) return;
-        /* Compared against whichever value THIS record carries, not whichever
-           the dead one carried. A device that re-registered as the other
-           transport in the meantime is a different registration and must
-           survive, so a shape mismatch means "leave it alone". */
-        const current = isFcm(fresh) ? fresh.token : (fresh.subscription || {}).endpoint;
-        if (current === ref) delete freshDevices[id];
+        if (prunableNow(freshDevices[id], ref)) delete freshDevices[id];
       });
     });
   }

@@ -8,7 +8,7 @@
  *
  * Run: node tests/pushtransport.mjs
  */
-import { isFcmDevice, selectEligible, shouldPrune } from '../functions/_lib/pushDispatch.js';
+import { isFcmDevice, selectEligible, shouldPrune, prunableNow } from '../functions/_lib/pushDispatch.js';
 import { fcmTokenIsDead } from '../functions/_lib/fcm.js';
 
 let PASS = 0, FAIL = 0;
@@ -86,14 +86,60 @@ console.log('\n=== 4. Pruning only on a genuinely dead registration ===');
   /* FCM answers 404 UNREGISTERED for an uninstalled app and 400 for a
      malformed token. Both will never deliver again. */
   check('fcm: 404 prunes', shouldPrune(fcm('always'), 404) === true);
-  check('fcm: 400 prunes', shouldPrune(fcm('always'), 400) === true);
+  /* ⛔ THIS ASSERTION USED TO SAY THE OPPOSITE, and it pinned a real bug.
+     Google returns INVALID_ARGUMENT (400) for a bad token AND for a payload
+     problem: message too big, invalid data key, bad TTL. Their guidance is to
+     remove a registration on 400 only after confirming the payload was valid,
+     which this code cannot do because it discards the response body.
+     webhook.js builds a body from a device display name with no length cap, so
+     one oversized event returns 400 for EVERY device in the household in the
+     same dispatch and would have deleted all of them at once. */
+  check('fcm: 400 does NOT prune', shouldPrune(fcm('always'), 400) === false,
+    '400 can mean the payload was wrong, not the token');
   /* 410 is NOT an FCM response. Accepting it anyway would be inventing
      behaviour the transport does not have. */
-  check('fcm: 400 and 404 only', fcmTokenIsDead(410) === false && fcmTokenIsDead(200) === false);
+  check('fcm: 404 only', fcmTokenIsDead(404) === true &&
+    [400, 410, 200, 500, 429].every(s => fcmTokenIsDead(s) === false));
   /* A web subscription that got a 400 is a bad request we made, not a dead
      subscription, and deleting the device would lose a working registration. */
   check('web: 400 does NOT prune', shouldPrune(web('always'), 400) === false,
     'that is a request we got wrong, not a device that went away');
+}
+
+console.log('\n=== 5. A device that re-registered mid-dispatch is not deleted ===');
+{
+  /* The only place a LIVE device can be removed. Dispatch can take seconds per
+     device, which is long enough for the user to re-register from another tab
+     or for the app to come back with a rotated token. */
+  const webDev = web('always');
+  const fcmDev = fcm('always');
+
+  check('the same registration is still prunable',
+    prunableNow(webDev, 'https://push/x') === true &&
+    prunableNow(fcmDev, 'tok-1') === true);
+
+  check('a rotated FCM token survives',
+    prunableNow({ ...fcmDev, token: 'tok-2' }, 'tok-1') === false,
+    'the app came back with a new token while we were failing to reach the old one');
+
+  check('a re-subscribed Web Push endpoint survives',
+    prunableNow({ ...webDev, subscription: { endpoint: 'https://push/NEW', keys: {} } },
+      'https://push/x') === false);
+
+  /* Switching transport is a different registration entirely, and the value
+     to compare lives in a different field. A shape mismatch must mean "leave
+     it alone", never "compare undefined and hope". */
+  check('a device that switched Web Push -> FCM survives',
+    prunableNow(fcmDev, 'https://push/x') === false);
+  check('a device that switched FCM -> Web Push survives',
+    prunableNow(webDev, 'tok-1') === false);
+
+  check('an already-deleted device is a no-op, not a crash',
+    prunableNow(undefined, 'tok-1') === false);
+  /* A concurrent DELETE used to be able to throw here, taking the whole
+     request to 500 mid-dispatch. */
+  check('a malformed record does not throw',
+    prunableNow({ name: 'x', mode: 'always' }, 'tok-1') === false);
 }
 
 console.log(`\n${PASS} passed, ${FAIL} failed`);

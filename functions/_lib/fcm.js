@@ -171,11 +171,25 @@ export async function sendFcmNotification(env, registrationToken, { title, body,
 /**
  * Is this registration token dead?
  *
- * FCM answers 404 UNREGISTERED for a token whose app was uninstalled or whose
- * token was rotated, and 400 for a malformed one. Both mean the stored value
- * will never deliver again, which is exactly what Web Push's 404/410 means, so
- * both transports prune on the same rule.
+ * 404 UNREGISTERED only. The app was uninstalled or the token was rotated, and
+ * that value will never deliver again.
+ *
+ * ⛔ 400 IS DELIBERATELY NOT HERE, and an earlier version of this function had
+ * it. Google returns INVALID_ARGUMENT for a bad token AND for a payload
+ * problem: message too big, an invalid data key, a bad TTL. Their own guidance
+ * is to remove a registration on 400 only "provided you have confirmed the
+ * payload is valid", and this function cannot confirm that, because
+ * sendFcmNotification discards the response body.
+ *
+ * The failure that makes it matter: webhook.js builds a notification body from
+ * a device's display name with no length cap. One oversized event returns 400
+ * for EVERY device in the household in the same dispatch, and pruning on it
+ * would delete all of them at once. The phones would go permanently silent
+ * while the browsers kept working, with nothing on any screen to say so.
+ *
+ * Erring the other way is cheap: a genuinely dead token that returns 400
+ * instead of 404 simply stays in the list and fails again later.
  */
 export function fcmTokenIsDead(status) {
-  return status === 404 || status === 400;
+  return status === 404;
 }
