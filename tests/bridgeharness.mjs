@@ -551,5 +551,80 @@ console.log('\n=== 15. A denied permission names a remedy that exists ===');
     !/android|ios|iphone|samsung/i.test(app), app);
 }
 
+console.log('\n=== 16. Push registers through native only when native offers it ===');
+{
+  /* The browser path must be untouched. Web Push is live for every household
+     today, and the app's path is new, so the regression that matters is a
+     browser being sent down a route that does not exist for it. */
+  const PUSH_SRC = ['nativePush', 'pushSubscribeNative'].map(extractFn).join('\n\n');
+
+  function pushEnv({ capabilities = ['hub', 'push'], register = { permitted: true, token: 'tok', kind: 'fcm' } } = {}) {
+    const win = {};
+    if (capabilities !== null) {
+      win.hestiaNative = {
+        capabilities,
+        call: (m) => (m === 'push.register'
+          ? (register instanceof Error ? Promise.reject(register) : Promise.resolve(register))
+          : Promise.reject(new Error('no such capability: ' + m))),
+      };
+    }
+    /* Both arrays live OUT here and are handed in. An earlier version declared
+       `alerts` inside the sandbox too, which shadowed the injected spy, so the
+       returned array was always empty and the "it still warns" test passed on
+       a function that had raised nothing. The sandbox gets no copy of its
+       own. */
+    const sent = [], alerts = [];
+    const api = new Function('window', 'console', 'alert', 'JSON', 'sent', `
+      const PUSH_API = '/api/push', DEVICE_ID = 'dev-1', DEVICE_NAME = 'Phone';
+      function _cloudAuthHeaders() { return Promise.resolve({}); }
+      function _fetchWithTimeout(url, ms, opts) { sent.push({ url, opts }); return Promise.resolve({ ok: true, status: 200 }); }
+      ${PUSH_SRC}
+      return { nativePush, pushSubscribeNative };
+    `)(win, { log() {}, warn() {} }, (m) => alerts.push(m), JSON, sent);
+    return { ...api, sent, alerts };
+  }
+
+  check('a browser offers no native push', pushEnv({ capabilities: null }).nativePush() === null);
+  check('a hub-only bridge offers no native push',
+    pushEnv({ capabilities: ['hub'] }).nativePush() === null,
+    'hub and push are independent capabilities');
+  check('a push-capable bridge does', pushEnv().nativePush() !== null);
+
+  const ok = pushEnv();
+  const okResult = await ok.pushSubscribeNative(ok.nativePush(), 'armed');
+  const body = JSON.parse(ok.sent[0].opts.body);
+  check('registration succeeds and PUTs once', okResult === true && ok.sent.length === 1);
+  /* kind is what the backend uses to tell the transports apart. Omitting it
+     would store an FCM token where a Web Push subscription is expected, and
+     that only fails at SEND time, which is the worst place to learn it. */
+  check('...declaring the transport explicitly', body.kind === 'fcm' && body.token === 'tok', JSON.stringify(body));
+  check('...and carrying the mode the caller asked for', body.mode === 'armed');
+  check('...with no subscription field', body.subscription === undefined,
+    'one shape or the other, never both');
+
+  const denied = pushEnv({ register: { permitted: false, token: null } });
+  check('a denied permission does not register',
+    (await denied.pushSubscribeNative(denied.nativePush(), 'always')) === false && denied.sent.length === 0);
+
+  const noToken = pushEnv({ register: { permitted: true, token: null } });
+  check('no token means no registration',
+    (await noToken.pushSubscribeNative(noToken.nativePush(), 'always')) === false && noToken.sent.length === 0,
+    'registering without a token would store a device that can never be reached');
+
+  const threw = pushEnv({ register: new Error('play services missing') });
+  check('a native failure is reported, not swallowed',
+    (await threw.pushSubscribeNative(threw.nativePush(), 'always')) === false);
+
+  /* Boot calls this on every launch. A modal there is noise the user cannot
+     act on at that moment, and a failing resync would make the app unusable
+     rather than merely un-notified. */
+  const quiet = pushEnv({ register: { permitted: false } });
+  await quiet.pushSubscribeNative(quiet.nativePush(), 'always', { silent: true });
+  check('silent mode raises no dialog', quiet.alerts.length === 0);
+  const loud = pushEnv({ register: { permitted: false } });
+  await loud.pushSubscribeNative(loud.nativePush(), 'always');
+  check('...but an interactive failure still says why', loud.alerts.length === 1, loud.alerts[0]);
+}
+
 console.log(`\n${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL ? 1 : 0);

@@ -2662,6 +2662,64 @@ function nativeHub() {
   return (n && n.capabilities && n.capabilities.indexOf('hub') >= 0) ? n : null;
 }
 
+/* Null unless a native shell offers push. Separate from nativeHub() because the
+   capabilities are genuinely independent: a build can ship hub access without
+   push, and the page must degrade one without losing the other. */
+function nativePush() {
+  const n = window.hestiaNative;
+  return (n && n.capabilities && n.capabilities.indexOf('push') >= 0) ? n : null;
+}
+
+/**
+ * Registers this device for push through the native layer.
+ *
+ * WHY THIS EXISTS: an Android WebView has no Push API and no service worker
+ * push, so `'PushManager' in window` is false and the browser path below would
+ * tell an app user that push "is not supported on this browser". It is not the
+ * browser that is missing it, and there is nothing they could switch to.
+ *
+ * The native side returns an FCM registration token instead of a Web Push
+ * subscription, and the backend stores them as different shapes. `kind` is
+ * what tells the two apart there, so it is sent explicitly rather than
+ * inferred: a record judged one way when sending and the other when pruning
+ * would be messaged twice or never cleaned up.
+ */
+async function pushSubscribeNative(n, mode, opts) {
+  /* opts.silent is for the boot re-registration. The user did not ask for
+     anything there, so a modal on every launch would be noise they cannot act
+     on at that moment -- and a failing boot resync would make the app
+     unusable rather than merely un-notified. The interactive path, where
+     somebody just flipped the switch, still says what went wrong. */
+  const silent = !!(opts && opts.silent);
+  const fail = (msg) => { if (!silent) alert(msg); return false; };
+  try {
+    const r = await n.call('push.register');
+    if (!r || r.permitted === false) {
+      return fail('Notifications are turned off for Hestia. ' +
+        'Open your device’s Settings, find Hestia under its apps, and allow notifications.');
+    }
+    if (!r.token) {
+      return fail('This device could not register for notifications. ' +
+        'Check that it has a network connection and try again.');
+    }
+    const res = await _fetchWithTimeout(PUSH_API + '/subscribe', 10000, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...(await _cloudAuthHeaders()) },
+      body: JSON.stringify({
+        deviceId: DEVICE_ID, deviceName: DEVICE_NAME, mode,
+        kind: r.kind || 'fcm', token: r.token,
+      })
+    });
+    if (!res.ok) throw new Error('subscribe request failed (' + res.status + ')');
+    console.log('[Push] Registered this device for native push');
+    return true;
+  } catch(e) {
+    console.warn('[Push] Native registration failed:', e && e.message);
+    return fail('Could not register this device for notifications: ' +
+      (e && e.message ? e.message : 'unknown error'));
+  }
+}
+
 /* Asks the native layer which hub it is pinned to, and caches it. Cached
    because this is a bridge round trip and the device poll runs every second.
    Call again after anything that changes the pinned hub. */
@@ -12659,6 +12717,19 @@ async function pushResyncOnBoot() {
   if (!CONFIG.pushEnabled) return;
   const entry = (CONFIG.pushDevices || []).find(d => d.id === DEVICE_ID);
   if (!entry) return;
+
+  /* The app re-registers through native, and must do so BEFORE the Notification
+     check below: an Android WebView has no Notification API at all, so that
+     guard returns early and a native device would never re-register.
+     Re-registering matters more here than in a browser, because an FCM token
+     rotates on its own and the backend prunes whatever the transport rejects,
+     so a device that never re-registers goes quiet permanently. */
+  const _np = nativePush();
+  if (_np) {
+    await pushSubscribeNative(_np, entry.mode || 'always', { silent: true });
+    return;
+  }
+
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   const reg = await pushRegisterServiceWorker();
   if (!reg) return;
@@ -12683,6 +12754,11 @@ async function pushResyncOnBoot() {
 
 async function pushSubscribeThisDevice(mode) {
   if (sbxBlocked('push registration')) return false;
+  /* Checked BEFORE the Push API test below, because that test is true in the
+     app and its message ("not supported on this browser") would be both wrong
+     and unactionable there. */
+  const _np = nativePush();
+  if (_np) return pushSubscribeNative(_np, mode);
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
     alert('Push notifications are not supported on this browser.');
     return false;
