@@ -116,9 +116,16 @@ class MainActivity : AppCompatActivity() {
             }
 
             webViewClient = object : WebViewClient() {
+                /* Asset loader first: it answers the bundled page and everything
+                   under it, and is the common case by a wide margin.
+                   HubProxy only sees what the loader declined, and only
+                   answers images from the host this device pinned -- see
+                   HubProxy for why camera snapshots cannot load otherwise. */
                 override fun shouldInterceptRequest(
                     view: WebView, request: WebResourceRequest
-                ): WebResourceResponse? = assetLoader.shouldInterceptRequest(request.url)
+                ): WebResourceResponse? =
+                    assetLoader.shouldInterceptRequest(request.url)
+                        ?: HubProxy.serve(applicationContext, request.url, request.method)
 
                 /**
                  * Navigation is locked to the asset origin. Android's own
