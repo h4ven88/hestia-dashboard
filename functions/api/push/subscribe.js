@@ -83,17 +83,35 @@ export async function onRequestPut({ request, env }) {
       return Response.json({ status: 'error', message: 'invalid JSON' }, { status: 400 });
     }
 
-    const { deviceId, deviceName, mode, subscription } = body;
-    if (!deviceId || !subscription || !subscription.endpoint || !subscription.keys) {
-      return Response.json({ status: 'error', message: 'missing deviceId or subscription' }, { status: 400 });
+    const { deviceId, deviceName, mode, subscription, kind, token } = body;
+    if (!deviceId) {
+      return Response.json({ status: 'error', message: 'missing deviceId' }, { status: 400 });
     }
-    // A real PushSubscriptionJSON from the browser's Push API always carries
-    // both key material fields -- a malformed/hand-crafted payload could
-    // omit one, which would otherwise only surface later as a silent
-    // dispatch failure with no signal back to the caller.
-    const keys = subscription.keys;
-    if (typeof keys.p256dh !== 'string' || !keys.p256dh || typeof keys.auth !== 'string' || !keys.auth) {
-      return Response.json({ status: 'error', message: 'subscription missing p256dh or auth key' }, { status: 400 });
+
+    /* TWO TRANSPORTS, VALIDATED SEPARATELY.
+       An Android WebView has no Push API, so the native app registers an FCM
+       token instead of a Web Push subscription. Validating one against the
+       other's shape would reject whichever arrived second, and a registration
+       stored in the wrong shape fails at SEND time -- which is the worst
+       possible place to discover it, because the thing that goes missing is a
+       notification somebody was relying on. */
+    const isFcm = kind === 'fcm';
+    if (isFcm) {
+      if (typeof token !== 'string' || !token) {
+        return Response.json({ status: 'error', message: 'missing FCM token' }, { status: 400 });
+      }
+    } else {
+      if (!subscription || !subscription.endpoint || !subscription.keys) {
+        return Response.json({ status: 'error', message: 'missing deviceId or subscription' }, { status: 400 });
+      }
+      // A real PushSubscriptionJSON from the browser's Push API always carries
+      // both key material fields -- a malformed/hand-crafted payload could
+      // omit one, which would otherwise only surface later as a silent
+      // dispatch failure with no signal back to the caller.
+      const keys = subscription.keys;
+      if (typeof keys.p256dh !== 'string' || !keys.p256dh || typeof keys.auth !== 'string' || !keys.auth) {
+        return Response.json({ status: 'error', message: 'subscription missing p256dh or auth key' }, { status: 400 });
+      }
     }
     if (mode !== 'always' && mode !== 'armed') {
       return Response.json({ status: 'error', message: 'mode must be "always" or "armed"' }, { status: 400 });
@@ -116,7 +134,13 @@ export async function onRequestPut({ request, env }) {
         rejected = true;
         return;
       }
-      devices[deviceId] = { name: deviceName || deviceId, mode, subscription };
+      /* Stored as one shape or the other, never both. A record carrying a
+         stale `subscription` beside a new `token` would let the dispatcher's
+         transport check disagree with the pruning check, and the device would
+         either be sent to twice or never pruned. */
+      devices[deviceId] = isFcm
+        ? { name: deviceName || deviceId, mode, kind: 'fcm', token }
+        : { name: deviceName || deviceId, mode, subscription };
     });
     if (rejected) {
       return Response.json({

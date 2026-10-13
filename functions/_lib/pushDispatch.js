@@ -5,6 +5,7 @@
 // the two call sites can't drift out of sync on gating rules.
 import { deserializeVapidKeys, sendPushNotification } from '../_vendor/web-push-browser/index.js';
 import { mutatePushDevices } from './pushDevices.js';
+import { sendFcmNotification, fcmTokenIsDead } from './fcm.js';
 
 const VAPID_PUBLIC_KEY = 'BGCW-E3pct69syRd4q6HDJ5mBvgrcd_Q6tkZ740s-rkuVsMYGeZyCMXjkAknBsy3mVIxVoUALroDtsPXqQAEs7A';
 const VAPID_SUBJECT = 'https://hestari.com';
@@ -47,35 +48,121 @@ function withTimeout(promise, ms) {
   });
 }
 
+/* The three decisions below are exported as pure functions on purpose.
+ *
+ * dispatchPush itself is almost entirely I/O: KV, two push transports, a
+ * timeout race. Testing it end to end would mean mocking ES module imports,
+ * and a test built on a mock of the sender proves the mock works. These are
+ * the parts where a mistake is silent and expensive -- sending to the wrong
+ * transport, dropping a device that was eligible, pruning one that had just
+ * re-registered -- so they are separated out and constrained by tests, the
+ * same way HubDiscovery's record handling is.
+ */
+
+/** Which transport a stored device uses. The only discriminator, everywhere. */
+export function isFcmDevice(device) {
+  return !!device && device.kind === 'fcm';
+}
+
+/**
+ * Who should receive this notification.
+ *
+ * Transport-blind by design: an FCM device and a Web Push device with the same
+ * mode must be treated identically here, or the armed gate would mean
+ * different things on a phone and a laptop in the same household.
+ */
+export function selectEligible(devices, { category, armed, targetDeviceId }) {
+  // A targeted send (currently only "test this one device" from Diagnostics)
+  // ignores the armed-only gate entirely -- the point is confirming that exact
+  // device still works right now, not whether it would have been eligible
+  // under the household's current arm state.
+  if (targetDeviceId) {
+    return Object.entries(devices).filter(([deviceId]) => deviceId === targetDeviceId);
+  }
+  const bypasses = ALWAYS_CATEGORIES.has(category);
+  return Object.entries(devices).filter(([, device]) =>
+    bypasses || device.mode === 'always' || (device.mode === 'armed' && armed === true)
+  );
+}
+
+/**
+ * Is this response a dead registration rather than a transient failure?
+ *
+ * Web Push says 404/410. FCM says 404 UNREGISTERED and nothing else; see
+ * fcmTokenIsDead for why 400 is excluded even though it often does mean a bad
+ * token.
+ *
+ * Everything else is a failure to count and retry later, never a reason to
+ * delete somebody's device: a 500 from a push service is a bad afternoon, and
+ * pruning on it would quietly unregister a household mid-outage.
+ */
+export function shouldPrune(device, status) {
+  return isFcmDevice(device)
+    ? fcmTokenIsDead(status)
+    : (status === 404 || status === 410);
+}
+
+/**
+ * Does the record now in KV still refer to the registration we just failed to
+ * reach, and may therefore be deleted?
+ *
+ * Dispatch can take PUSH_SEND_TIMEOUT_MS per device, which is plenty of time
+ * for the user to re-register from another tab or for the app to come back
+ * with a rotated token. `ref` is what we actually sent to; this compares it
+ * against whatever the FRESH record carries, so anything that changed in the
+ * meantime survives.
+ *
+ * A shape mismatch means "leave it alone": a device that re-registered as the
+ * other transport is a different registration entirely, and the value to
+ * compare lives in a different field.
+ *
+ * Exported because it is the one place a LIVE device can be deleted, and an
+ * adversarial review found it was also the one piece of this change with no
+ * test touching it.
+ */
+export function prunableNow(fresh, ref) {
+  if (!fresh) return false;                  // already gone; nothing to delete
+  const current = isFcmDevice(fresh) ? fresh.token : (fresh.subscription || {}).endpoint;
+  return current === ref;
+}
+
 export async function dispatchPush(env, shortHash, { category, title, body, armed, targetDeviceId }) {
   const pushRaw = await env.HESTIA_KV.get(`push:${shortHash}`);
   if (!pushRaw) return { sent: 0, failed: 0, pruned: 0, targetFound: !targetDeviceId };
   const devices = JSON.parse(pushRaw);
 
-  const bypassesArmedGate = ALWAYS_CATEGORIES.has(category);
-  const keyPair = await deserializeVapidKeys({
-    publicKey: VAPID_PUBLIC_KEY,
-    privateKey: env.VAPID_PRIVATE_KEY,
-  });
+  /* A household can hold both kinds at once: a phone running the app and the
+     same person's laptop browser. The VAPID keys are only needed if at least
+     one Web Push device is eligible, so an FCM-only household never pays for
+     the key derivation -- and, more importantly, a missing VAPID_PRIVATE_KEY
+     cannot take down a send that was never going to use it. */
+  const isFcm = isFcmDevice;
 
   // A targeted send (currently only "test this one device" from Diagnostics)
   // ignores the armed-only gate entirely -- the point is confirming that
   // exact device's subscription still works right now, not whether it would
   // have been eligible under the household's current arm state.
-  const eligible = targetDeviceId
-    ? Object.entries(devices).filter(([deviceId]) => deviceId === targetDeviceId)
-    : Object.entries(devices).filter(([, device]) =>
-        bypassesArmedGate || device.mode === 'always' || (device.mode === 'armed' && armed === true)
-      );
+  const eligible = selectEligible(devices, { category, armed, targetDeviceId });
+
+  // Derived only if a Web Push device is actually eligible. See isFcm above.
+  const keyPair = eligible.some(([, d]) => !isFcm(d))
+    ? await deserializeVapidKeys({
+        publicKey: VAPID_PUBLIC_KEY,
+        privateKey: env.VAPID_PRIVATE_KEY,
+      })
+    : null;
 
   // Dispatched in parallel with Promise.allSettled -- previously a plain
   // sequential for-loop, so one slow/hung device delayed or blocked every
   // other device in the household, including this same alarming/smoke/water
-  // bypass path. Each device's outcome is now independent.
+  // bypass path. Each device's outcome is now independent, and that now also
+  // means an FCM outage cannot delay a browser's notification or the reverse.
   const outcomes = await Promise.allSettled(
     eligible.map(([deviceId, device]) =>
       withTimeout(
-        sendPushNotification(keyPair, device.subscription, VAPID_SUBJECT, JSON.stringify({ title, body })),
+        isFcm(device)
+          ? sendFcmNotification(env, device.token, { title, body, category, tag: category })
+          : sendPushNotification(keyPair, device.subscription, VAPID_SUBJECT, JSON.stringify({ title, body })),
         PUSH_SEND_TIMEOUT_MS
       ).then((res) => ({ deviceId, res }))
     )
@@ -87,14 +174,19 @@ export async function dispatchPush(env, shortHash, { category, title, body, arme
   for (const outcome of outcomes) {
     if (outcome.status !== 'fulfilled') { failed++; continue; }
     const { deviceId, res } = outcome.value;
+    const device = devices[deviceId];
     if (res.ok) {
       sent++;
-    } else if (res.status === 404 || res.status === 410) {
-      // Subscription is dead (browser data cleared, uninstalled, etc.) -- self-prune.
-      // Records the endpoint we actually sent to, not just the device ID, so
-      // a re-subscribe under the same ID during this dispatch window (up to
-      // PUSH_SEND_TIMEOUT_MS long) doesn't get deleted out from under it.
-      pruned.push({ id: deviceId, endpoint: devices[deviceId].subscription.endpoint });
+    } else if (shouldPrune(device, res.status)) {
+      // The registration is dead (app uninstalled, browser data cleared, token
+      // rotated) -- self-prune. Records the exact value we sent to, not just
+      // the device ID, so a re-registration under the same ID during this
+      // dispatch window (up to PUSH_SEND_TIMEOUT_MS long) isn't deleted out
+      // from under itself.
+      pruned.push({
+        id: deviceId,
+        ref: isFcm(device) ? device.token : device.subscription.endpoint,
+      });
       failed++;
     } else {
       failed++;
@@ -106,8 +198,8 @@ export async function dispatchPush(env, shortHash, { category, title, body, arme
     // of this call -- dispatch can take up to PUSH_SEND_TIMEOUT_MS per
     // device, plenty of time for a subscribe/unsubscribe to land in between.
     await mutatePushDevices(env, `push:${shortHash}`, (freshDevices) => {
-      pruned.forEach(({ id, endpoint }) => {
-        if (freshDevices[id] && freshDevices[id].subscription.endpoint === endpoint) delete freshDevices[id];
+      pruned.forEach(({ id, ref }) => {
+        if (prunableNow(freshDevices[id], ref)) delete freshDevices[id];
       });
     });
   }
