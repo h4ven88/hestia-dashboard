@@ -12307,8 +12307,24 @@ function spAthenaBody() {
 }
 
 // ── Settings Announcements body ──────────────────────────────────────
+/* Can this device speak at all?
+ *
+ * Two paths exist: Google Cloud TTS, and the browser's own speechSynthesis as
+ * a fallback. ANDROID WEBVIEWS HAVE NO speechSynthesis, so inside the app the
+ * fallback is not a fallback, it is nothing: athenaWebSpeak() returns straight
+ * away and the announcement is simply never spoken.
+ *
+ * That is the worst shape a feature can fail in here. Announcements are the
+ * one module whose entire output is sound, so with no key and no fallback the
+ * app looks like it is working and says nothing, forever, with no error. */
+function ttsAvailable() {
+  if (CONFIG.athenaGoogleTTS && CONFIG.athenaGoogleApiKey) return true;
+  return typeof window.speechSynthesis !== 'undefined';
+}
+
 function spAnnouncementsBody() {
   const en = CONFIG.announceEnabled;
+  const mute = en && !ttsAvailable();
   const devices = CONFIG.announceDevices || [];
   const thisDevOn = devices.some(d => d.id === DEVICE_ID);
   const dim = en ? '' : 'opacity:.45;pointer-events:none';
@@ -12364,6 +12380,14 @@ function spAnnouncementsBody() {
         <span class="sp-toggle-track"></span>
       </label>
     </div>
+    ${mute ? `<div style="margin:10px 0 0;padding:11px 14px;background:var(--card);
+        border:1px solid var(--conn-err);border-radius:9px;font-size:12.5px;
+        line-height:1.6;color:var(--t1)">
+        <strong>Announcements are on, but this device cannot speak.</strong><br>
+        ${inNativeApp()
+          ? 'The app has no built-in voice to fall back on, so announcements need Google Cloud Text-to-Speech. Add a Google API key under Athena and turn Google TTS on, or this device will stay silent.'
+          : 'No Google Cloud voice is configured and this browser offers no built-in speech. Add a Google API key under Athena, or use a browser with speech synthesis.'}
+      </div>` : ''}
 
     <div style="${dim}">
       <div class="sp-sep"></div>

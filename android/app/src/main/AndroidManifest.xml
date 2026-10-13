@@ -45,6 +45,24 @@
          and could not grant anywhere. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- Needed WITH RECORD_AUDIO, not instead of it, and its absence is the
+         most likely cause of the failure that followed granting the mic:
+
+           permission android.permission.RECORD_AUDIO: granted
+           [Athena] Mic permission denied: Could not start audio source
+
+         That is not a permission error. The permission was held, the device's
+         global mic toggle was off, and nothing else held the input (checked
+         via dumpsys on the phone). Chromium's audio capture adjusts the audio
+         mode and takes focus when it opens a source, which this permission
+         governs, and an AudioRecord that fails to initialise surfaces to
+         JavaScript as exactly that message.
+
+         It is a normal permission, so it is granted at install and prompts
+         nobody. Declared here because every WebView-based app doing
+         getUserMedia declares both. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <uses-permission
         android:name="android.permission.NEARBY_WIFI_DEVICES"
