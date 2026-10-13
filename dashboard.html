@@ -2662,6 +2662,43 @@ function nativeHub() {
   return (n && n.capabilities && n.capabilities.indexOf('hub') >= 0) ? n : null;
 }
 
+/**
+ * The form of a camera URL this device can actually load.
+ *
+ * In the app a plain `http://` image is mixed content and is refused before a
+ * byte moves. PROVEN ON HARDWARE, not assumed: the native layer intercepts
+ * resource requests and could serve these over the pinned connection, but
+ * mixed-content blocking happens FIRST and the intercept hook never runs. Zero
+ * interception log lines, and the browser's own "This request has been
+ * blocked" for every snapshot.
+ *
+ * So the URL has to be https before it is requested at all. Rewritten only for
+ * the host this device has PINNED, because that is the only host where https
+ * is known to work: the hub serves both, and the native layer holds its key.
+ *
+ * Deliberately NOT applied to other hosts. A camera on its own address serving
+ * plain http -- which is how at least one real household is set up -- would be
+ * made unreachable by an https it does not speak, turning a blocked image into
+ * a broken one. That case needs the proxy widened to configured camera hosts,
+ * which is a trust decision rather than a rewrite.
+ *
+ * A no-op in every browser: _nativeHubOrigin is null there, so the URL is
+ * returned untouched and mixed content keeps behaving exactly as it does now.
+ */
+function camDeviceUrl(url) {
+  if (!url || !_nativeHubOrigin) return url;
+  try {
+    const u = new URL(url, window.location.href);
+    if (u.protocol !== 'http:') return url;
+    if (u.hostname !== new URL(_nativeHubOrigin).hostname) return url;
+    u.protocol = 'https:';
+    /* Port is cleared with the protocol: an explicit :80 would survive the
+       swap and produce https on the cleartext port, which answers nothing. */
+    if (u.port === '80') u.port = '';
+    return u.href;
+  } catch(e) { return url; }
+}
+
 /* Null unless a native shell offers push. Separate from nativeHub() because the
    capabilities are genuinely independent: a build can ship hub access without
    push, and the page must degrade one without losing the other. */
@@ -5682,7 +5719,7 @@ function cameraHomeRowHTML(standalone) {
     if (hasThumb) {
       const bust = state.cacheBust || 0;
       const sep = cam.snapshotUrl.includes('?') ? '&' : '?';
-      const src = h(cam.snapshotUrl) + sep + '_hb=' + bust;
+      const src = h(camDeviceUrl(cam.snapshotUrl)) + sep + '_hb=' + bust;
       media = `<img src="${src}" alt="" referrerpolicy="no-referrer" onerror="this.closest('.cam-strip-tile').classList.add('cam-mini-offline')" onload="this.closest('.cam-strip-tile').classList.remove('cam-mini-offline')">
         <span class="cam-mini-dot ${camStatusInfo(state).cls}"></span>`;
     } else {
@@ -15879,7 +15916,7 @@ function camTimeAgo(ts) {
 function camSrc(cam, i) {
   const state = CAM_STATE[i] || {};
   const sep = cam.snapshotUrl.includes('?') ? '&' : '?';
-  return h(cam.snapshotUrl) + sep + '_hb=' + (state.cacheBust || 0);
+  return h(camDeviceUrl(cam.snapshotUrl)) + sep + '_hb=' + (state.cacheBust || 0);
 }
 // Live MJPEG stream URL (e.g. Hubitat's RTSP-to-MJPEG driver) — no
 // cache-busting, the browser keeps one connection open and the frames
@@ -15942,7 +15979,7 @@ function camStreamPollStart(i) {
     if (!stillVisible || !img || !cam || !(cam.streamUrl || cam.snapshotUrl)) { camStreamPollStop(); return; }
     // Raw URL, not the HTML-escaped one the templates use: assigning an
     // escaped "&amp;" to .src breaks any URL with more than one query param.
-    const base = cam.streamUrl || cam.snapshotUrl;
+    const base = camDeviceUrl(cam.streamUrl || cam.snapshotUrl);
     // Same rule as the grid: let a slow snapshot finish. (Not for streams --
     // a multipart MJPEG <img> never reports complete while it's streaming.)
     if (!cam.streamUrl && !img.complete) { _camStreamPollTimer = setTimeout(tick, camRefreshMs()); return; }
@@ -16060,7 +16097,7 @@ async function camDiagnoseOffline(i) {
     reason = 'Mixed content (HTTP on HTTPS page)';
   } else {
     try {
-      const res = await _fetchWithTimeout(cam.snapshotUrl, 6000, { cache: 'no-store' });
+      const res = await _fetchWithTimeout(camDeviceUrl(cam.snapshotUrl), 6000, { cache: 'no-store' });
       if (!res.ok) {
         reason = (res.status === 401 || res.status === 403) ? `Unauthorized (${res.status})`
           : res.status === 404 ? 'Not found (404)'
@@ -17888,7 +17925,11 @@ function _camTestLoadUrl(url) {
     img.referrerPolicy = 'no-referrer';
     img.onload  = () => { clearTimeout(timer); resolve(true); };
     img.onerror = () => { clearTimeout(timer); resolve(false); };
-    img.src = url;
+    /* Through the same rewrite the render paths use, so a probe tests the URL
+       this device will actually load. Without it the boot warm-up and the
+       Settings "Test connection" button would report a camera offline that
+       renders perfectly, or the reverse. */
+    img.src = camDeviceUrl(url);
   });
 }
 async function spTestCamera(i) {
