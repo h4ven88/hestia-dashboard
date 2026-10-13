@@ -513,5 +513,43 @@ console.log('\n=== 14. First run belongs to the app and nowhere else ===');
     r.nfrReason(new Error('')).length > 0);
 }
 
+console.log('\n=== 15. A denied permission names a remedy that exists ===');
+{
+  /* Reported from a real phone. Athena was denied the microphone and told the
+     user to click the padlock in the address bar. An app has no address bar,
+     so the instruction was not merely unhelpful, it was impossible -- the same
+     failure class as v2.0.2's recovery screen telling a locked-out household
+     to open a device that was already working. */
+  const COPY_SRC = ['inNativeApp', 'permRemedyHTML'].map(extractFn).join('\n\n');
+  const copy = (native) => new Function('window', `
+      ${COPY_SRC}
+      return { inNativeApp, permRemedyHTML };
+    `)(native ? { hestiaNative: { capabilities: [] } } : {});
+
+  const browser = copy(false).permRemedyHTML('the microphone');
+  const app = copy(true).permRemedyHTML('the microphone');
+
+  check('a browser user is pointed at site settings',
+    /address bar|Site settings/i.test(browser), browser.slice(0, 60));
+  check('an app user is NOT pointed at an address bar',
+    !/address bar|Site settings|browser/i.test(app), app);
+  check('...and is pointed at the device settings instead',
+    /device's Settings/i.test(app) && /Hestia/.test(app), app);
+  check('both name the permission they are about',
+    browser.includes('the microphone') && app.includes('the microphone'));
+
+  /* Present-and-empty counts as the app: a shell offering no capabilities is
+     still a place where browser instructions are wrong, which is why this
+     cannot be a capability test. */
+  check('a capability-less shell still counts as the app',
+    copy(true).inNativeApp() === true && copy(false).inNativeApp() === false);
+
+  /* The OS is never named. Naming it would be a platform branch, the exact
+     fork the bridge contract exists to prevent, and the wording has to stay
+     true on every target we ship. */
+  check('no platform is named in the app remedy',
+    !/android|ios|iphone|samsung/i.test(app), app);
+}
+
 console.log(`\n${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL ? 1 : 0);

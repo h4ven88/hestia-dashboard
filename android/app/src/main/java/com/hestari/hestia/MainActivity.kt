@@ -63,6 +63,49 @@ class MainActivity : AppCompatActivity() {
                     android.util.Log.i("HestiaWeb", "${m.message()}  (${m.sourceId()}:${m.lineNumber()})")
                     return true
                 }
+
+                /**
+                 * WITHOUT THIS, ATHENA CANNOT WORK IN THE APP AT ALL.
+                 *
+                 * A WebView denies every getUserMedia request when this is not
+                 * overridden. It does not ask Android, it does not ask the
+                 * user, it just denies -- so the page's own error path runs and
+                 * reports a microphone problem the user cannot fix anywhere,
+                 * because no permission was ever requested. Reported from the
+                 * phone as "[Athena] Mic permission denied: Permission denied"
+                 * the instant Athena was tapped.
+                 *
+                 * Two gates, and both matter. The origin must be the bundled
+                 * page: this is the one place a WebView can hand the microphone
+                 * to whatever is loaded, so it is checked rather than assumed
+                 * even though navigation is already locked to that origin.
+                 * And only audio is ever granted, never video, however much
+                 * the request asks for -- the product has no use for a camera
+                 * and least privilege costs nothing to keep.
+                 *
+                 * Android's own permission is requested HERE rather than at
+                 * startup, so the dialog arrives because the user tapped
+                 * Athena. Same rule as the local network one.
+                 */
+                override fun onPermissionRequest(request: android.webkit.PermissionRequest) {
+                    val audio = android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE
+                    if (request.origin?.host != ASSET_DOMAIN ||
+                        !request.resources.contains(audio)) {
+                        android.util.Log.w("Hestia", "refused a media request from ${request.origin}")
+                        request.deny()
+                        return
+                    }
+                    ensurePermission(android.Manifest.permission.RECORD_AUDIO, REQ_MIC) { granted ->
+                        if (granted) request.grant(arrayOf(audio)) else request.deny()
+                    }
+                }
+
+                /* The page asked and then went away (Athena closed, a reload).
+                   Nothing to clean up, but leaving the default would let a
+                   stale prompt sit over a screen that no longer wants it. */
+                override fun onPermissionRequestCanceled(request: android.webkit.PermissionRequest) {
+                    android.util.Log.i("Hestia", "media request cancelled by the page")
+                }
             }
 
             webViewClient = object : WebViewClient() {
@@ -201,36 +244,45 @@ class MainActivity : AppCompatActivity() {
      * about to look for their hub on this network. Same dialog, asked after the
      * reason instead of before it.
      */
-    private fun ensureLocalNetworkPermission(onResult: (Boolean) -> Unit) {
-        val permission =
+    private fun ensureLocalNetworkPermission(onResult: (Boolean) -> Unit) =
+        ensurePermission(
             if (android.os.Build.VERSION.SDK_INT >= 37) "android.permission.ACCESS_LOCAL_NETWORK"
-            else "android.permission.NEARBY_WIFI_DEVICES"
+            else "android.permission.NEARBY_WIFI_DEVICES",
+            REQ_LOCAL_NETWORK, onResult)
 
+    /**
+     * Asks for one runtime permission and answers when the user has decided.
+     *
+     * Keyed by request code rather than a single slot: the mic and the local
+     * network are asked for at different moments by different parts of the app,
+     * and a single slot would let one overwrite the other's callback, leaving
+     * whoever was waiting on it waiting forever. Each code is answered once and
+     * then cleared.
+     */
+    private fun ensurePermission(permission: String, code: Int, onResult: (Boolean) -> Unit) {
         val granted = androidx.core.content.ContextCompat.checkSelfPermission(this, permission) ==
             android.content.pm.PackageManager.PERMISSION_GRANTED
-        android.util.Log.i("Hestia", "local network permission ($permission): " +
+        android.util.Log.i("Hestia", "permission $permission: " +
             if (granted) "granted" else "NOT granted, requesting")
         if (granted) { onResult(true); return }
 
-        /* One outstanding request at a time. A second would orphan the first
+        /* One outstanding request per code. A second would orphan the first
            callback, and the caller waiting on it would never be answered. */
-        if (permissionWaiter != null) { onResult(false); return }
-        permissionWaiter = onResult
-        androidx.core.app.ActivityCompat.requestPermissions(this, arrayOf(permission), REQ_LOCAL_NETWORK)
+        if (permissionWaiters.containsKey(code)) { onResult(false); return }
+        permissionWaiters[code] = onResult
+        androidx.core.app.ActivityCompat.requestPermissions(this, arrayOf(permission), code)
     }
 
-    private var permissionWaiter: ((Boolean) -> Unit)? = null
+    private val permissionWaiters = mutableMapOf<Int, (Boolean) -> Unit>()
 
     override fun onRequestPermissionsResult(
         requestCode: Int, permissions: Array<out String>, grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode != REQ_LOCAL_NETWORK) return
-        val waiter = permissionWaiter
-        permissionWaiter = null
+        val waiter = permissionWaiters.remove(requestCode) ?: return
         /* An empty grantResults means the request was cancelled, which is a
-           denial for our purposes: we still cannot reach the network. */
-        waiter?.invoke(grantResults.isNotEmpty() &&
+           denial for our purposes: the capability still is not available. */
+        waiter(grantResults.isNotEmpty() &&
             grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED)
     }
 
@@ -266,6 +318,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val REQ_LOCAL_NETWORK = 1001
+        private const val REQ_MIC = 1002
 
         /** Reserved by Google for exactly this; it resolves to nothing public. */
         private const val ASSET_DOMAIN = "appassets.androidplatform.net"

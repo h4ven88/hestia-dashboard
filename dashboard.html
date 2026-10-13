@@ -2630,6 +2630,33 @@ function _originOf(url) {
 /* Null unless a bridge is present AND offers the hub capability. Capability,
    not platform: a build whose native half is older than this code reports no
    'hub' and correctly gets the browser behaviour. */
+/* Is this page running inside a native app shell at all?
+ *
+ * Deliberately NOT a capability check and deliberately NOT a platform check.
+ * The question "where does this user fix a denied permission" has the same
+ * answer for every native shell and a different one in a browser, so the
+ * bridge's mere presence is the honest signal. A shell that offers no
+ * capabilities at all is still a place where "open your browser's site
+ * settings" is wrong, which is why nativeHub() would be the wrong test.
+ *
+ * Reported from a real phone: Athena said to click the padlock in the address
+ * bar. There is no address bar. */
+function inNativeApp() { return !!window.hestiaNative; }
+
+/* Where a denied permission is actually fixed, in words that are true for any
+   native shell. The OS is not named: the remedy differs per platform and
+   naming one would be a platform branch, which is exactly the fork the bridge
+   contract exists to prevent. "Your device's settings, under this app" is
+   accurate on every target we will ship. */
+function permRemedyHTML(what) {
+  if (inNativeApp()) {
+    return `Open your device's Settings, find <strong>Hestia</strong> under its apps,
+            and allow ${what} there. A prompt inside the app cannot override a denial.`;
+  }
+  return `Click the 🔒 icon in the address bar → Site settings → ${what} → Allow.
+          On Chrome for Android, tap ⋮ → Settings → Site settings → ${what}.`;
+}
+
 function nativeHub() {
   const n = window.hestiaNative;
   return (n && n.capabilities && n.capabilities.indexOf('hub') >= 0) ? n : null;
@@ -7334,11 +7361,7 @@ async function athenaSettingsMicRequest(reset) {
     const hint = wrap?.closest('.sp-group')?.querySelector('.sp-hint');
     if (hint) {
       hint.style.color = 'var(--amber)';
-      hint.innerHTML = `Microphone is blocked in this browser. To fix:<br>
-        <strong>Chrome/Brave desktop:</strong> Click the 🔒 icon in the address bar → Site settings → Microphone → Allow<br>
-        <strong>Chrome Android:</strong> tap ⋮ → Settings → Site settings → Microphone → find this site → Allow<br>
-        <strong>Firefox:</strong> Click the 🔒 icon → Connection secure → More information → Permissions → Use the Microphone → Allow<br>
-        Then reload the page.`;
+      hint.innerHTML = `Microphone access is blocked. ${permRemedyHTML('the microphone')}`;
     }
   }
 }
@@ -7349,10 +7372,7 @@ function athenaShowMicDenied() {
   if (!t) return;
   const div = document.createElement('div');
   div.className = 'ath-msg-athena clarify';
-  div.innerHTML = `Microphone access was denied. To use voice:<br>
-    <strong>Chrome/Edge:</strong> Click the 🔒 or 🎤 icon in the address bar → Allow<br>
-    <strong>Firefox:</strong> Click the microphone icon in the address bar → Allow<br>
-    <strong>Mobile:</strong> Settings → Browser → Microphone → Allow<br><br>
+  div.innerHTML = `Microphone access was denied. ${permRemedyHTML('the microphone')}<br><br>
     You can still type commands below.`;
   t.appendChild(div);
   t.scrollTop = t.scrollHeight;
@@ -12281,7 +12301,7 @@ function spAthenaBody() {
       <div class="sp-group">
         <div class="sp-group-lbl">Microphone</div>
         ${micStatus}
-        <span class="sp-hint" style="margin-top:4px;display:block">Required for voice commands. If denied, go to your browser's address bar → site settings → allow microphone.</span>
+        <span class="sp-hint" style="margin-top:4px;display:block">Required for voice commands. If denied: ${permRemedyHTML('the microphone')}</span>
       </div>
     </div>`;
 }
@@ -12766,7 +12786,7 @@ function spPushBody() {
       <div style="background:var(--amber-dim);border:1px solid var(--amber-bdr);border-radius:10px;padding:12px 14px">
         <div style="font-size:12px;font-weight:500;color:var(--amber);margin-bottom:4px">⚠ Notifications not permitted in this browser</div>
         <div style="font-size:11px;color:var(--t2);line-height:1.6;margin-bottom:10px">
-          This device is registered, but this browser's own notification permission is "${h(Notification.permission)}" instead of granted -- so pushes sent to it will keep failing silently. Re-enable it here, or in this browser's site settings for this page.
+          This device is registered, but its notification permission is "${h(Notification.permission)}" instead of granted, so pushes sent to it will keep failing silently. Try the button below. If that does nothing, the permission was denied for good: ${permRemedyHTML('notifications')}
         </div>
         <button class="ob-trigger-btn" onclick="pushReenableThisDevice()" style="width:auto;padding:0 16px;border-style:solid">Re-enable notifications →</button>
       </div>
@@ -13696,7 +13716,10 @@ async function diagCheckPush() {
   } else if (registered && perm === 'granted' && swActive) {
     diagSetStatus('push', 'green', 'Healthy', detail);
   } else if (perm === 'denied') {
-    diagSetStatus('push', 'amber', 'Blocked in browser settings', detail + ' — this browser has blocked notifications for this site; re-allow it in your browser\'s site settings, an in-app prompt can\'t override a denial.');
+    diagSetStatus('push', 'amber',
+      inNativeApp() ? 'Blocked in app settings' : 'Blocked in browser settings',
+      detail + ' — notifications are blocked here, and a prompt cannot override a denial. ' +
+      permRemedyHTML('notifications').replace(/<\/?strong>/g, ''));
   } else {
     diagSetStatus('push', 'amber', 'Enabled, but incomplete', detail);
   }

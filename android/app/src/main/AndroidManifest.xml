@@ -35,6 +35,16 @@
          ("temporarily implemented as NEARBY_WIFI_DEVICES"), and carries
          neverForLocation so it does not drag in a location prompt for a
          feature that has nothing to do with location. -->
+    <!-- Athena. Requested at the moment the user taps Athena, never at
+         startup, and granted to the WebView only for audio and only for the
+         bundled page (see MainActivity.onPermissionRequest).
+
+         Declaring it is not enough on its own: a WebView denies getUserMedia
+         outright unless onPermissionRequest is overridden, which is why Athena
+         failed on a real phone with a permission the user was never asked for
+         and could not grant anywhere. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <uses-permission
         android:name="android.permission.NEARBY_WIFI_DEVICES"
