@@ -6,6 +6,10 @@ webkit = "1.12.1"
 okhttp = "4.12.0"
 coroutines = "1.9.0"
 junit = "4.13.2"
+# Pinned via the BOM rather than per-library, so firebase-messaging and
+# anything added later cannot drift into an untested combination.
+firebaseBom = "33.7.0"
+googleServices = "4.4.2"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -22,9 +26,19 @@ androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "w
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 
+# Push to a closed app. An Android WebView has no Push API and no service
+# worker push, so the dashboard's Web Push path cannot work here at all and
+# FCM is the only transport to a device that is not on screen.
+firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
+firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging" }
+
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 
 [plugins]
 # AGP 9 carries Kotlin support itself; adding org.jetbrains.kotlin.android
 # alongside it is now a hard error, not a warning.
 android-application = { id = "com.android.application", version.ref = "agp" }
+# Reads android/app/google-services.json at build time and generates the
+# Firebase config resources. That file is gitignored, so a checkout without it
+# fails here rather than silently building an app whose push can never work.
+google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }

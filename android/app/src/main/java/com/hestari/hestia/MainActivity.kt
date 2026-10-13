@@ -59,7 +59,14 @@ class MainActivity : AppCompatActivity() {
                there, and without this none of it is visible from outside the
                WebView -- which would make every future phase a guessing game. */
             webChromeClient = object : android.webkit.WebChromeClient() {
+                /* DEBUG ONLY, because the page's console carries credentials.
+                   Hub URLs embed the Maker API token as a query parameter, so
+                   an ordinary mixed-content warning prints it in full. Logcat
+                   is app-private on modern Android, but it is also what every
+                   bug-report and crash-capture tool collects, and a token that
+                   never enters a log cannot leak from one. */
                 override fun onConsoleMessage(m: android.webkit.ConsoleMessage): Boolean {
+                    if (!BuildConfig.DEBUG) return true
                     android.util.Log.i("HestiaWeb", "${m.message()}  (${m.sourceId()}:${m.lineNumber()})")
                     return true
                 }
@@ -134,7 +141,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         bridge = HestiaBridge(applicationContext, webView, BuildConfig.VERSION_NAME,
-            ::ensureLocalNetworkPermission)
+            ::ensureLocalNetworkPermission, ::ensureNotificationPermission)
         webView.addJavascriptInterface(bridge, HestiaBridge.JS_NAME)
         installBridgeShim()
 
@@ -251,6 +258,21 @@ class MainActivity : AppCompatActivity() {
             REQ_LOCAL_NETWORK, onResult)
 
     /**
+     * Asked when the user turns push on, never at startup.
+     *
+     * Below Android 13 there is no runtime permission here at all, and a
+     * request would silently do nothing, so the answer is whatever the system
+     * notification setting already says.
+     */
+    private fun ensureNotificationPermission(onResult: (Boolean) -> Unit) {
+        if (android.os.Build.VERSION.SDK_INT < 33) {
+            onResult(androidx.core.app.NotificationManagerCompat.from(this).areNotificationsEnabled())
+            return
+        }
+        ensurePermission("android.permission.POST_NOTIFICATIONS", REQ_NOTIFY, onResult)
+    }
+
+    /**
      * Asks for one runtime permission and answers when the user has decided.
      *
      * Keyed by request code rather than a single slot: the mic and the local
@@ -319,6 +341,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val REQ_LOCAL_NETWORK = 1001
         private const val REQ_MIC = 1002
+        private const val REQ_NOTIFY = 1003
 
         /** Reserved by Google for exactly this; it resolves to nothing public. */
         private const val ASSET_DOMAIN = "appassets.androidplatform.net"

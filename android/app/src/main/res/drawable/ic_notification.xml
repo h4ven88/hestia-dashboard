@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The status bar icon.
+
+  Android renders a notification icon as a SILHOUETTE: it keeps the alpha and
+  throws the colours away. So the launcher gem cannot be reused here. Its
+  amber frame and lit facets would flatten into one solid blob, and at 24dp in
+  a status bar a blob is indistinguishable from every other app's blob.
+
+  What is left is the outline of the mark plus its one defining feature, the
+  waist, cut out with evenOdd so it reads as a band of empty rather than a
+  drawn line. The hexagon is scaled from the 80x90 source by 24/90 and centred,
+  the same arithmetic as the launcher foreground.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M12,1.33 L19.5,5.6 L19.5,15.2 L12,19.5 L4.55,15.2 L4.55,5.6 Z M8.28,8.2 L15.75,8.2 L15.75,9.5 L8.28,9.5 Z" />
+</vector>

@@ -63,6 +63,12 @@
          getUserMedia declares both. -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
+    <!-- Runtime from Android 13. Requested when the user turns push on, never
+         at startup: a denial is sticky, so the question gets one asking and it
+         should follow the reason. Same rule as the microphone and the local
+         network permission. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <uses-permission
         android:name="android.permission.NEARBY_WIFI_DEVICES"
@@ -88,6 +94,30 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- exported=false: nothing outside the app may start it. FCM delivers
+             through Play Services, which binds it by permission, not by an
+             intent any app could send. -->
+        <service
+            android:name=".HestiaMessaging"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Used only when a message arrives WITHOUT the app choosing a
+             channel, which should not happen because the backend sends
+             data-only. Declared so that if one ever slips through, it lands in
+             the quieter channel rather than Firebase's own default, which is
+             created at IMPORTANCE_DEFAULT with a name the user has no way to
+             recognise in their notification settings. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="hestia_events" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification" />
     </application>
 
 </manifest>

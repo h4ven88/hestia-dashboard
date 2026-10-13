@@ -41,6 +41,7 @@ class HestiaBridge(
     /* Supplied by the Activity, because only an Activity can ask. Called on the
        main thread; answers true once the permission is held. */
     private val ensureLocalNetwork: ((Boolean) -> Unit) -> Unit = { it(true) },
+    private val ensureNotifications: ((Boolean) -> Unit) -> Unit = { it(false) },
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -54,6 +55,41 @@ class HestiaBridge(
      * same words as a genuinely empty network and sends the user to type in an
      * address that was never the problem.
      */
+    /** Below 13 there is no runtime notification permission to hold. */
+    private fun notificationsPermitted(): Boolean =
+        androidx.core.app.NotificationManagerCompat.from(ctx).areNotificationsEnabled()
+
+    private suspend fun awaitNotificationPermission(): Boolean {
+        if (notificationsPermitted()) return true
+        if (android.os.Build.VERSION.SDK_INT < 33) return false   // disabled in system settings
+        return kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+            webView.post {
+                ensureNotifications { granted ->
+                    if (cont.isActive) cont.resumeWith(Result.success(granted))
+                }
+            }
+        }
+    }
+
+    /**
+     * The device's FCM registration token.
+     *
+     * Suspends on the Task rather than blocking: this runs on an IO thread but
+     * the token can require a network round trip on first call, and a blocking
+     * get would hold that thread behind it.
+     */
+    private suspend fun fcmToken(): String =
+        kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                .addOnSuccessListener { t ->
+                    HestiaMessaging.storeToken(ctx, t)
+                    if (cont.isActive) cont.resumeWith(Result.success(t))
+                }
+                .addOnFailureListener { e ->
+                    if (cont.isActive) cont.resumeWith(Result.failure(e))
+                }
+        }
+
     private suspend fun awaitLocalNetwork(): Boolean =
         kotlinx.coroutines.suspendCancellableCoroutine { cont ->
             webView.post {
@@ -70,7 +106,7 @@ class HestiaBridge(
         put("appVersion", appVersion)
         /* The page branches on these and on nothing else -- never on platform.
            That rule is what keeps one web layer instead of one per target. */
-        put("capabilities", JSONArray(listOf("hub")))
+        put("capabilities", JSONArray(listOf("hub", "push")))
     }.toString()
 
     /**
@@ -112,6 +148,29 @@ class HestiaBridge(
                     "hub.request" -> hubRequest(params)
                     /* commit defaults TRUE so an older page that knows nothing
                        about the flag still pins, as it always did. */
+                    /* Returns the FCM token and whether notifications are
+                       permitted, so the page can register this device exactly
+                       as it registers a Web Push subscription. The permission
+                       is requested HERE, because the page only calls this when
+                       the user turns push on. */
+                    "push.register" -> {
+                        val allowed = awaitNotificationPermission()
+                        val token = if (allowed) runCatching { fcmToken() }.getOrNull() else null
+                        JSONObject()
+                            .put("permitted", allowed)
+                            .put("token", token ?: JSONObject.NULL)
+                            /* The page needs to tell the backend which
+                               transport this is. Without it an FCM token would
+                               be stored where a Web Push subscription is
+                               expected and fail at send time, which is the
+                               worst place to find out. */
+                            .put("kind", "fcm")
+                    }
+                    "push.state" -> JSONObject()
+                        .put("permitted", notificationsPermitted())
+                        .put("token", HestiaMessaging.storedToken(ctx) ?: JSONObject.NULL)
+                        .put("kind", "fcm")
+
                     "hub.configure" -> HubClient.configure(
                         ctx, params.optString("origin"),
                         if (params.has("commit")) params.optBoolean("commit") else true,
