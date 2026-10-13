@@ -1873,7 +1873,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '2.2.0';
-const HESTIA_BUILD_DATE = '2026-10-12';
+const HESTIA_BUILD_DATE = '2026-10-13';
 
 /* ═══════════════════════════════════════════════════════
    SANDBOX MODE
@@ -2336,7 +2336,7 @@ async function verifyFileIntegrity() {
     // populated from build-info.json on GitHub
     if (!CONFIG.hub || !CONFIG.appId || !CONFIG.token) return;
     const url = `${CONFIG.hub}/apps/api/${CONFIG.appId}/version?access_token=${CONFIG.token}`;
-    const res = await fetch(url);
+    const res = await hubFetch(url);
     if (!res.ok) return;
     const data = await res.json();
     const publishedHash = data.sha512;
@@ -11336,7 +11336,7 @@ async function artemisHsmOnlyCmd(hsmCmd) {
   if (!CONFIG.hub || !CONFIG.appId || !CONFIG.token) return;
   try {
     const url = `${CONFIG.hub}/apps/api/${CONFIG.appId}/hsm/${hsmCmd}?access_token=${CONFIG.token}`;
-    await fetch(url);
+    await hubFetch(url);
   } catch(e) {
     console.warn('[Artemis] HSM command failed:', hsmCmd, e.message);
   }
@@ -11395,7 +11395,7 @@ async function artemisHsmSync() {
   if (!CONFIG.hub || !CONFIG.appId || !CONFIG.token) return;
   try {
     const url = `${CONFIG.hub}/apps/api/${CONFIG.appId}/hsm?access_token=${CONFIG.token}`;
-    const res = await fetch(url);
+    const res = await hubFetch(url);
     if (!res.ok) {
       // Non-200 — treat as HSM not available
       if (artemisHsmReady !== false) {
@@ -12574,7 +12574,7 @@ async function pushRegisterMakerApiWebhook() {
     const hadCap = !!CONFIG.pushWebhookCap;
     const target = `${PUSH_WEBHOOK_URL}/${_cloudEnsureWebhookCap()}`;
     const url = `${CONFIG.hub}/apps/api/${CONFIG.appId}/postURL/${encodeURIComponent(target)}?access_token=${CONFIG.token}`;
-    const res = await fetch(url);
+    const res = await hubFetch(url);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     /* The verifier only reaches the backend through a config write, so without
        this the hub would POST a capability the server cannot check -- harmless
@@ -20393,7 +20393,7 @@ async function obTestConnection() {
   OB.hub = OB.hub.replace(/\/+$/, '');
   try {
     const url = `${OB.hub}/apps/api/${OB.appId}/devices/all?access_token=${OB.token}`;
-    const r = await fetch(url);
+    const r = await hubFetch(url);
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     if (!Array.isArray(data)) throw new Error('Unexpected response format');
@@ -20742,6 +20742,16 @@ function launchOnboarding() {
      native layer pinned and every later step talks to the hub. A no-op in a
      browser: nativeHub() is null, so this returns immediately. */
   await nativeHubSync();
+  /* Re-resolve the hub address now that we know what the relay pinned.
+     loadConfig() runs at module scope, well before this, so on an app that is
+     already set up the stored config has already been applied with
+     _nativeHubOrigin still null -- leaving CONFIG.hub on the household's
+     http:// address, which the relay then refuses.
+
+     The symptom is nasty: the app works perfectly on the run that set it up,
+     and fails on every launch after. Reported from a real phone as the HSM
+     poll failing every few seconds. Idempotent, and a no-op in a browser. */
+  if (_nativeHubOrigin && CONFIG.hub) CONFIG.hub = _hubUrlForThisDevice(CONFIG.hub);
 
   // ── Safari redirect: WebKit blocks HTTPS→HTTP to private IPs ──
   // Redirect Safari users from hestari.com to the hub's local HTTPS URL

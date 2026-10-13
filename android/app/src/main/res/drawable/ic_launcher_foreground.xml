@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Hestia gem, as the launcher icon.
+
+  Traced from the mark in dashboard.html rather than redrawn. The same rule as
+  obHestiaMarkSVG(): this project once ended up with two garage icons in two
+  visual languages because a second one was easier to draw than to find.
+
+  COORDINATES ARE PRE-SCALED, not wrapped in a <group> transform. An adaptive
+  icon is a 108x108 canvas whose outer ring is masked away by the launcher,
+  leaving a 72x72 safe zone from 18 to 90. The source mark is 80x90, so the
+  limiting dimension is its height: 72/90 = 0.8. Every point below is
+  x*0.8+22, y*0.8+22.8, which centres it on 54,54 and keeps it inside the safe
+  zone on both axes. Stroke widths are scaled by the same 0.8.
+
+  Doing the arithmetic here rather than in a group transform is deliberate:
+  VectorDrawable applies a group's translate, scale and rotate in an order that
+  is easy to get subtly wrong, and a wrong icon is only visible after an
+  install.
+
+  The hairlines of the original are dropped. They carry facet detail that
+  cannot survive 48dp and would read as noise or disappear into the fill. What
+  remains is what defines the mark at icon size: the amber frame, the lit upper
+  faces, the dark body and the amber waist.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Frame -->
+    <path
+        android:pathData="M54,26.8 L76.4,39.6 L76.4,68.4 L54,81.2 L31.6,68.4 L31.6,39.6 Z"
+        android:strokeColor="#F59E0B"
+        android:strokeWidth="1.2"
+        android:strokeLineJoin="miter" />
+
+    <!-- Upper faces, lit -->
+    <path
+        android:pathData="M54,26.8 L76.4,39.6 L65.2,49.2 L42.8,49.2 L31.6,39.6 Z"
+        android:fillColor="#F0EEE8" />
+    <path
+        android:pathData="M54,26.8 L31.6,39.6 L42.8,49.2 Z"
+        android:fillColor="#E4E2DA" />
+    <path
+        android:pathData="M54,26.8 L76.4,39.6 L65.2,49.2 Z"
+        android:fillColor="#D0CEC6" />
+
+    <!-- The waist: the mark's one bright line -->
+    <path
+        android:pathData="M42.8,49.2 L65.2,49.2"
+        android:strokeColor="#F59E0B"
+        android:strokeWidth="2"
+        android:strokeLineCap="square" />
+
+    <!-- Lower body, in shadow -->
+    <path
+        android:pathData="M42.8,49.2 L65.2,49.2 L76.4,68.4 L54,81.2 L31.6,68.4 Z"
+        android:fillColor="#141C26" />
+    <path
+        android:pathData="M42.8,49.2 L31.6,68.4 L54,81.2 Z"
+        android:fillColor="#0C1218" />
+    <path
+        android:pathData="M65.2,49.2 L76.4,68.4 L54,81.2 Z"
+        android:fillColor="#1A2332" />
+    <path
+        android:pathData="M54,49.2 L54,81.2"
+        android:strokeColor="#94A3B8"
+        android:strokeAlpha="0.33"
+        android:strokeWidth="0.72" />
+</vector>

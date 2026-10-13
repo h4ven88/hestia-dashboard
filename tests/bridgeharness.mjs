@@ -413,6 +413,32 @@ console.log('\n=== 13. Nothing aimed at the hub bypasses the doorway ===');
   check('no Maker API call still uses a bare fetch', bare.length === 0, bare.join(', '));
   const routed = (code.match(/hubFetch\s*\(\s*apiUrl\s*\(/g) || []).length;
   check('every Maker API call site goes through hubFetch', routed === 9, `found ${routed}, expected 9`);
+
+  /* THE CHECK THAT WOULD HAVE CAUGHT THE REAL BUG, and the reason it is written
+     this way. The first sweep looked for `fetch(apiUrl(` and found nine sites.
+     Five more built the same hub URL INLINE, across two statements:
+
+         const url = `${CONFIG.hub}/apps/api/${CONFIG.appId}/hsm?...`;
+         const res = await fetch(url);
+
+     A line-based grep cannot see that, so arm/disarm, the HSM poll, the version
+     check, webhook registration and the onboarding device fetch were all left
+     on a plain fetch -- which in the app cannot reach the hub at all. It showed
+     up on a real phone as "[Artemis] HSM sync failed: Failed to fetch".
+
+     So this asserts on the URL being CONSTRUCTED rather than on how the call is
+     spelled, and looks at the lines that follow it. Any new hub URL is covered
+     the moment it is written, without anyone remembering to add it here. */
+  const src = code.split('\n');
+  const bypass = [];
+  src.forEach((line, i) => {
+    if (!/\/apps\/api\//.test(line)) return;
+    if (/function apiUrl|hubStoreFetch|href=|show\(/.test(line)) return;   // the doorway itself, and displayed links
+    const after = src.slice(i, i + 4).join('\n');
+    if (/(?<!hub)(?<!_)\bfetch\s*\(/.test(after)) bypass.push(`line ${i + 1}: ${line.trim().slice(0, 60)}`);
+  });
+  check('no inline-built hub URL is fetched outside the doorway',
+    bypass.length === 0, bypass.join(' | '));
   check('the companion-app doorway is routed too',
     /const res = await hubFetch\(url, fetchOpts, 4000\);/.test(code),
     'one line covers all 13 hubStoreFetch callers');

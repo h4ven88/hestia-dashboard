@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The themed-icon layer (Android 13+), where the launcher tints a silhouette to
+  the user's own palette and discards every colour we chose.
+
+  So this cannot be the foreground with the fills left in: tinted flat, the lit
+  faces and the dark body collapse into one solid blob and the gem stops being
+  recognisable. What survives tinting is the mark's geometry: the frame, the
+  waist, and the crown edges that make it read as a cut stone rather than a
+  hexagon. Same coordinates as the foreground.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108"
+    android:tint="#FFFFFF">
+
+    <path
+        android:pathData="M54,26.8 L76.4,39.6 L76.4,68.4 L54,81.2 L31.6,68.4 L31.6,39.6 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineJoin="miter" />
+    <path
+        android:pathData="M42.8,49.2 L65.2,49.2"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="square" />
+    <path
+        android:pathData="M31.6,39.6 L42.8,49.2 M76.4,39.6 L65.2,49.2 M54,26.8 L54,49.2"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2" />
+</vector>

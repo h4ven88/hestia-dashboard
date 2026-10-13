@@ -1,4 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="hestia_bg">#0A0A0A</color>
+
+    <!--
+      The launcher icon's background plate.
+
+      Deliberately NOT hestia_bg: a launcher draws the icon over the user's
+      wallpaper, and the page's near black leaves the gem floating with no
+      silhouette on a dark one.
+
+      And deliberately DARKER than every facet of the mark. The first attempt
+      used #141C26 on the reasoning that it was the gem's own lower-body colour
+      and therefore "from the subject", which put an element of the mark on a
+      plate of exactly its own colour, so the bottom half of the gem dissolved
+      into its background. Visible immediately on a real launcher, invisible in
+      the source. The plate now sits below the darkest facet (#0C1218), so
+      every part of the mark separates from it.
+    -->
+    <color name="hestia_icon_bg">#06090D</color>
 </resources>

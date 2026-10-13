@@ -46,13 +46,25 @@ let _artemisAlarmDevices = [];
 let deviceLookup = null;
 function apiUrl(p){ return p; }
 async function _fetchWithTimeout(u){ __log('LOOKUP ' + u); return deviceLookup ? { ok: true, json: async () => deviceLookup } : { ok: false }; }
-/* Mirrors dashboard.html's hubFetch (the single doorway for hub-bound
-   requests, defined beside _fetchWithTimeout). Routed to the same stub
-   because in a browser -- which is what this harness simulates -- hubFetch
-   IS fetch; the relay only engages behind the native 'hub' capability.
-   Added when the device lookup moved onto this doorway: without it the
-   lookup threw and the test silently exercised the fallback path instead. */
-async function hubFetch(u, opts, ms){ return _fetchWithTimeout(u, ms, opts); }
+/* Stands in for dashboard.html's hubFetch, the single doorway every hub-bound
+   request now goes through. The real one is TRANSPORT ONLY: in a browser --
+   which is what this harness simulates -- it is literally fetch(), and the
+   native relay only engages behind the 'hub' capability.
+
+   It dispatches by path because this stub is playing the HUB, and a hub
+   answers /hsm and /devices/<id> with different things. Before the doorway
+   existed those two had separate stubs (bare fetch and _fetchWithTimeout);
+   routing both through one function collapsed them, and the HSM poll started
+   receiving the device-lookup reply. Two tests went red, which is the harness
+   working: a stub that quietly answers the wrong endpoint tests fiction.
+
+   indexOf rather than a regex, deliberately: this body lives inside a template
+   literal, where \/ collapses to / and turns a pattern into a line comment
+   that silently swallows the rest of the line. */
+async function hubFetch(u, opts, ms){
+  if (String(u).indexOf('/hsm') >= 0) return fetch(u);
+  return _fetchWithTimeout(u, ms, opts);
+}
 function parseAttrs(d){ return d.attributes || {}; }
 async function cmd(id, c, a){ __log('CMD ' + id + ' ' + c + (a !== undefined ? ' ' + a : '')); return true; }
 async function fetch(){ return { ok: true, json: async () => ({ hsm: hsmResp }) }; }
