@@ -626,5 +626,62 @@ console.log('\n=== 16. Push registers through native only when native offers it 
   check('...but an interactive failure still says why', loud.alerts.length === 1, loud.alerts[0]);
 }
 
+console.log('\n=== 17. The module screens only offer what the household can use ===');
+{
+  /* These screens announce the modules that need an active toggle-on. Showing
+     one a household cannot use is worse than skipping it: a security module
+     pitched to a home with no sensors reads as broken, and a push screen on a
+     device with no push capability promises something that will never arrive. */
+  const STEP_SRC = ['nativePush', 'nativeHub', 'nfmSteps'].map(extractFn).join('\n\n');
+
+  const steps = ({ capabilities = ['hub', 'push'], sensors = {}, athenaKey = '' } = {}) => {
+    const win = {};
+    if (capabilities !== null) win.hestiaNative = { capabilities };
+    return new Function('window', `
+      const CONFIG = { artemisSensors: ${JSON.stringify(sensors)},
+                       athenaApiKey: ${JSON.stringify(athenaKey)} };
+      ${STEP_SRC}
+      return nfmSteps();
+    `)(win);
+  };
+
+  check('always starts with Hestia, the module everything else builds on',
+    steps()[0] === 'hestia');
+
+  check('a household with no sensors is not pitched Artemis',
+    !steps({ sensors: {} }).includes('artemis'),
+    'a security module with nothing to watch reads as broken');
+  check('...and one with sensors is',
+    steps({ sensors: { contacts: [{ id: 1 }] } }).includes('artemis'));
+  /* Counted across every category, not just contacts: a household with only
+     smoke detectors still has a security module worth having. */
+  check('any sensor category counts, not only contacts',
+    steps({ sensors: { smokes: [{ id: 1 }] } }).includes('artemis') &&
+    steps({ sensors: { waters: [{ id: 2 }] } }).includes('artemis'));
+
+  check('the keys screen is skipped when a key is already held',
+    !steps({ athenaKey: 'sk-ant-xyz' }).includes('athenakeys'),
+    'asking again for something the household already synced is noise');
+  check('...and shown when it is not', steps().includes('athenakeys'));
+
+  check('push is offered only when native can deliver it',
+    steps({ capabilities: ['hub', 'push'] }).includes('push') &&
+    !steps({ capabilities: ['hub'] }).includes('push'));
+
+  check('announcements always close the sequence',
+    steps().at(-1) === 'announce' &&
+    steps({ capabilities: ['hub'] }).at(-1) === 'announce');
+
+  /* Order is the design: three modules in the order they build on each other,
+     then the add-ons that ride on top. */
+  const full = steps({ sensors: { contacts: [{ id: 1 }] } });
+  check('order is Hestia, Artemis, Athena, then add-ons',
+    full.join(',') === 'hestia,artemis,athena,athenakeys,push,announce', full.join(','));
+
+  const minimal = steps({ capabilities: ['hub'], sensors: {}, athenaKey: 'sk' });
+  check('a minimal household still gets a coherent sequence',
+    minimal.join(',') === 'hestia,athena,announce', minimal.join(','));
+}
+
 console.log(`\n${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL ? 1 : 0);

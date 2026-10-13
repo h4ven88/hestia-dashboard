@@ -19966,11 +19966,325 @@ function nfrLockBodyScroll(on) {
   try { document.body.style.overflow = on ? 'hidden' : ''; } catch(e) {}
 }
 
+/* ── Module announcement screens ───────────────────────────────────────────
+   The second half of first run, and it is NOT part of nativeFirstRun(). These
+   screens show what the household actually has -- room counts, sensor counts,
+   which modules are already on -- and none of that exists until boot has
+   pinned the hub AND loaded the config. Running them inside the pinning flow
+   would mean showing a user their rooms before the rooms had arrived.
+
+   So first run sets a flag and boot calls nativeModulesIfPending() at the end,
+   once there is something true to say.
+
+   The point is to ANNOUNCE the modules that need an active toggle-on, not to
+   collect permissions. Hestia, Artemis, Athena are the three modules and this
+   is the order they build on each other; Push and Announcements are add-ons
+   that ride on top and come last. Every mark is lifted from the live code
+   (obHestiaMarkSVG, artemisGemMark, athAegisMarkSVG) rather than redrawn. */
+let NFM = null;
+const NFM_PENDING_KEY = 'hestia-native-modules-pending';
+
+function nativeModulesPending(on) {
+  try {
+    if (on) _LS.setItem(NFM_PENDING_KEY, '1');
+    else _LS.removeItem(NFM_PENDING_KEY);
+  } catch(e) {}
+}
+
+/**
+ * Runs the module screens if a first run just finished.
+ *
+ * Flagged in localStorage rather than held in memory because boot can reload
+ * between pinning and arriving here (a config sync, a household adoption), and
+ * a user who lost the sequence to a reload would never see it again.
+ */
+function nativeModulesIfPending() {
+  if (!nativePush() && !nativeHub()) return;      // browser: nothing to announce
+  let pending = false;
+  try { pending = _LS.getItem(NFM_PENDING_KEY) === '1'; } catch(e) {}
+  if (!pending) return;
+  NFM = { i: 0, busy: false, err: '' };
+  nfmRender();
+}
+
+/* Only the screens that have something to offer. A household with no sensors
+   at all should not be pitched a security module it cannot use, and a device
+   with no push capability should not be shown a push screen it cannot honour. */
+function nfmSteps() {
+  const steps = ['hestia'];
+  const s = CONFIG.artemisSensors || {};
+  const sensorCount = ['contacts', 'motions', 'locks', 'smokes', 'waters', 'glass']
+    .reduce((n, k) => n + ((s[k] || []).length), 0);
+  if (sensorCount > 0) steps.push('artemis');
+  steps.push('athena');
+  if (!CONFIG.athenaApiKey) steps.push('athenakeys');
+  if (nativePush()) steps.push('push');
+  steps.push('announce');
+  return steps;
+}
+
+function nfmDone() {
+  const w = document.getElementById('nfm-wrap');
+  if (w) w.remove();
+  nfrLockBodyScroll(false);
+  NFM = null;
+  nativeModulesPending(false);
+  try { saveConfig(); } catch(e) { console.warn('[FirstRun] save failed:', e && e.message); }
+}
+
+function nfmNext() {
+  if (!NFM) return;
+  NFM.i++; NFM.err = '';
+  if (NFM.i >= nfmSteps().length) { nfmDone(); return; }
+  nfmRender();
+}
+
+function nfmRender() {
+  if (!NFM) return;
+  let wrap = document.getElementById('nfm-wrap');
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.id = 'nfm-wrap'; wrap.className = 'ob-wrap';
+    document.body.appendChild(wrap);
+    nfrLockBodyScroll(true);
+  }
+  const steps = nfmSteps();
+  const step = steps[NFM.i];
+  const pct = (((NFM.i) / Math.max(1, steps.length - 1)) * 100).toFixed(0);
+  wrap.innerHTML = `<div class="ob-card" style="max-width:420px">
+    <div class="ob-progress"><div class="ob-progress-bar" style="width:${pct}%"></div></div>
+    ${nfmBody(step)}
+  </div>`;
+}
+
+/* A module's own mark, wordmark and one-line role. The mark comes immediately
+   before the decision so the user learns the module exists even if they never
+   read the site. */
+function nfmHeader(markHtml, name, role) {
+  return `<div style="text-align:center;margin-bottom:4px">
+    ${markHtml}
+    <div style="font-family:'Outfit',system-ui,sans-serif;font-size:15px;font-weight:200;
+      letter-spacing:.26em;color:var(--t1);text-transform:uppercase;margin-top:8px">${name}</div>
+    <div style="font-size:9px;color:var(--t3);letter-spacing:.1em;margin-top:5px;
+      text-transform:uppercase">${role}</div>
+  </div>`;
+}
+
+const NFM_BULLET = (items) => `<ul style="list-style:none;padding:0;margin:6px 0 0">
+  ${items.map(t => `<li style="font-size:12.5px;line-height:1.6;color:var(--t2);
+    padding:0 0 9px 17px;position:relative">
+    <span style="position:absolute;left:3px;top:8px;width:5px;height:5px;border-radius:50%;
+      background:var(--amber)"></span>${t}</li>`).join('')}
+</ul>`;
+
+function nfmBody(step) {
+  if (step === 'hestia')     return nfmHestia();
+  if (step === 'artemis')    return nfmArtemis();
+  if (step === 'athena')     return nfmAthena();
+  if (step === 'athenakeys') return nfmAthenaKeys();
+  if (step === 'push')       return nfmPush();
+  return nfmAnnounce();
+}
+
+function nfmHestia() {
+  /* The payoff, and it is FIRST because everything after builds on it. The
+     hub already held the configuration, so there is nothing to re-enter --
+     which is the whole argument for the app over the web setup. */
+  const list = (rooms || []).slice(0, 6).map(r => {
+    const n = ((r.switches || []).length) + ((r.dimmers || []).length) +
+              ((r.fans || []).length) + ((r.shades || []).length) +
+              ((r.colors || []).length) + ((r.colortemps || []).length);
+    return `<div style="display:flex;justify-content:space-between;padding:8px 0;
+      border-bottom:1px solid var(--border-s);font-size:12.5px">
+      <b style="font-weight:500;color:var(--t1)">${h(r.name || r.id)}</b>
+      <span style="color:var(--t2)">${n} device${n === 1 ? '' : 's'}</span></div>`;
+  }).join('');
+  const more = (rooms || []).length > 6
+    ? `<div style="font-size:11.5px;color:var(--t4);padding-top:8px">and ${(rooms||[]).length - 6} more</div>` : '';
+  return `<div style="padding:26px 26px 24px">
+    ${nfmHeader(obHestiaMarkSVG(42), 'Hestia&trade;', 'The house itself')}
+    <p style="font-size:13px;line-height:1.6;color:var(--t2);margin:14px 0 4px">
+      ${(rooms || []).length
+        ? 'Your hub already had your rooms and devices saved. Nothing to re-enter.'
+        : 'Your hub is connected. You can add rooms and devices in Settings whenever you like.'}</p>
+    ${list}${more}
+    <button class="ob-next" style="width:100%;margin-top:18px" onclick="nfmNext()">Looks right</button>
+  </div>`;
+}
+
+function nfmArtemis() {
+  const s = CONFIG.artemisSensors || {};
+  const n = (k) => (s[k] || []).length;
+  const rows = [
+    ['Contacts', n('contacts')], ['Motion', n('motions')], ['Locks', n('locks')],
+    ['Smoke &amp; water', n('smokes') + n('waters')],
+  ].filter(([, c]) => c > 0).map(([label, c]) =>
+    `<div style="display:flex;justify-content:space-between;padding:7px 0;
+      border-bottom:1px solid var(--border-s);font-size:12.5px">
+      <b style="font-weight:500;color:var(--t1)">${label}</b>
+      <span style="color:var(--t2)">${c}</span></div>`).join('');
+  return `<div style="padding:26px 26px 24px">
+    ${nfmHeader(artemisGemMark(42), 'Artemis&trade;', 'Home security')}
+    <p style="font-size:13px;line-height:1.6;color:var(--t2);margin:14px 0 2px">
+      Every door, window and sensor, on one screen.</p>
+    ${NFM_BULLET([
+      'Contacts, motion, locks, smoke and water, <b style="color:var(--t1);font-weight:500">live</b>',
+      'Arm and disarm with a <b style="color:var(--t1);font-weight:500">PIN</b>, from any device',
+      'A countdown when you walk in, keypad already up',
+    ])}
+    ${rows ? `<div style="margin-top:10px">${rows}</div>` : ''}
+    <p style="font-size:11px;line-height:1.5;color:var(--t4);margin:10px 0 0">
+      Arming needs Hubitat Safety Monitor. Without it, Artemis still watches your sensors.</p>
+    <button class="ob-next" style="width:100%;margin-top:16px"
+      onclick="nfmSet('artemisEnabled',true)">Turn on Artemis</button>
+    <button class="ob-back" style="width:100%;margin-top:8px" onclick="nfmNext()">Not now</button>
+  </div>`;
+}
+
+function nfmAthena() {
+  return `<div style="padding:26px 26px 24px">
+    ${nfmHeader(athAegisMarkSVG(46), 'Athena&trade;', 'Smart assistant')}
+    <p style="font-size:13px;line-height:1.6;color:var(--t2);margin:14px 0 2px">
+      Say <b style="color:var(--t1);font-weight:500">&ldquo;Athena, lock the front door&rdquo;</b>
+      without touching anything.</p>
+    ${NFM_BULLET([
+      'Controls everything Hestia and Artemis can reach',
+      'Listening happens <b style="color:var(--t1);font-weight:500">on this device</b>. Nothing is sent while it waits.',
+    ])}
+    <button class="ob-next" style="width:100%;margin-top:16px"
+      onclick="nfmSet('athenaEnabled',true)">Turn on Athena</button>
+    <button class="ob-back" style="width:100%;margin-top:8px" onclick="nfmNext()">Not now</button>
+  </div>`;
+}
+
+function nfmAthenaKeys() {
+  /* Required and optional are marked differently because they really are: with
+     no Anthropic key athenaCallClaude() returns early and Athena cannot start
+     at all, while without Google it falls back to the device voice. Skipping
+     leaves the module off rather than half-working. */
+  return `<div style="padding:26px 26px 24px">
+    <h3 style="font-size:19px;font-weight:300;margin:0 0 8px">Athena needs two keys</h3>
+    <p style="font-size:13px;line-height:1.6;color:var(--t2);margin:0 0 14px">
+      Your own, on your own accounts. Hestia has no server and never sees them.</p>
+    <label style="display:block;font-size:11px;letter-spacing:.07em;text-transform:uppercase;
+      color:var(--amber);margin:0 0 5px">Anthropic &mdash; required</label>
+    <input id="nfm-anthropic" class="ob-input" type="password" autocomplete="off"
+      placeholder="sk-ant-..." style="width:100%" value="${h(CONFIG.athenaApiKey || '')}">
+    <p style="font-size:10.5px;color:var(--t4);line-height:1.5;margin:5px 0 12px">
+      The reasoning. Athena will not start without it.</p>
+    <label style="display:block;font-size:11px;letter-spacing:.07em;text-transform:uppercase;
+      color:var(--t3);margin:0 0 5px">Google Cloud &mdash; optional</label>
+    <input id="nfm-google" class="ob-input" type="password" autocomplete="off"
+      placeholder="AIza..." style="width:100%" value="${h(CONFIG.athenaGoogleApiKey || '')}">
+    <p style="font-size:10.5px;color:var(--t4);line-height:1.5;margin:5px 0 0">
+      Hearing you, and the better voice. Without it Athena uses your device&rsquo;s own voice.</p>
+    ${NFR_ERR(NFM.err)}
+    <button class="ob-next" style="width:100%;margin-top:16px" onclick="nfmSaveKeys()">Save and continue</button>
+    <button class="ob-back" style="width:100%;margin-top:8px"
+      onclick="nfmSkipAthena()">Skip &mdash; set up Athena later</button>
+  </div>`;
+}
+
+function nfmPush() {
+  return `<div style="padding:26px 26px 24px">
+    ${nfmHeader(`<svg viewBox="0 0 36 36" width="40" height="40" style="display:block;margin:0 auto">
+      <rect x="8" y="7" width="20" height="22" rx="3.5" fill="none" stroke="var(--amber)" stroke-width="1.6"/>
+      <rect x="11.5" y="11" width="13" height="1.8" rx=".9" fill="var(--amber)" opacity=".85"/>
+      <rect x="11.5" y="15" width="13" height="1.8" rx=".9" fill="var(--amber)" opacity=".55"/>
+      <rect x="11.5" y="19" width="8" height="1.8" rx=".9" fill="var(--amber)" opacity=".3"/>
+      <circle cx="26" cy="9" r="4" fill="var(--amber)"/></svg>`, 'Push notifications', 'Add-on')}
+    <p style="font-size:13px;line-height:1.6;color:var(--t2);margin:14px 0 2px">
+      Reaches you when no screen is open.</p>
+    ${NFM_BULLET([
+      'The alarm going off, a <b style="color:var(--t1);font-weight:500">door left open</b>, reminders',
+      'Sent by your hub, so it arrives with the app closed',
+    ])}
+    <p style="font-size:11px;line-height:1.5;color:var(--t4);margin:10px 0 0">
+      Android will ask for permission next.</p>
+    ${NFR_ERR(NFM.err)}
+    <button class="ob-next" style="width:100%;margin-top:16px" ${NFM.busy ? 'disabled' : ''}
+      onclick="nfmEnablePush()">${NFM.busy ? 'Setting up…' : 'Turn on notifications'}</button>
+    <button class="ob-back" style="width:100%;margin-top:8px" onclick="nfmNext()">Not now</button>
+  </div>`;
+}
+
+function nfmAnnounce() {
+  const canSpeak = ttsAvailable();
+  return `<div style="padding:26px 26px 24px">
+    ${nfmHeader(`<svg viewBox="0 0 36 36" width="40" height="40" style="display:block;margin:0 auto">
+      <path d="M10,14.5 h4 L20,9.5 v17 L14,21.5 h-4 Z" fill="var(--amber)" opacity=".92"/>
+      <path d="M23.5,13.5 a7,7 0 0 1 0,9" fill="none" stroke="var(--amber)" stroke-width="1.5" stroke-linecap="round" opacity=".75"/>
+      <path d="M26.5,10.5 a11,11 0 0 1 0,15" fill="none" stroke="var(--amber)" stroke-width="1.5" stroke-linecap="round" opacity=".4"/>
+      </svg>`, 'Announcements', 'Add-on')}
+    <p style="font-size:13px;line-height:1.6;color:var(--t2);margin:14px 0 2px">
+      Spoken aloud, as it happens. <b style="color:var(--t1);font-weight:500">&ldquo;Front door opened.&rdquo;</b></p>
+    ${NFM_BULLET([
+      'Doors, windows, locks, smoke and water',
+      'Chosen per device &mdash; a kitchen panel should speak; a phone in your pocket probably shouldn&rsquo;t',
+    ])}
+    ${canSpeak ? '' : `<p style="font-size:11.5px;line-height:1.5;color:var(--amber);margin:10px 0 0">
+      This device has no voice yet. Announcements need a Google Cloud key, which you can add
+      under Athena in Settings.</p>`}
+    <button class="ob-next" style="width:100%;margin-top:16px"
+      onclick="nfmSet('announceEnabled',true)">Turn on and finish</button>
+    <button class="ob-back" style="width:100%;margin-top:8px" onclick="nfmNext()">Not on this device</button>
+  </div>`;
+}
+
+/* Flips one CONFIG flag and advances. The save happens once at the end rather
+   than per screen, so a user who backs out partway has not half-written their
+   configuration. */
+function nfmSet(key, value) {
+  CONFIG[key] = value;
+  if (key === 'artemisEnabled' && value) { try { artemisRegisterSensors(); } catch(e) {} }
+  if (key === 'athenaEnabled'  && value) { try { athenaInit(); } catch(e) {} }
+  nfmNext();
+}
+
+function nfmSaveKeys() {
+  const a = (document.getElementById('nfm-anthropic') || {}).value || '';
+  const g = (document.getElementById('nfm-google') || {}).value || '';
+  if (!a.trim()) {
+    NFM.err = 'Athena cannot start without an Anthropic key. Skip below if you would rather set it up later.';
+    nfmRender();
+    return;
+  }
+  CONFIG.athenaApiKey = a.trim();
+  if (g.trim()) { CONFIG.athenaGoogleApiKey = g.trim(); CONFIG.athenaGoogleTTS = true; }
+  nfmNext();
+}
+
+/* Skipping the keys turns Athena back OFF rather than leaving it on and
+   broken. A module that is on and cannot start is worse than one that is off,
+   because nothing explains the silence. */
+function nfmSkipAthena() {
+  CONFIG.athenaEnabled = false;
+  nfmNext();
+}
+
+async function nfmEnablePush() {
+  NFM.busy = true; NFM.err = ''; nfmRender();
+  try {
+    CONFIG.pushEnabled = true;
+    const ok = await pushSubscribeThisDevice('always');
+    if (!ok) { CONFIG.pushEnabled = false; NFM.busy = false; nfmNext(); return; }
+  } catch(e) {
+    CONFIG.pushEnabled = false;
+    console.warn('[FirstRun] push setup failed:', e && e.message);
+  }
+  NFM.busy = false;
+  nfmNext();
+}
+
 function nfrDone(origin) {
   const w = document.getElementById('nfr-wrap');
   if (w) w.remove();
   nfrLockBodyScroll(false);
   NFR = null;
+  /* A real pin just happened, so the module screens are owed. Flagged rather
+     than run here: they describe rooms and sensors that boot has not fetched
+     yet. See nativeModulesIfPending(). */
+  if (origin) nativeModulesPending(true);
   const r = _nfrResolve; _nfrResolve = null;
   if (r) r(origin || null);
 }
@@ -20080,6 +20394,29 @@ function nfrBody() {
   if (s === 'notfound')  return nfrNotFound();
   if (s === 'trust')     return nfrTrustScreen();
   return '';
+}
+
+/* Athena's aegis, traced from the FAB markup at the top of this file rather
+   than redrawn. Same reasoning as obHestiaMarkSVG(): a second hand-drawn copy
+   is how this project once ended up with two garage icons in two visual
+   languages. The ids and animation classes are deliberately NOT carried over --
+   those belong to the live FAB, and duplicating an id would break it. */
+function athAegisMarkSVG(size) {
+  return `<svg viewBox="0 0 36 36" width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto">
+      <circle cx="18" cy="18" r="16" fill="none" stroke="rgba(245,158,11,.85)" stroke-width=".95"/>
+      <circle cx="18" cy="18" r="13.6" fill="none" stroke="rgba(245,158,11,.28)" stroke-width=".7"/>
+      <circle cx="18" cy="18" r="11.3" fill="none" stroke="rgba(245,158,11,.15)" stroke-width=".48" stroke-dasharray="2.5 1.8"/>
+      <line x1="18" y1="4.2" x2="18" y2="7.4" stroke="rgba(245,158,11,.22)" stroke-width=".55"/>
+      <line x1="18" y1="28.6" x2="18" y2="31.8" stroke="rgba(245,158,11,.22)" stroke-width=".55"/>
+      <line x1="4.2" y1="18" x2="7.4" y2="18" stroke="rgba(245,158,11,.22)" stroke-width=".55"/>
+      <line x1="28.6" y1="18" x2="31.8" y2="18" stroke="rgba(245,158,11,.22)" stroke-width=".55"/>
+      <circle cx="18" cy="4.2" r=".95" fill="rgba(245,158,11,.38)"/><circle cx="29.7" cy="11" r=".95" fill="rgba(245,158,11,.38)"/><circle cx="29.7" cy="25" r=".95" fill="rgba(245,158,11,.38)"/><circle cx="18" cy="31.8" r=".95" fill="rgba(245,158,11,.38)"/><circle cx="6.3" cy="25" r=".95" fill="rgba(245,158,11,.38)"/><circle cx="6.3" cy="11" r=".95" fill="rgba(245,158,11,.38)"/>
+      <circle cx="18" cy="18" r="8.5" fill="none" stroke="rgba(245,158,11,.22)" stroke-width=".62"/>
+      <polygon points="18,11.5 22.5,14 20.3,16.2 15.7,16.2 13.5,14" fill="#F0EEE8"/><polygon points="18,11.5 13.5,14 15.7,16.2" fill="#D8D6CE"/><polygon points="18,11.5 22.5,14 20.3,16.2" fill="#C8C6BE"/>
+      <polygon points="15.7,16.2 20.3,16.2 22.5,21.5 18,24.8 13.5,21.5" fill="#141C26"/><polygon points="15.7,16.2 13.5,21.5 18,24.8" fill="#0C1218"/><polygon points="20.3,16.2 22.5,21.5 18,24.8" fill="#1A2332"/>
+      <polygon points="18,11.5 22.5,14 22.5,21.5 18,24.8 13.5,21.5 13.5,14" fill="none" stroke="#F59E0B" stroke-width="1.08" stroke-linejoin="miter"/>
+      <line x1="15.7" y1="16.2" x2="20.3" y2="16.2" stroke="#F59E0B" stroke-width="1.38" stroke-linecap="square"/>
+    </svg>`;
 }
 
 function nfrWelcome() {
@@ -21254,6 +21591,11 @@ function launchOnboarding() {
   // Security checks
   checkHttpsEnforcement();
   setTimeout(verifyFileIntegrity, 2000); // slight delay so hub store is ready
+  /* Last, because these screens describe what the household actually has --
+     rooms, sensors, which modules are on -- and none of it exists until every
+     line above has run. A no-op in a browser and on any launch that did not
+     just complete a first run. */
+  nativeModulesIfPending();
 })();
 </script>
 </body>
