@@ -545,6 +545,16 @@ input[type=range]:focus-visible,input[type=checkbox]:focus-visible{outline:2px s
 /* Keypad */
 .a-kp{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;flex-shrink:0}
 .a-kp-lbl{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);text-align:center}
+/* "No PIN set" notice. Red, not amber: amber is this app's attention colour and
+   reads as a hint, and the fact that anyone present can disarm the house is not
+   a hint. Text and border take --conn-err so they follow the theme; the fill is
+   a translucent red on purpose, since it composites over whichever surface is
+   behind it and so works in all five without a token per theme. */
+.a-nopin{background:rgba(220,70,70,.12);border:1px solid var(--conn-err);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.a-nopin-ttl{font-size:12px;font-weight:600;color:var(--conn-err)}
+.a-nopin-txt{font-size:11px;line-height:1.5;color:var(--t2)}
+.a-nopin-btn{background:transparent;border:1px solid var(--conn-err);color:var(--conn-err);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit}
+.a-nopin-btn:hover{background:var(--conn-err);color:var(--bg-panel)}
 .a-pdots{display:flex;justify-content:center;gap:8px;height:10px;align-items:center}
 .a-pd{width:9px;height:9px;border-radius:50%;background:var(--bg-panel);border:1px solid var(--border);transition:background .1s}
 .a-pd.a-on{background:var(--amber)}
@@ -1704,6 +1714,9 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
       <button class="a-pin-sheet-close" onclick="artemisCloseSheet()" aria-label="Close">✕</button>
     </div>
     <div class="a-pin-sheet-mode" id="a-sheet-mode">Disarming — Armed Away</div>
+    <!-- Filled by artemisOpenSheet(). Empty whenever a PIN is set, so the
+         sheet looks exactly as it always has for those households. -->
+    <div id="asp-nopin"></div>
     <div class="a-pdots" style="justify-content:center">
       <div class="a-pd" id="asp0"></div><div class="a-pd" id="asp1"></div><div class="a-pd" id="asp2"></div>
       <div class="a-pd" id="asp3"></div><div class="a-pd" id="asp4"></div><div class="a-pd" id="asp5"></div>
@@ -1872,7 +1885,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    Copyright © 2026 Haven. CC BY-NC 4.0.
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
-const HESTIA_VERSION    = '2.2.0';
+const HESTIA_VERSION    = '2.2.1';
 const HESTIA_BUILD_DATE = '2026-10-14';
 
 /* ═══════════════════════════════════════════════════════
@@ -2425,6 +2438,7 @@ const CONFIG = {
   cameraRefreshSec: 5,
   settingsPin: '',
   pinInstallSalt: '',
+  pinChangedAt: 0,
   artemisEnabled: false,
   artemisPin:     '',
   artemisExitDelay:  60,
@@ -2515,6 +2529,7 @@ const DEFAULTS = {
     cameraRefreshSec: 5,
     settingsPin:   '',
     pinInstallSalt: '',
+    pinChangedAt: 0,
     artemisEnabled: false,
     artemisPin:     '',
     artemisExitDelay:  60,
@@ -3109,13 +3124,31 @@ function hubStoreHasMakerApi() {
   return !!(HUB_STORE && HUB_STORE.makerApiAppId && HUB_STORE.makerApiToken);
 }
 
+/* WHY the last loadConfigFromHub() returned null, and it is not a detail.
+ *
+ *   'absent'  -- the hub answered, and it holds no config. A genuinely new
+ *                household.
+ *   'unknown' -- we never got an answer: no store, breaker open, timeout,
+ *                non-OK, or a body we could not parse.
+ *
+ * Boot used to treat these identically, and that is how a household loses its
+ * settings. On null with Maker credentials to hand, boot saved CONFIG to the
+ * hub and the cloud -- and on a device with no local config CONFIG is DEFAULTS,
+ * so one transient read failure published empty PIN hashes, an empty PIN salt
+ * and empty everything else over the household's real record. Same shape as the
+ * v2.0.2 wipe: one device starting fresh takes the household with it.
+ *
+ * A write may follow 'absent'. A write must NEVER follow 'unknown'. */
+let _hubConfigMiss = 'unknown';
+
 async function loadConfigFromHub() {
+  _hubConfigMiss = 'unknown';
   if (!HUB_STORE) return null;
   try {
     const out = await hubStoreFetch('config');
     if (!out.ok) return null;
     const text = await out.res.text();
-    if (!text || text.trim() === 'null') return null;
+    if (!text || text.trim() === 'null') { _hubConfigMiss = 'absent'; return null; }
     return JSON.parse(text);
   } catch(e) {
     // A readable response we couldn't parse is still a failed call -- most
@@ -3234,11 +3267,51 @@ function _hubUrlToShare() {
   return CONFIG.hub;
 }
 
+/* Stamped whenever a PIN field is deliberately written -- set, changed, or
+   removed. It is what lets an incoming EMPTY PIN be told apart from a real
+   "Remove PIN", since both arrive as ''. A device that never had one sends ''
+   with no stamp, and loses. */
+function pinTouched() { CONFIG.pinChangedAt = Date.now(); }
+
+/* Applies a config from the hub, the cloud or an import, WITHOUT letting a
+   blank one wipe the PINs this device already holds.
+ *
+ * Object.assign used to run unguarded, so any config carrying an empty
+ * artemisPin overwrote a real one -- and the keypad then accepted any digits,
+ * because verifyPin() returns true when nothing is stored. The household saw a
+ * PIN prompt that was not a PIN prompt.
+ *
+ * Non-empty always wins, exactly as before: last writer takes it, and a device
+ * setting a PIN must be able to propagate it. Empty wins only against an empty,
+ * or when it carries a NEWER pinChangedAt than ours, which only a deliberate
+ * removal does.
+ *
+ * pinInstallSalt has no "remove" at all -- every stored hash is derived from
+ * it, so clearing it orphans both PINs at once. Empty never overwrites it. */
+function _mergePinFields(incoming) {
+  const held = {
+    artemisPin:     CONFIG.artemisPin,
+    settingsPin:    CONFIG.settingsPin,
+    pinInstallSalt: CONFIG.pinInstallSalt,
+  };
+  const theirs = Number(incoming.pinChangedAt) || 0;
+  const ours   = Number(CONFIG.pinChangedAt)   || 0;
+  return function restore() {
+    ['artemisPin', 'settingsPin'].forEach(k => {
+      if (!CONFIG[k] && held[k] && theirs <= ours) CONFIG[k] = held[k];
+    });
+    if (!CONFIG.pinInstallSalt && held.pinInstallSalt) CONFIG.pinInstallSalt = held.pinInstallSalt;
+    if (ours > theirs) CONFIG.pinChangedAt = ours;
+  };
+}
+
 function applyParsedConfig(parsed) {
   if (!parsed) return false;
   try {
     if (parsed.config) {
+      const restorePins = _mergePinFields(parsed.config);
       Object.assign(CONFIG, parsed.config);
+      restorePins();
       // Until v1.6.7 this rewrote any https://<private-ip> hub URL without a port
       // back to http://, on the belief that hubs don't serve HTTPS on 443. They
       // do (verified: https://<hub>/apps/api/... and /local/index.html both 200).
@@ -3362,6 +3435,10 @@ function buildConfigPayload() {
                    cloudSecret: CONFIG.cloudSecret,
                    defaultRoom: CONFIG.defaultRoom, returnTimeout: CONFIG.returnTimeout, roomSort: CONFIG.roomSort, tempUnit: CONFIG.tempUnit,
                    locks: CONFIG.locks, cameras: CONFIG.cameras || [], cameraRefreshSec: CONFIG.cameraRefreshSec, weather: CONFIG.weather, settingsPin: CONFIG.settingsPin, pinInstallSalt: CONFIG.pinInstallSalt,
+                   /* Travels with the PINs or the guard that reads it cannot
+                      tell a deliberate removal from a device that never had
+                      one. Dropping it here re-opens the wipe. */
+                   pinChangedAt: CONFIG.pinChangedAt || 0,
                    artemisEnabled: CONFIG.artemisEnabled, artemisPin: CONFIG.artemisPin,
                    artemisExitDelay: CONFIG.artemisExitDelay, artemisEntryDelay: CONFIG.artemisEntryDelay,
                    artemisRingDeviceId: CONFIG.artemisRingDeviceId,
@@ -4185,6 +4262,51 @@ async function _cloudRecordUnreadable() {
   } catch (e) {
     return false;
   }
+}
+
+/* Shown when the hub is there but would not hand over its configuration, on a
+   device that has none of its own.
+
+   Deliberately a dead end with one button. Every other thing this screen could
+   offer -- seed the hub from what we have, run the wizard -- WRITES, and what
+   this device has at this moment is DEFAULTS. Publishing those is precisely the
+   bug this screen exists to prevent, and it costs a household its disarm PIN
+   and settings without a single error on screen.
+
+   Not the lockout screen, which answers a different question. There the record
+   is readable by someone and this device lacks the key, so the remedy is to go
+   and fetch the key. Here nothing is missing: the hub simply did not answer,
+   and almost always answers on the next try. */
+function renderHubUnreadable() {
+  const panel = document.querySelector('.panel');
+  if (panel) panel.style.display = 'none';
+  let wrap = document.getElementById('ob-wrap');
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.id = 'ob-wrap'; wrap.className = 'ob-wrap';
+    document.body.appendChild(wrap);
+  }
+  const hub = (CONFIG.hub || _sharedHubUrl || '').replace(/\/+$/, '');
+  wrap.innerHTML = `
+    <div class="ob-card" style="max-width:520px">
+      <h2 style="margin:0 0 10px">Your hub did not answer</h2>
+      <p style="color:var(--t3);line-height:1.6;margin:0 0 14px">
+        Hestia found your hub${hub ? ` at <span style="color:var(--t1);word-break:break-all">${h(hub)}</span>` : ''}
+        but could not read your settings from it, and this device has no copy of
+        its own.
+      </p>
+      <p style="color:var(--t3);line-height:1.6;margin:0 0 16px">
+        It has deliberately not set anything up, because doing so from a blank
+        device would overwrite the settings your other devices are using.
+        <strong style="color:var(--t1)">Nothing has been changed.</strong>
+        This usually clears on its own — try again in a moment.
+      </p>
+      <button class="sp-btn" onclick="location.reload()">Try again</button>
+      <p style="color:var(--t3);line-height:1.6;margin:16px 0 0;font-size:12px">
+        If it keeps happening, check that your hub is powered on and on the same
+        network, and that the Hestia companion app is installed on it.
+      </p>
+    </div>`;
 }
 
 /* The single door to the setup wizard during boot.
@@ -11267,10 +11389,35 @@ function artemisNoHsmRightHTML() {
   </div>`;
 }
 
+/* TRUE when Artemis is on and anybody can disarm it.
+   verifyPin() returns true when nothing is stored -- documented behaviour, so
+   that a household choosing to run without a PIN is not locked out of its own
+   house. The danger is not the policy, it is that it was INVISIBLE: the keypad
+   still said "Enter PIN to disarm" and still accepted anything, so a household
+   whose PIN had been wiped could not tell. Everything below exists to make this
+   state impossible to mistake for a working PIN. */
+function artemisNoPinSet() {
+  return !!CONFIG.artemisEnabled && !CONFIG.artemisPin;
+}
+
+function artemisNoPinWarningHTML() {
+  if (!artemisNoPinSet()) return '';
+  return `<div class="a-nopin" role="alert">
+    <div class="a-nopin-ttl">No disarm PIN set</div>
+    <div class="a-nopin-txt">Anyone can disarm Artemis from this screen.
+      Set one in Settings → Artemis → Security PIN.</div>
+    <button class="a-nopin-btn" onclick="openSettings();spShowSection('artemis')">Set a PIN</button>
+  </div>`;
+}
+
 function artemisKeypadHTML() {
   const disarmed = artemisMode === 'disarm' && !artemisTransition && !_artemisMismatchDisarm;
-  const lbl = disarmed ? 'Select Mode' : 'Enter PIN to disarm';
+  /* Never "Enter PIN to disarm" when there is no PIN to enter. That label over
+     a keypad that accepts any digits is the whole bug stated as a sentence. */
+  const lbl = disarmed ? 'Select Mode'
+            : (artemisNoPinSet() ? 'No PIN set — press ✓ to disarm' : 'Enter PIN to disarm');
   return `<div class="a-kp" id="a-kp">
+    ${artemisNoPinWarningHTML()}
     <div class="a-kp-lbl" id="a-kp-lbl">${lbl}</div>
     <div class="a-pdots">
       <div class="a-pd" id="apd0"></div><div class="a-pd" id="apd1"></div><div class="a-pd" id="apd2"></div>
@@ -11442,7 +11589,11 @@ function artemisKb() {
   artemisUpdDots();
 }
 function artemisKc() {
-  if (artemisLocked || (artemisMode === 'disarm' && !artemisTransition && !_artemisMismatchDisarm) || !artemisPin.length) return;
+  if (artemisLocked || (artemisMode === 'disarm' && !artemisTransition && !_artemisMismatchDisarm)) return;
+  /* An empty entry is refused ONLY when a PIN exists to enter. With none set
+     the label invites a bare ✓, and refusing it there would leave the one
+     control the screen offers doing nothing. */
+  if (!artemisPin.length && !artemisNoPinSet()) return;
   artemisCheckPin(artemisPin, 'apd', function() {
     artemisDoDisarm();
     artemisPin = '';
@@ -12029,7 +12180,14 @@ function artemisOpenSheet() {
   artemisUpdDots('asp');
   const sheet = document.getElementById('a-pin-sheet');
   const modeEl = document.getElementById('a-sheet-mode');
-  if (modeEl) modeEl.textContent = _artemisMismatchDisarm && artemisMode === 'disarm' ? 'Disarming Ring' : 'Disarming — Armed ' + artemisModeName();
+  // artemisModeName() already reads "Armed · Home", so the literal "Armed "
+  // here produced "Disarming — Armed Armed · Home" on every mobile disarm.
+  if (modeEl) modeEl.textContent = _artemisMismatchDisarm && artemisMode === 'disarm' ? 'Disarming Ring' : 'Disarming — ' + artemisModeName();
+  // Mobile is where most disarms happen, so the warning has to reach here too.
+  const warnEl = document.getElementById('asp-nopin');
+  if (warnEl) warnEl.innerHTML = artemisNoPinWarningHTML();
+  const titleEl = document.getElementById('a-sheet-title');
+  if (titleEl) titleEl.textContent = artemisNoPinSet() ? 'No PIN set — press ✓ to disarm' : 'Enter PIN to disarm';
   if (sheet) sheet.classList.add('open');
 }
 function artemisCloseSheet() {
@@ -12047,7 +12205,9 @@ function aspKb() {
   artemisUpdDots('asp');
 }
 function aspKc() {
-  if (artemisLocked || !aspPin.length) return;
+  if (artemisLocked) return;
+  // See artemisKc(): a bare ✓ is only meaningful when there is no PIN to enter.
+  if (!aspPin.length && !artemisNoPinSet()) return;
   artemisCheckPin(aspPin, 'asp', function() {
     aspPin = '';
     artemisCloseSheet();
@@ -13254,6 +13414,7 @@ function spDiagnosticsBody() {
         </div>
       </div>
       ${diagRow('env', 'Browser / Environment', 'Browser, online state, and API support on this device')}
+      ${diagRow('pin', 'Disarm PIN', 'Whether Artemis actually requires a PIN to disarm')}
     </div>
     <div class="sp-sep"></div>
     <div class="sp-group">
@@ -13308,13 +13469,34 @@ function diagSetStatus(key, level, label, hint) {
 }
 
 function diagRunAll() {
-  ['hub','mixed','token','loginsec','devices','groovy','push','cloud','env'].forEach(k => diagSetStatus(k, 'amber', 'Checking…'));
+  ['hub','mixed','token','loginsec','devices','groovy','push','cloud','env','pin'].forEach(k => diagSetStatus(k, 'amber', 'Checking…'));
   diagCheckHubGroup();
   diagCheckGroovy();
   diagCheckCloud();
   diagCheckPush();
   diagCheckEnv();
+  diagCheckPin();
   diagLoadActivity();
+}
+
+/* Local-only, no network. Exists because this state was undetectable: a
+   household whose disarm PIN had been wiped saw a normal keypad that accepted
+   any digits, and nothing anywhere said the PIN was gone. */
+function diagCheckPin() {
+  if (!CONFIG.artemisEnabled) {
+    diagSetStatus('pin', 'green', 'Artemis is off — no disarm PIN needed');
+    return;
+  }
+  if (!CONFIG.artemisPin) {
+    diagSetStatus('pin', 'red',
+      'No PIN set — anyone can disarm Artemis',
+      'Set one in Settings → Artemis → Security PIN. If you had set one before, ' +
+      'it was lost by a device that published an empty configuration; v2.2.1 ' +
+      'stops that from recurring.');
+    return;
+  }
+  const detail = CONFIG.settingsPin ? 'Settings PIN is set too' : 'No Settings PIN set on this device';
+  diagSetStatus('pin', 'green', 'PIN required to disarm', detail);
 }
 
 // Checks 1-4: hub reachability, HTTP/HTTPS mixed-content inference, Maker
@@ -14435,7 +14617,7 @@ function spArtemisBody() {
           inputmode="numeric" pattern="[0-9]*" placeholder="${CONFIG.artemisPin ? '● ● ● (set)' : '6 digits'}" value=""
           style="width:200px;letter-spacing:.2em">
         <span class="sp-hint">${CONFIG.artemisPin ? 'PIN is set. Enter new PIN to change, or leave blank to keep.' : 'Required to disarm. Leave blank to allow any entry.'}</span>
-        ${CONFIG.artemisPin ? '<a href="#" onclick="CONFIG.artemisPin=\'\';saveConfig();spShowSection(spActiveSection);return false" style="font-size:11px;color:var(--accent);margin-top:4px;display:inline-block">Remove PIN</a>' : ''}
+        ${CONFIG.artemisPin ? '<a href="#" onclick="CONFIG.artemisPin=\'\';pinTouched();saveConfig();spShowSection(spActiveSection);return false" style="font-size:11px;color:var(--accent);margin-top:4px;display:inline-block">Remove PIN</a>' : ''}
       </div>
     </div>
 
@@ -14801,7 +14983,7 @@ async function artemisNavSaveSettings() {
   const pinInput = document.getElementById('sp-artemis-pin');
   if (pinInput) {
     const raw = pinInput.value.replace(/\D/g,'').slice(0,6);
-    if (raw.length === 6) CONFIG.artemisPin = await hashPin(raw);
+    if (raw.length === 6) { CONFIG.artemisPin = await hashPin(raw); pinTouched(); }
   }
   artemisRegisterSensors();
   await saveConfig();
@@ -17589,7 +17771,7 @@ function spShowSection(id, force) {
               inputmode="numeric" pattern="[0-9]*" placeholder="${CONFIG.settingsPin ? '● ● ● (set)' : '6 digits'}" value=""
               style="width:200px;letter-spacing:.2em">
             <span class="sp-hint">${CONFIG.settingsPin ? 'PIN is set. Enter new PIN to change, or leave blank to keep.' : 'When set, this PIN is required to open Settings. Leave blank to disable.'}</span>
-            ${CONFIG.settingsPin ? '<a href="#" onclick="CONFIG.settingsPin=\'\';saveConfig();spShowSection(spActiveSection);return false" style="font-size:11px;color:var(--accent);margin-top:4px;display:inline-block">Remove PIN</a>' : ''}</div>
+            ${CONFIG.settingsPin ? '<a href="#" onclick="CONFIG.settingsPin=\'\';pinTouched();saveConfig();spShowSection(spActiveSection);return false" style="font-size:11px;color:var(--accent);margin-top:4px;display:inline-block">Remove PIN</a>' : ''}</div>
         </div>`;
       break;
 
@@ -18128,6 +18310,7 @@ async function saveSettings() {
       // Blank field: preserve existing PIN, only clear if none was set
     } else if (rawPin.length === 6) {
       CONFIG.settingsPin = await hashPin(rawPin);
+      pinTouched();
     } else {
       const saved = document.getElementById('sp-saved');
       if (saved) { saved.textContent = '⚠ PIN must be exactly 6 digits or left blank'; saved.style.color = 'var(--conn-err)'; setTimeout(() => { saved.textContent = ''; saved.style.color = ''; }, 3500); }
@@ -18142,6 +18325,7 @@ async function saveSettings() {
       // Blank field: preserve existing PIN, only clear if none was set
     } else if (rawArtPin.length === 6) {
       CONFIG.artemisPin = await hashPin(rawArtPin);
+      pinTouched();
     } else {
       // Partial PIN — reject
       const saved = document.getElementById('sp-saved');
@@ -21517,6 +21701,22 @@ function launchOnboarding() {
           await renderSetupOrLockout();
           return;
         }
+      } else if (_hubConfigMiss !== 'absent') {
+        /* ⛔ THE HUB NEVER ANSWERED, so we do not know what it holds -- and
+           this device has no local config, which means CONFIG is DEFAULTS.
+           Both branches below WRITE. Writing DEFAULTS to the hub and the cloud
+           republishes empty PIN hashes, an empty PIN salt and empty settings
+           over whatever the household really had, and every other device then
+           loads the blank copy. That is how a real household silently lost its
+           disarm PIN: the keypad still rendered, and verifyPin() returns true
+           when nothing is stored, so any digits disarmed.
+
+           So: say so and stop. No wizard either -- obFinish() zeroes rooms and
+           saves, which is the same wipe by a different door. A retry is the
+           only safe action, and the hub is usually reachable a moment later. */
+        console.warn('[Boot] Hub found but its config could not be read — refusing to publish defaults');
+        renderHubUnreadable();
+        return;
       } else if (hubStoreHasMakerApi()) {
         // Hub config not saved yet but hestia-token.json has Maker API credentials
         // (requires updated Groovy app that writes makerApiAppId + makerApiToken)

@@ -1,5 +1,5 @@
 /**
- * Hestia™ Home Dashboard v2.2.0
+ * Hestia™ Home Dashboard v2.2.1
  * ════════════════════════════════════════════════════════════════
  * Lightweight companion app — discovery helper and config store.
  *
@@ -55,7 +55,7 @@ preferences {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────
-@Field static final String APP_VERSION        = "2.2.0"
+@Field static final String APP_VERSION        = "2.2.1"
 @Field static final String TOKEN_FILENAME      = "hestia-token.json"
 @Field static final String CONFIG_FILENAME     = "hestia-config.json"
 @Field static final String DASHBOARD_FILENAME  = "index.html"
@@ -908,9 +908,59 @@ def saveConfig() {
                                      "config first."
                         }
                     }
+
+                    // ── Disarm / Settings PINs, same choke point, same reason ──
+                    //
+                    // A device with no local config has CONFIG = DEFAULTS, and
+                    // DEFAULTS carries empty PINs. Until v2.2.1 the dashboard
+                    // would save that straight here whenever its first read of
+                    // this store failed for any reason -- a timeout, a backed-off
+                    // app id, anything. The household's PIN hashes and the PIN
+                    // salt were replaced with empty strings, every other device
+                    // then loaded the blank copy, and the disarm keypad went on
+                    // rendering and accepting ANY digits, because the dashboard
+                    // treats "no PIN stored" as "no PIN required". A real
+                    // household lost its PIN this way with nothing on any screen.
+                    //
+                    // Rule, and it has to tell a removal from an accident:
+                    //   non-empty incoming  -> always accepted (someone set one)
+                    //   empty incoming      -> accepted only with a NEWER
+                    //                          pinChangedAt than the stored one
+                    // A deliberate "Remove PIN" stamps pinChangedAt and wins. A
+                    // device that simply never had a PIN sends 0 and loses.
+                    //
+                    // pinInstallSalt has no removal at all -- every stored hash
+                    // derives from it, so clearing it orphans both PINs at once.
+                    // It is never replaced with an empty value.
+                    //
+                    // Worth keeping here even though the dashboard now guards
+                    // too: this is the one place every client passes through,
+                    // including older ones that will never be updated.
+                    if (prevCfg instanceof Map) {
+                        def theirs = (incoming.pinChangedAt ?: 0) as Long
+                        def ours   = (prevCfg.pinChangedAt ?: 0) as Long
+                        def kept   = []
+                        ["artemisPin", "settingsPin"].each { k ->
+                            if (!incoming[k] && prevCfg[k] && theirs <= ours) {
+                                incoming[k] = prevCfg[k]
+                                kept << k
+                            }
+                        }
+                        if (!incoming.pinInstallSalt && prevCfg.pinInstallSalt) {
+                            incoming.pinInstallSalt = prevCfg.pinInstallSalt
+                            kept << "pinInstallSalt"
+                        }
+                        if (ours > theirs) incoming.pinChangedAt = ours
+                        if (kept) {
+                            body = new groovy.json.JsonBuilder(parsed).toString()
+                            log.warn "Hestia: kept this household's ${kept.join(', ')} — " +
+                                     "a client saved an empty value without a newer change stamp. " +
+                                     "If you meant to remove a PIN, use Remove PIN in Settings."
+                        }
+                    }
                 }
             } catch(e) {
-                log.warn "Hestia: could not preserve cloud secret: ${e.message}"
+                log.warn "Hestia: could not preserve cloud secret or PINs: ${e.message}"
             }
         }
 
