@@ -1873,7 +1873,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '2.2.0';
-const HESTIA_BUILD_DATE = '2026-10-13';
+const HESTIA_BUILD_DATE = '2026-10-14';
 
 /* ═══════════════════════════════════════════════════════
    SANDBOX MODE
@@ -2699,6 +2699,84 @@ function camDeviceUrl(url) {
   } catch(e) { return url; }
 }
 
+/**
+ * The single doorway for every request aimed at Hestia's own backend.
+ *
+ * WHY IT IS NEEDED. CLOUD_SYNC_API, PUSH_API and ACTIVITY_API are relative, so
+ * in a browser on hestari.com they are same-origin and correct. In the app the
+ * page is served from appassets.androidplatform.net, where `/api/push/...`
+ * resolves to the asset origin and reaches nothing -- reported as
+ * "appassets.androidplatform.net could not fetch" when turning push on.
+ *
+ * Making them absolute instead would not fix it: that is cross-origin, the
+ * Workers send no CORS headers, and the preflight fails. Adding CORS to the
+ * backend would work and was rejected -- it is a change to the one channel
+ * with no staged rollout, reaching every household at once, to serve an app
+ * nobody runs yet.
+ *
+ * So the app relays through native, which is CORS-free because the request is
+ * made by the app rather than by the page. Same shape as hubFetch, and the
+ * same load-bearing property: WITH NO BRIDGE, OR ONE NOT OFFERING 'cloud',
+ * THIS IS fetch() -- same arguments, same Response object. A browser user
+ * cannot reach the relay.
+ *
+ * Deliberately NOT used for a hub-served page, whose relative /api/ paths hit
+ * the hub rather than the backend. That is a real and separate problem with
+ * its own open design question (CORS for private origins), and quietly
+ * changing it here would ship that decision without making it.
+ */
+function nativeCloud() {
+  const n = window.hestiaNative;
+  return (n && n.capabilities && n.capabilities.indexOf('cloud') >= 0) ? n : null;
+}
+
+function cloudFetch(url, opts, ms) {
+  const n = nativeCloud();
+  if (!n) return ms ? _fetchWithTimeout(url, ms, opts) : fetch(url, opts);
+  const hdrs = (opts && opts.headers) || {};
+  return n.call('cloud.request', {
+    /* A path, never a host. The origin lives in the native layer so the page
+       cannot aim this anywhere else. */
+    path: String(url),
+    method: (opts && opts.method) || 'GET',
+    body: (opts && opts.body) || null,
+    contentType: hdrs['Content-Type'] || hdrs['content-type'] || null,
+    /* ALL of them, not the ones this function happens to know about. The
+       backend authorises on X-Hestia-Token / -Proof / -Recovery, and the first
+       version of this relay forwarded only Content-Type -- so every call
+       arrived anonymous and the backend answered 401 with a message about a
+       missing credential the page had in fact set. */
+    headers: hdrs,
+    /* The browser path's timeout, honoured natively as a call timeout. Without
+       it `ms` would mean something in a browser and nothing in the app, and the
+       callers that pass one are boot-path guards -- the whole reason
+       _fetchWithTimeout exists. Omitted means the relay's own defaults, which
+       matches a bare fetch having no timeout either. */
+    timeoutMs: ms || 0,
+  }).then(res => {
+    const status = (res && Number(res.status)) || 0;
+    if (status < 200 || status > 599) throw new TypeError('cloud relay returned no status');
+    return new Response(_relayBody(status, res.body), { status });
+  });
+}
+
+/* Statuses whose Response MUST carry a null body or the constructor throws.
+   204 and 205 were handled and 304 was not, so a conditional request would have
+   come back as a rejected promise rather than a response -- and forwarding
+   If-None-Match is exactly what the header change above makes possible, so the
+   gap and the means to reach it arrived together. 101 and 103 are excluded by
+   the callers' range check, but are listed because the rule is the browser's,
+   not this function's.
+
+   A function declaration holding its own list, NOT a module-level const: both
+   relays call this, hub.request's caller sits a hundred lines further down, and
+   a const read before its line has executed is a TDZ ReferenceError on every
+   page load. That exact bug shipped here once already. */
+function _relayBody(status, body) {
+  if ([101, 103, 204, 205, 304].indexOf(status) >= 0) return null;
+  return (body != null) ? body : '';
+}
+
 /* Null unless a native shell offers push. Separate from nativeHub() because the
    capabilities are genuinely independent: a build can ship hub access without
    push, and the page must degrade one without losing the other. */
@@ -2739,14 +2817,18 @@ async function pushSubscribeNative(n, mode, opts) {
       return fail('This device could not register for notifications. ' +
         'Check that it has a network connection and try again.');
     }
-    const res = await _fetchWithTimeout(PUSH_API + '/subscribe', 10000, {
+    const res = await cloudFetch(PUSH_API + '/subscribe', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...(await _cloudAuthHeaders()) },
       body: JSON.stringify({
         deviceId: DEVICE_ID, deviceName: DEVICE_NAME, mode,
         kind: r.kind || 'fcm', token: r.token,
       })
-    });
+    /* Bounded, as this call was before it moved onto the relay. Boot awaits it
+       on every launch, and a build offering push without cloud would otherwise
+       get a bare fetch to a relative URL on the asset origin with no timeout:
+       the indefinite-hang class _fetchWithTimeout was written for. */
+    }, 10000);
     if (!res.ok) throw new Error('subscribe request failed (' + res.status + ')');
     console.log('[Push] Registered this device for native push');
     return true;
@@ -2797,9 +2879,11 @@ async function _nativeHubFetch(n, url, opts) {
   // would surface as a confusing bug rather than as the transport failure it
   // actually is.
   if (status < 200 || status > 599) throw new TypeError('native hub relay returned no status');
-  // 204/205 must carry no body or the constructor throws.
-  const body = (status === 204 || status === 205) ? null : (res.body != null ? res.body : '');
-  return new Response(body, { status });
+  // Some statuses must carry no body or the constructor throws. Shared with the
+  // cloud relay: this copy named 204/205 only and missed 304, and a hub serving
+  // a static file under a conditional request is the likeliest 304 anywhere in
+  // this codebase.
+  return new Response(_relayBody(status, res.body), { status });
 }
 
 /* The single doorway for every request aimed at the hub. Both callers that
@@ -3487,7 +3571,7 @@ async function _cloudGetIp() {
        never settled, boot never reached either the wizard or the lockout
        screen, and the page sat blank forever with nothing in the console.
        Fixed at the source so all three callers get it. */
-    const r = await _fetchWithTimeout(CLOUD_SYNC_API + '/whoami', 4000);
+    const r = await cloudFetch(CLOUD_SYNC_API + '/whoami', null, 4000);
     if (!r || !r.ok) return null;
     const d = await r.json();
     return d.ip || null;
@@ -3743,7 +3827,7 @@ function cloudSyncPush(payload) {
         console.warn('[CloudSync] ' + _cloudLastPushError);
         return;
       }
-      return fetch(CLOUD_SYNC_API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
+      return cloudFetch(CLOUD_SYNC_API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
         .then(async r => {
           /* Read the reason off the body here, while the response is still
              unconsumed, and hang it on the response for the handler below.
@@ -3939,7 +4023,7 @@ async function cloudSyncDiscover() {
   try {
     const ip = await _cloudGetIp();
     if (!ip) return null;
-    const res = await fetch(CLOUD_SYNC_API + '/discover');
+    const res = await cloudFetch(CLOUD_SYNC_API + '/discover');
     if (!res.ok) return null;
     const data = await res.json();
     if (!data || !data.found) return null;
@@ -4076,7 +4160,7 @@ async function _cloudRecordUnreadable() {
     // and this guard failed open on every device, silently. Caught only by
     // driving a real boot against a real record; the unit test stubbed this
     // helper with the wrong argument order and happily agreed with itself.
-    const res = await _fetchWithTimeout(CLOUD_SYNC_API + '/discover', 4000);
+    const res = await cloudFetch(CLOUD_SYNC_API + '/discover', null, 4000);
     if (!res || !res.ok) return false;
     const data = await res.json();
     if (!data || !data.found) return false;          // no record: genuinely new
@@ -12778,7 +12862,7 @@ async function pushResyncOnBoot() {
         applicationServerKey: _pushUrlBase64ToUint8Array(PUSH_VAPID_PUBLIC_KEY)
       });
     }
-    await fetch(PUSH_API + '/subscribe', {
+    await cloudFetch(PUSH_API + '/subscribe', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...(await _cloudAuthHeaders()) },
       body: JSON.stringify({ deviceId: DEVICE_ID, deviceName: DEVICE_NAME, mode: entry.mode, subscription: sub.toJSON() })
@@ -12818,7 +12902,7 @@ async function pushSubscribeThisDevice(mode) {
         applicationServerKey: _pushUrlBase64ToUint8Array(PUSH_VAPID_PUBLIC_KEY)
       });
     }
-    const res = await fetch(PUSH_API + '/subscribe', {
+    const res = await cloudFetch(PUSH_API + '/subscribe', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...(await _cloudAuthHeaders()) },
       body: JSON.stringify({ deviceId: DEVICE_ID, deviceName: DEVICE_NAME, mode, subscription: sub.toJSON() })
@@ -12867,7 +12951,7 @@ async function pushUnsubscribeDevice(id) {
     } catch (e) { console.warn('[Push] Local unsubscribe failed:', e.message); }
   }
   try {
-    await fetch(PUSH_API + '/subscribe', {
+    await cloudFetch(PUSH_API + '/subscribe', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json', ...(await _cloudAuthHeaders()) },
       body: JSON.stringify({ deviceId: id })
@@ -13558,7 +13642,7 @@ async function diagApplyHouseholdKey() {
     /* VERIFY BEFORE COMMITTING. Storing an unverified key is the one way this
        button could leave someone worse off than they started, by destroying a
        working device's ability to read a record it can read today. */
-    const res = await _fetchWithTimeout(CLOUD_SYNC_API + '/discover', 6000);
+    const res = await cloudFetch(CLOUD_SYNC_API + '/discover', null, 6000);
     if (!res || !res.ok) {
       say(isServedFromHub()
         ? 'This page was opened from your hub, so it cannot reach the backend to check the key. Open https://hestari.com and try there. Nothing was changed.'
@@ -13656,7 +13740,7 @@ function _cloudRecordExpiryHint(expiresAt) {
 async function diagCheckCloud() {
   let ip = null;
   try {
-    const res = await fetch(CLOUD_SYNC_API + '/whoami');
+    const res = await cloudFetch(CLOUD_SYNC_API + '/whoami');
     const data = await res.json();
     ip = data && data.ip;
   } catch (e) {
@@ -13696,7 +13780,7 @@ async function diagCheckCloud() {
        record mine or a neighbour's". A device in the state this check exists
        for -- working config, cannot decrypt -- still holds the Maker token, so
        it passes the gate and still gets its answer. */
-    const res = await fetch(CLOUD_SYNC_API + '/discover', { headers: await _cloudAuthHeaders() });
+    const res = await cloudFetch(CLOUD_SYNC_API + '/discover', { headers: await _cloudAuthHeaders() });
     if (!res.ok) {
       diagSetStatus('cloud', 'red', 'Backend error',
         `hestari.com is reachable (sees ${ip}) but returned HTTP ${res.status} for this household's record.`);
@@ -13828,7 +13912,7 @@ async function diagCheckPush() {
         backend = 'no local subscription to confirm';
       } else {
         const entry = (CONFIG.pushDevices || []).find(d => d.id === DEVICE_ID);
-        const res = await fetch(PUSH_API + '/subscribe', {
+        const res = await cloudFetch(PUSH_API + '/subscribe', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', ...(await _cloudAuthHeaders()) },
           body: JSON.stringify({ deviceId: DEVICE_ID, deviceName: DEVICE_NAME,
@@ -13896,7 +13980,7 @@ async function diagSendTestPush() {
   if (btn) btn.disabled = true;
   if (result) result.textContent = 'Sending…';
   try {
-    const res = await fetch(PUSH_API + '/send', {
+    const res = await cloudFetch(PUSH_API + '/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -13987,7 +14071,7 @@ async function _diagFetchActivityPage(gen = _diagActivityGen) {
   try {
     const params = new URLSearchParams({ limit: '25' });
     if (_diagActivityCursor) params.set('cursor', _diagActivityCursor);
-    const res = await fetch(ACTIVITY_API + '?' + params.toString(), { headers: await _cloudAuthHeaders() });
+    const res = await cloudFetch(ACTIVITY_API + '?' + params.toString(), { headers: await _cloudAuthHeaders() });
     if (gen !== _diagActivityGen) return; // superseded by a newer diagLoadActivity() call -- discard
     if (res.status === 401) {
       /* The log is now readable only by the household, because it is an

@@ -55,7 +55,12 @@ function world({ cloudSecret = 'a'.repeat(64), hubOk = true, status = null } = {
     function sbxBlocked(){ return false; }
     const deepClone = (o) => JSON.parse(JSON.stringify(o));
     function _cloudGetIp(){ return Promise.resolve('203.0.113.5'); }
+    function cloudFetch(url, opts, ms){ return fetch(url, opts); }
     function fetch(url, init){ __sent(JSON.parse(init.body)); return Promise.resolve({ ok: ${hubOk}, status: ${status} }); }
+    /* cloudSyncPush() goes through cloudFetch now, the one doorway for
+       backend calls. In a browser that IS fetch, which is what this harness
+       simulates, so it routes straight to the stub above. */
+    function cloudFetch(url, opts, ms){ return fetch(url, opts); }
     ${fn('_cloudKey')}
     ${fn('_cloudEncryptWithKey')}
     ${fn('_cloudDecryptWithKey')}
@@ -361,6 +366,7 @@ console.log('\n=== 8. A device holding a secret must not read legacy records ===
       const CLOUD_SYNC_API = '/api/config';
       const console = { log: (...a) => __log(a.join(' ')), warn: (...a) => __log(a.join(' ')) };
       function _cloudGetIp(){ return Promise.resolve(${JSON.stringify(IP)}); }
+      function cloudFetch(url, opts, ms){ return fetch(url, opts); }
       function fetch(){ return Promise.resolve({ ok: true, json: () => Promise.resolve(
         { found: true, encrypted: true, payload: ${JSON.stringify(forged)} }) }); }
       ${fn('_cloudKey')}
@@ -631,6 +637,7 @@ console.log('\n=== 13. Diagnostics must not report a forged record as Synced ===
       let _cloudLastPushError = null;
       const console = { log(){}, warn(){} };
       function diagSetStatus(id, colour, label, detail){ __set({ id, colour, label, detail }); }
+      function cloudFetch(url, opts, ms){ return fetch(url, opts); }
       function fetch(url){
         /* A relative path from a hub-served page reaches the hub, which has no
            such endpoint, so the real failure here is a rejected fetch -- not a
@@ -888,6 +895,7 @@ console.log('\n=== 16. A device without the key must not start a fresh household
          abort every request. The guard failed open on every device and the
          bug it exists to fix was completely unfixed. A stub that does not
          check its own contract is how a test agrees with a bug. */
+      function cloudFetch(url, opts, ms){ return _fetchWithTimeout(url, ms, opts); }
       function _fetchWithTimeout(url, ms, opts){
         if (typeof ms !== 'number' || !isFinite(ms)) {
           throw new Error('_fetchWithTimeout called with a non-numeric timeout: ' + JSON.stringify(ms));
@@ -954,6 +962,7 @@ console.log('\n=== 16. A device without the key must not start a fresh household
     const CONFIG = { cloudSecret: null };
     const CLOUD_SYNC_API = '/api/config';
     const _LS = { getItem: () => null, removeItem(){} };
+    function cloudFetch(url, opts, ms){ return _fetchWithTimeout(url, ms, opts); }
     function _fetchWithTimeout(url, ms){
       if (typeof ms !== 'number') throw new Error('timeout must be numeric');
       return Promise.resolve({ ok: true, json: () => Promise.resolve(
@@ -984,6 +993,7 @@ console.log('\n=== 16. A device without the key must not start a fresh household
       getItem: k => (k in store ? store[k] : null),
       removeItem: k => { delete store[k]; },
     };
+    function cloudFetch(url, opts, ms){ return _fetchWithTimeout(url, ms, opts); }
     function _fetchWithTimeout(url, ms){
       if (typeof ms !== 'number') throw new Error('timeout must be numeric');
       return Promise.resolve({ ok: true, json: () => Promise.resolve(
@@ -1022,9 +1032,15 @@ console.log('\n=== 17. Boot must never hang on this check ===');
   // this function is long enough that a short window missed the call entirely
   // and failed while the code was correct.
   const src = fn('_cloudGetIp');
-  check('_cloudGetIp uses the timeout helper, not a bare fetch',
-    /_fetchWithTimeout\(\s*CLOUD_SYNC_API \+ '\/whoami'/.test(src) && !/await fetch\(/.test(src),
-    'a bare fetch here hangs boot with a blank page');
+  /* The doorway moved to cloudFetch when the native app arrived -- a bare
+     fetch there resolves to the app's asset origin and reaches nothing, which
+     disabled this guard AND both household-secret mint guards on every launch.
+     So the property is now two things at once: through the relay, and still
+     bounded. The timeout is cloudFetch's THIRD argument. */
+  check('_cloudGetIp goes through the relay and is still bounded',
+    /cloudFetch\(\s*CLOUD_SYNC_API \+ '\/whoami',\s*null,\s*\d+\s*\)/.test(src) &&
+    !/await fetch\(/.test(src) && !/_fetchWithTimeout\(/.test(src),
+    'a bare fetch here hangs boot with a blank page, and in the app it never leaves the asset origin');
 
   const guard = SRC.slice(SRC.indexOf('async function renderSetupOrLockout'),
                           SRC.indexOf('async function renderSetupOrLockout') + 900);
@@ -1306,6 +1322,7 @@ console.log('\n=== 19. Holding the household secret IS the proof of ownership ==
     const _LS = { getItem: () => null, setItem(){}, removeItem(){} };
     const console = { log(){}, warn(){} };
     function _cloudGetIp(){ return Promise.resolve(${JSON.stringify(IP)}); }
+    function cloudFetch(url, opts, ms){ return fetch(url, opts); }
     function fetch(){ return Promise.resolve({ ok: true, json: () => Promise.resolve(
       { found: true, encrypted: true, payload: __payload }) }); }
     ${fn('_cloudKey')}
@@ -1427,6 +1444,7 @@ console.log('\n=== 20. A device that ended up with the wrong secret heals itself
     };
     const console = { log(){}, warn(){} };
     function _cloudGetIp(){ return Promise.resolve(${JSON.stringify(IP)}); }
+    function cloudFetch(url, opts, ms){ return fetch(url, opts); }
     function fetch(){ return Promise.resolve({ ok: true, json: () => Promise.resolve(
       { found: true, encrypted: true, payload: __payload }) }); }
     ${fn('_cloudKey')}
@@ -1529,6 +1547,7 @@ console.log('\n=== 21. The household key box verifies BEFORE it commits ===');
     /* Real signature: (url, ms, opts). The timeout is the SECOND argument --
        a stub ignoring it is how an earlier guard passed while every real call
        aborted immediately. */
+    function cloudFetch(url, opts, ms){ return _fetchWithTimeout(url, ms, opts); }
     function _fetchWithTimeout(url, ms){
       if (typeof ms !== 'number' || !isFinite(ms)) {
         throw new Error('_fetchWithTimeout called with a non-numeric timeout: ' + JSON.stringify(ms));

@@ -202,7 +202,7 @@ function extractFn(name) {
 }
 
 const RELAY_SRC = ['_originOf', 'nativeHub', 'nativeHubSync', '_nativeHubFetch',
-  'hubFetch', '_fetchWithTimeout'].map(extractFn).join('\n\n');
+  'hubFetch', '_fetchWithTimeout', '_relayBody'].map(extractFn).join('\n\n');
 
 /* The sentinel is the whole trick for the browser-equivalence tests: if
    hubFetch returns the very object the stub fetch returned, it cannot have
@@ -577,7 +577,13 @@ console.log('\n=== 16. Push registers through native only when native offers it 
     const api = new Function('window', 'console', 'alert', 'JSON', 'sent', `
       const PUSH_API = '/api/push', DEVICE_ID = 'dev-1', DEVICE_NAME = 'Phone';
       function _cloudAuthHeaders() { return Promise.resolve({}); }
-      function _fetchWithTimeout(url, ms, opts) { sent.push({ url, opts }); return Promise.resolve({ ok: true, status: 200 }); }
+      /* Mirrors the doorway pushSubscribeNative actually calls. It used to
+         stub _fetchWithTimeout, and when registration moved onto cloudFetch
+         the stub stopped being reached: the sent list stayed empty and the
+         suite crashed rather than silently passing, which is the only reason
+         this was caught. NOTE: no backticks in here, this lives inside a
+         template literal and one would end the string. */
+      function cloudFetch(url, opts, ms) { sent.push({ url, opts }); return Promise.resolve({ ok: true, status: 200 }); }
       ${PUSH_SRC}
       return { nativePush, pushSubscribeNative };
     `)(win, { log() {}, warn() {} }, (m) => alerts.push(m), JSON, sent);
@@ -681,6 +687,170 @@ console.log('\n=== 17. The module screens only offer what the household can use 
   const minimal = steps({ capabilities: ['hub'], sensors: {}, athenaKey: 'sk' });
   check('a minimal household still gets a coherent sequence',
     minimal.join(',') === 'hestia,athena,announce', minimal.join(','));
+}
+
+console.log('\n=== 18. The cloud relay carries the whole request, credentials included ===');
+{
+  /* This section exists because of a real failure on a real phone. The relay
+     read Content-Type out of the headers and forwarded nothing else, so every
+     authorised call reached the backend anonymous. The backend answered 401
+     with "no credential was supplied" about credentials the page had set
+     correctly, and the only visible symptom was a three-digit number in a
+     dialog. The relay stands in for fetch; a relay that drops headers is not
+     standing in for anything. */
+  const CF_SRC = ['nativeCloud', 'cloudFetch', '_relayBody'].map(extractFn).join('\n\n');
+
+  const cloudEnv = ({ capabilities = ['hub', 'cloud'] } = {}) => {
+    const win = {};
+    const calls = [];
+    if (capabilities !== null) {
+      win.hestiaNative = {
+        capabilities,
+        call: (method, params) => {
+          calls.push({ method, params });
+          return Promise.resolve({ status: 200, body: '{}' });
+        },
+      };
+    }
+    const SENTINEL = { sentinel: true };
+    const plain = [];
+    const api = new Function(
+      'window', 'JSON', 'Number', 'String', 'TypeError', 'Response', 'fetch', 'plain',
+      `function _fetchWithTimeout(u, ms, o) { plain.push({ u, ms, o, timed: true }); return u; }
+       ${CF_SRC}
+       return { nativeCloud, cloudFetch };`,
+    )(win, JSON, Number, String, TypeError,
+      /* Enforces the real constructor's null-body rule. A stub that accepted a
+         body on a 304 would have agreed with the bug it is here to catch --
+         "a stub that drifts from the code it mirrors tests fiction", applied to
+         a stub written in the same change as the fix. Verified against node's
+         own Response, which throws on exactly this set. */
+      function Response(body, init) {
+        const status = init && init.status;
+        if ([101, 103, 204, 205, 304].indexOf(status) >= 0 && body != null) {
+          throw new TypeError(`Response constructor: Invalid response status code ${status}`);
+        }
+        this.body = body; this.status = status;
+      },
+      (u) => { plain.push({ u }); return SENTINEL; }, plain);
+    return { ...api, win, calls, plain, SENTINEL };
+  };
+
+  const browser = cloudEnv({ capabilities: null });
+  check('a browser gets plain fetch, by identity',
+    browser.cloudFetch('/api/x', { method: 'GET' }) === browser.SENTINEL,
+    'the relay must be unreachable without the capability, or a defect in it reaches every household');
+  const hubOnly = cloudEnv({ capabilities: ['hub'] });
+  check('...and so does a bridge that does not offer cloud',
+    hubOnly.cloudFetch('/api/x', {}) === hubOnly.SENTINEL);
+
+  const native = cloudEnv();
+  await native.cloudFetch('/api/push/subscribe', {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Hestia-Token': 'maker-token',
+      'X-Hestia-Proof': 'secret-proof',
+      'X-Hestia-Recovery': 'recovery-r',
+    },
+    body: '{"deviceId":"d"}',
+  });
+  const p = native.calls[0].params;
+  check('the relay is used when the capability is there',
+    native.calls.length === 1 && native.calls[0].method === 'cloud.request');
+  /* Named one by one on purpose. Asserting "headers is the same object" would
+     pass against a relay that forwards an empty object just as happily, and
+     these three are the ones the backend authorises on. */
+  check('...carrying the Maker token', p.headers['X-Hestia-Token'] === 'maker-token', JSON.stringify(p.headers));
+  check('...carrying the secret proof', p.headers['X-Hestia-Proof'] === 'secret-proof');
+  check('...carrying the recovery proof', p.headers['X-Hestia-Recovery'] === 'recovery-r');
+  check('...with the method and body intact',
+    p.method === 'PUT' && p.body === '{"deviceId":"d"}');
+  check('...and the content type still called out separately',
+    p.contentType === 'application/json',
+    'the body media type is set on the request, not only sent as a header');
+
+  const lower = cloudEnv();
+  await lower.cloudFetch('/api/x', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: 'x' });
+  check('a lowercase content-type is recognised too',
+    lower.calls[0].params.contentType === 'text/plain');
+
+  const bare = cloudEnv();
+  await bare.cloudFetch('/api/x');
+  check('no options at all still relays a GET',
+    bare.calls[0].params.method === 'GET' && bare.calls[0].params.body === null);
+
+  /* `ms` has to mean the same thing on both paths. It bounds an AbortController
+     in a browser; if the relay ignored it, the callers that pass one -- all of
+     them boot-path guards whose entire job is to bound a stall -- would be
+     unbounded in the app and bounded everywhere else. */
+  const timed = cloudEnv();
+  await timed.cloudFetch('/api/x', null, 4000);
+  check('a timeout is carried across the relay, not dropped',
+    timed.calls[0].params.timeoutMs === 4000);
+  const untimed = cloudEnv();
+  await untimed.cloudFetch('/api/x', null);
+  check('...and omitting one asks for the relay defaults',
+    untimed.calls[0].params.timeoutMs === 0,
+    'a bare fetch has no timeout either');
+
+  /* The Response constructor throws on a body for these. 204 and 205 were
+     handled and 304 was not, so a conditional request came back as a rejected
+     promise -- and forwarding If-None-Match is exactly what the header change
+     made possible, so the gap and the means to reach it arrived together. */
+  const nullBody = cloudEnv();
+  nullBody.calls.length = 0;
+  for (const st of [204, 205, 304]) {
+    const env = cloudEnv();
+    env.win.hestiaNative.call = () => Promise.resolve({ status: st, body: 'should not be here' });
+    let threw = null, out = null;
+    try { out = await env.cloudFetch('/api/x'); } catch (e) { threw = e; }
+    check(`${st} yields a response with no body`,
+      threw === null && out && out.body === null, threw ? String(threw.message) : `body=${out && out.body}`);
+  }
+  const ok200 = cloudEnv();
+  ok200.win.hestiaNative.call = () => Promise.resolve({ status: 200, body: '{"a":1}' });
+  check('...while an ordinary status keeps its body',
+    (await ok200.cloudFetch('/api/x')).body === '{"a":1}');
+}
+
+console.log('\n=== 19. Every call to the backend goes through the relay ===');
+{
+  /* The relay shipped 12 of 15 converted. The three left behind were
+     _cloudGetIp, _cloudRecordUnreadable and the lockout screen's key verifier
+     -- which, in the app, meant the lockout detector and BOTH household-secret
+     mint guards failed open on every launch, because each of them treats an
+     unreachable backend as "not locked out". A second phone set up away from
+     home would have run the wizard, minted a new secret and rewritten the
+     household's record, locking out every other device. That is v2.0.2 again,
+     caused by the conversion being incomplete rather than by anything in it.
+
+     Asserted over the source because that is where the property lives: there is
+     no runtime moment at which a missed call site announces itself. Comments
+     are stripped first -- three false greens in one release series came from an
+     assertion matching the prose above the code it meant to check. */
+  const code = DASH
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .split('\n').map(l => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+
+  const CONSTS = ['CLOUD_SYNC_API', 'PUSH_API', 'ACTIVITY_API'];
+  const stray = [];
+  let total = 0;
+  for (const c of CONSTS) {
+    // Every use that builds a URL, and who is being handed it.
+    for (const m of code.matchAll(new RegExp(`(\\w*)\\s*\\(\\s*${c}\\s*\\+`, 'g'))) {
+      total++;
+      if (m[1] !== 'cloudFetch') stray.push(`${m[1] || '(anonymous)'}(${c} + ...)`);
+    }
+    // And any that escapes into a bare fetch by another route.
+    for (const m of code.matchAll(new RegExp(`(fetch|_fetchWithTimeout)\\s*\\([^)\\n]*${c}`, 'g'))) {
+      stray.push(m[0].slice(0, 60));
+    }
+  }
+  check('every backend URL is built inside a cloudFetch call',
+    stray.length === 0, stray.join(' | '));
+  check('...and there are still as many of them as the app was verified with',
+    total >= 13, `found ${total}`);
 }
 
 console.log(`\n${PASS} passed, ${FAIL} failed`);

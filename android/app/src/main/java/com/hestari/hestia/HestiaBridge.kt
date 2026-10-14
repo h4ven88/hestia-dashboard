@@ -106,7 +106,7 @@ class HestiaBridge(
         put("appVersion", appVersion)
         /* The page branches on these and on nothing else -- never on platform.
            That rule is what keeps one web layer instead of one per target. */
-        put("capabilities", JSONArray(listOf("hub", "push")))
+        put("capabilities", JSONArray(listOf("hub", "push", "cloud")))
     }.toString()
 
     /**
@@ -146,6 +146,20 @@ class HestiaBridge(
                             .put("permitted", allowed)
                     }
                     "hub.request" -> hubRequest(params)
+
+                    /* The page's own backend. A PATH only: the origin is
+                       fixed in CloudClient, because everything the WebView
+                       runs can reach this bridge and a method that fetched
+                       any URL handed to it would make the app a proxy onto
+                       whatever network it is attached to. */
+                    "cloud.request" -> CloudClient.toJson(CloudClient.request(
+                        params.optString("path"),
+                        params.optString("method").ifEmpty { "GET" },
+                        if (params.isNull("body")) null else params.optString("body"),
+                        if (params.isNull("contentType")) null else params.optString("contentType"),
+                        headerMap(params.optJSONObject("headers")),
+                        params.optLong("timeoutMs", 0L),
+                    ))
                     /* commit defaults TRUE so an older page that knows nothing
                        about the flag still pins, as it always did. */
                     /* Returns the FCM token and whether notifications are
@@ -195,6 +209,17 @@ class HestiaBridge(
             }
         }
         return ""
+    }
+
+    /** JSON object to a header map. Absent or malformed means no headers. */
+    private fun headerMap(o: JSONObject?): Map<String, String> {
+        if (o == null) return emptyMap()
+        val out = LinkedHashMap<String, String>(o.length())
+        for (name in o.keys()) {
+            if (o.isNull(name)) continue
+            out[name] = o.optString(name)
+        }
+        return out
     }
 
     private fun hubRequest(p: JSONObject): JSONObject {

@@ -120,10 +120,11 @@ capability check is the only gate.
 | Capability | Methods | Phase |
 |---|---|---|
 | `hub` | `hub.discover`, `hub.request`, `hub.configure`, `hub.info` | 2 ✅ |
+| `cloud` | `cloud.request` | 2 ✅ |
+| `push` | `push.register`, `push.state` | 2 ✅ |
 | `mic` | `mic.hold()`, `mic.release()`, `mic.state()` | 3 |
 | `notify` | `notify.show(n)`, `notify.permissionState()`, `notify.requestPermission()` | 4 |
 | `localPush` | `net.localEndpoint()` | 4 |
-| `push` | `push.register()`, `push.token()`, `push.presence(state)` | 5 |
 
 `mic` holds the foreground service and the permission. **Inference stays in
 JavaScript**, so no audio crosses the bridge.
@@ -169,6 +170,52 @@ What this buys, concretely: `hubFetch` reaching
 the pinned connection. Verified on a Galaxy A16 against a real C-8 Pro. Together
 with mDNS discovery that is "install it, it finds your hub" with nothing typed,
 which is the sentence that justifies building a native app.
+
+---
+
+## Phase 2: how the page uses `cloud`
+
+Same shape as `hub`, same single doorway: `cloudFetch(url, opts, ms)` in
+`dashboard.html`, declared beside `hubFetch`. **Every** call to Hestia's own
+backend goes through it, all thirteen, and `tests/bridgeharness.mjs` section 19
+asserts over the source that no fourteenth escapes into a bare `fetch`.
+
+**Why a relay rather than absolute URLs.** `CLOUD_SYNC_API`, `PUSH_API` and
+`ACTIVITY_API` are relative, so in the app they resolve to
+`appassets.androidplatform.net` and reach nothing. Making them absolute to
+hestari.com trades one failure for another: that is cross-origin, the Workers
+send no CORS headers, and the preflight fails. Adding CORS to the backend would
+work and was rejected — it is the one channel with no staged rollout, reaching
+every household the instant it deploys, to serve an app nobody runs yet.
+
+**The browser property is the same one `hub` has.** With no bridge, or a bridge
+not offering `cloud`, `cloudFetch` IS `fetch` (or `_fetchWithTimeout` when `ms`
+is given), returned by identity and asserted with a sentinel object. A defect in
+the relay cannot reach a browser user.
+
+**`cloud.request` takes a path, never a host.** `CloudClient.ORIGIN` is a
+constant. Everything the WebView runs can reach this bridge, so a method that
+fetched whatever URL it was handed would make the app a general-purpose proxy
+onto the private network it holds permission for.
+
+**Headers are forwarded whole, minus a deny-list.** The backend authorises on
+`X-Hestia-Token`, `X-Hestia-Proof` and `X-Hestia-Recovery`
+(`functions/_lib/householdAuth.js`). The first version of this relay forwarded
+only `Content-Type`; every authorised call arrived anonymous and the backend
+answered 401 about a credential the page had in fact set. An allow-list naming
+those three would silently drop the next one somebody adds, so the rule is
+instead *whatever a page may set on a `fetch`*: `CloudClient.forwardable()`
+denies transport framing, the client-address headers, and the rest of fetch's
+forbidden-header-name list, and refuses any name that is not an HTTP token.
+`CF-Connecting-IP` is in there because it is the **only** thing identifying a
+household anywhere in the backend, and Cloudflare documents its overwrite for
+other headers and not for that one.
+
+**Two things that must stay true of both relays.** `ms` means the same on both
+paths — an AbortController in a browser, a call timeout natively — because every
+caller that passes one is a boot-path guard. And `_relayBody()` is shared: the
+`Response` constructor throws on a body for 204, 205 and 304, and the hub relay
+named only the first two.
 
 ---
 
