@@ -201,6 +201,15 @@ function extractFn(name) {
   throw new Error('unbalanced braces in ' + name);
 }
 
+/* Comments stripped before any assertion over source text. Three false greens
+   in one release series came from a test matching the prose above the code it
+   meant to check -- one of them was satisfied by a comment naming the very call
+   that had been deleted. */
+function codeOnlyJs(s) {
+  return s.replace(/\/\*[\s\S]*?\*\//g, ' ')
+          .split('\n').map(l => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+}
+
 const RELAY_SRC = ['_originOf', 'nativeHub', 'nativeHubSync', '_nativeHubFetch',
   'hubFetch', '_fetchWithTimeout', '_relayBody'].map(extractFn).join('\n\n');
 
@@ -851,6 +860,112 @@ console.log('\n=== 19. Every call to the backend goes through the relay ===');
     stray.length === 0, stray.join(' | '));
   check('...and there are still as many of them as the app was verified with',
     total >= 13, `found ${total}`);
+}
+
+console.log('\n=== 20. Pull to refresh reaches the app and nothing else ===');
+{
+  /* Mobile browsers already implement this gesture. A second implementation on
+     top of theirs would mean two indicators fighting over one pull, so the
+     native bridge is the whole gate -- and that makes browser-inertness the
+     property worth asserting, not the gesture maths. */
+  const PTR_SRC = ['nativePullToRefreshInit', '_ptrScrollerAt', '_ptrBlocked'].map(extractFn).join('\n\n');
+
+  const ptrEnv = ({ native = true } = {}) => {
+    const listeners = [];
+    const win = {};
+    if (native) win.hestiaNative = { capabilities: ['hub'], call: () => Promise.resolve({}) };
+    const doc = {
+      addEventListener: (type) => listeners.push(type),
+      getElementById: () => null,
+      body: {},
+    };
+    const api = new Function('window', 'document', 'console', 'getComputedStyle', `
+      let _ptr = null;
+      const PTR_TRIGGER = 72, PTR_MAX = 110;
+      let artemisTransition = null, artemisAlarmType = null, NFM = null;
+      function nativeRefreshNow(){}
+      function _ptrReset(){}
+      function _ptrIndicator(){ return { classList: { add(){}, remove(){}, toggle(){} }, style: {} }; }
+      ${PTR_SRC}
+      return { nativePullToRefreshInit, _ptrScrollerAt, _ptrBlocked, state: () => _ptr };
+    `)(win, doc, { log() {}, warn() {} }, (el) => ({ overflowY: el.__oy || 'visible' }));
+    api.nativePullToRefreshInit();
+    return { ...api, listeners };
+  };
+
+  const browser = ptrEnv({ native: false });
+  check('a browser gets no listeners at all',
+    browser.listeners.length === 0 && browser.state() === null,
+    'the browser already has this gesture; two would fight over one pull');
+
+  const app = ptrEnv();
+  check('the app does', app.listeners.length > 0 && app.state() !== null);
+  check('...covering cancel as well as end',
+    app.listeners.includes('touchcancel') && app.listeners.includes('touchend'),
+    'a cancelled gesture that never resets leaves the indicator stuck on screen');
+
+  /* Calling init twice must not double every listener. Boot has re-run before
+     -- a config sync or a household adoption can reload mid-sequence. */
+  const twice = ptrEnv();
+  const n = twice.listeners.length;
+  twice.nativePullToRefreshInit();
+  check('a second init adds nothing', twice.listeners.length === n);
+
+  /* THE TRAP this exists for. A native SwipeRefreshLayout keyed on
+     webView.scrollY would fire anywhere on the page, because body is
+     overflow:hidden and the real scrolling is in inner containers. */
+  const scrollEnv = ptrEnv();
+  const node = (oy, sh, ch, parent) => ({ __oy: oy, scrollHeight: sh, clientHeight: ch, parentElement: parent });
+  const outer = node('auto', 1000, 600, null);
+  const inner = node('visible', 10, 10, outer);
+  check('the scroller under the finger is found through its ancestors',
+    scrollEnv._ptrScrollerAt(inner) === outer);
+  check('...ignoring a container that does not actually overflow',
+    scrollEnv._ptrScrollerAt(node('visible', 10, 10, node('auto', 100, 100, null))) === null,
+    'an overflow style alone is not a scroller');
+
+  /* A refresh repaints. Doing that mid-countdown or during a sounding alarm is
+     the exact class of bug that cost v1.6.5 three rounds to find. */
+  const blockEnv = (over) => new Function('document', 'getComputedStyle', `
+    let artemisTransition = ${over.transition ? "'entry'" : 'null'};
+    let artemisAlarmType = ${over.alarm ? "'intrusion'" : 'null'};
+    let NFM = ${over.nfm ? '{}' : 'null'};
+    ${extractFn('_ptrBlocked')}
+    return _ptrBlocked;
+  `)({ getElementById: (id) => (over.ids || []).includes(id) ? { classList: { contains: () => true } } : null },
+      () => ({}));
+
+  check('an entry-delay countdown blocks the gesture', blockEnv({ transition: true })() === true);
+  check('a sounding alarm blocks it', blockEnv({ alarm: true })() === true);
+  check('the PIN sheet blocks it', blockEnv({ ids: ['a-pin-sheet'] })() === true,
+    'refreshing while somebody types a PIN under time pressure is worse than not refreshing');
+  check('first run and the lockout screen block it',
+    blockEnv({ ids: ['ob-wrap'] })() === true && blockEnv({ ids: ['nfr-wrap'] })() === true);
+  check('the module screens block it', blockEnv({ nfm: true })() === true);
+  check('Settings and Athena block it',
+    blockEnv({ ids: ['settings-panel'] })() === true && blockEnv({ ids: ['ath-overlay'] })() === true);
+  check('an ordinary dashboard does NOT block it', blockEnv({})() === false,
+    'blocking everywhere would be a feature that never runs');
+
+  /* A failed hub read must not be mistaken for an empty household here either.
+     That confusion is what erased a household's disarm PIN. */
+  const refresh = codeOnlyJs(extractFn('nativeRefreshNow'));
+  check('refresh applies a config only when one actually came back',
+    /const cfg = await loadConfigFromHub\(\);[\s\S]{0,120}if \(cfg\) \{/.test(refresh),
+    'the PIN-wipe bug, one function over');
+  check('...and never reloads the page instead',
+    !/location\.reload/.test(refresh),
+    'a reload tears down the wake-word listener and the mic it holds');
+  check('a failed refresh says so', /showDeviceToast\(/.test(refresh),
+    'silence is indistinguishable from a refresh that found nothing new');
+
+  /* Found by running it, not by reading it. Snapshots share one host with
+     device polling, OkHttp allows 5 concurrent per host, and a hub snapshot
+     takes seconds -- so three of them beside a device fetch starved the 1s
+     poll into its 10s timeout and put "Lost connection to your hub" on screen
+     while the hub was answering in 75ms. */
+  check('refresh does NOT kick the cameras', !/camRefreshAll/.test(refresh),
+    'they have their own timer, and they starve device polling for the same host');
 }
 
 console.log(`\n${PASS} passed, ${FAIL} failed`);

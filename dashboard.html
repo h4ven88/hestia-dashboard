@@ -542,6 +542,24 @@ input[type=range]:focus-visible,input[type=checkbox]:focus-visible{outline:2px s
 .sp-toggle input:focus-visible~.sp-toggle-track{outline:2px solid var(--amber);outline-offset:2px}
 .sp-nav-item:focus-visible{outline-offset:-2px}
 #sp-content:focus{outline:none}
+/* Pull to refresh (native app only -- see nativePullToRefreshInit).
+   Parked above the viewport and moved down by the gesture, so it is invisible
+   and inert for every browser user, who never gets the listeners at all. */
+#ptr{position:fixed;top:-44px;left:50%;transform:translateX(-50%);z-index:260;
+     width:34px;height:34px;border-radius:50%;background:var(--bg-card);
+     border:1px solid var(--border);display:none;align-items:center;justify-content:center;
+     opacity:0;pointer-events:none;box-shadow:0 2px 10px rgba(0,0,0,.35)}
+#ptr.on{display:flex}
+.ptr-ring{width:16px;height:16px;border-radius:50%;
+          border:2px solid var(--border);border-top-color:var(--amber);
+          transition:border-top-color .15s}
+/* Past the trigger point the ring goes solid amber: the gesture has committed,
+   and letting go now will refresh. */
+#ptr.ready .ptr-ring{border-color:var(--amber)}
+#ptr.spin .ptr-ring{border-color:var(--border);border-top-color:var(--amber);
+                    animation:ptrspin .7s linear infinite}
+@keyframes ptrspin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){#ptr.spin .ptr-ring{animation:none;border-color:var(--amber)}}
 /* Keypad */
 .a-kp{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;flex-shrink:0}
 .a-kp-lbl{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);text-align:center}
@@ -20306,6 +20324,174 @@ function nfrLockBodyScroll(on) {
 let NFM = null;
 const NFM_PENDING_KEY = 'hestia-native-modules-pending';
 
+/* ── Pull to refresh (native app only) ──────────────────────────────────
+ *
+ * APP ONLY, DELIBERATELY. Mobile browsers already do this themselves, and a
+ * second implementation on top would mean two indicators fighting over one
+ * gesture. `window.hestiaNative` is the whole gate, so a browser user is not
+ * reached by any of this.
+ *
+ * ⛔ THE TRAP, and it is why this is not a native SwipeRefreshLayout.
+ * SwipeRefreshLayout decides from `webView.scrollY`, which on this page is
+ * ALWAYS 0 -- `body` is overflow:hidden and the real scrolling happens in inner
+ * containers (`.main-mobile-scroll`, `.sp-body-wrap`). Keyed on scrollY it
+ * would fire on any downward swipe anywhere on the page, including halfway down
+ * a room list. Only the page knows which container is under the finger.
+ */
+let _ptr = null;
+const PTR_TRIGGER = 72;     // px of pull, after resistance, before it fires
+const PTR_MAX     = 110;
+
+/* The scroller actually under the finger, not the first one on the page. */
+function _ptrScrollerAt(el) {
+  for (let n = el; n && n !== document.body; n = n.parentElement) {
+    const oy = getComputedStyle(n).overflowY;
+    if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight + 4) return n;
+  }
+  return null;
+}
+
+/* States where yanking the data out from under the user would be wrong or
+   destructive. An entry-delay countdown and a sounding alarm are the ones that
+   matter: re-rendering mid-countdown is the class of bug that cost v1.6.5 three
+   rounds, and a refresh while someone is typing a PIN under time pressure is
+   worse than no refresh at all. */
+function _ptrBlocked() {
+  if (typeof artemisTransition !== 'undefined' && artemisTransition) return true;
+  if (typeof artemisAlarmType !== 'undefined' && artemisAlarmType) return true;
+  if (typeof NFM !== 'undefined' && NFM) return true;
+  if (document.getElementById('ob-wrap')) return true;          // onboarding / lockout / first run
+  if (document.getElementById('nfr-wrap')) return true;
+  const sheet = document.getElementById('a-pin-sheet');
+  if (sheet && sheet.classList.contains('open')) return true;
+  const sp = document.getElementById('settings-panel');
+  if (sp && sp.classList.contains('open')) return true;
+  const ath = document.getElementById('ath-overlay');
+  if (ath && ath.classList.contains('open')) return true;
+  return false;
+}
+
+function _ptrIndicator() {
+  let el = document.getElementById('ptr');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'ptr';
+    el.innerHTML = '<div class="ptr-ring"></div>';
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+function nativePullToRefreshInit() {
+  if (!window.hestiaNative) return;          // browsers already have this
+  if (_ptr) return;                          // boot can run more than once
+  _ptr = { y0: 0, dy: 0, armed: false, busy: false };
+
+  document.addEventListener('touchstart', (e) => {
+    if (_ptr.busy || e.touches.length !== 1 || _ptrBlocked()) { _ptr.armed = false; return; }
+    const sc = _ptrScrollerAt(e.target);
+    // No scroller at all means a short page, which is still a legitimate place
+    // to pull from. A scroller that is NOT at the top is not.
+    _ptr.armed = !sc || sc.scrollTop <= 0;
+    _ptr.y0 = e.touches[0].clientY;
+    _ptr.dy = 0;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', (e) => {
+    if (!_ptr.armed || _ptr.busy) return;
+    const raw = e.touches[0].clientY - _ptr.y0;
+    if (raw <= 0) { _ptr.dy = 0; _ptrIndicator().classList.remove('on'); return; }
+    // Resistance, so the sheet follows the finger without tracking it 1:1.
+    _ptr.dy = Math.min(PTR_MAX, raw * 0.45);
+    const el = _ptrIndicator();
+    el.classList.add('on');
+    el.style.transform = `translateX(-50%) translateY(${_ptr.dy}px)`;
+    el.style.opacity = String(Math.min(1, _ptr.dy / PTR_TRIGGER));
+    el.classList.toggle('ready', _ptr.dy >= PTR_TRIGGER);
+    // Only once it is a real pull, so an ordinary scroll gesture is untouched.
+    if (_ptr.dy > 6 && e.cancelable) e.preventDefault();
+  }, { passive: false });
+
+  const end = () => {
+    if (!_ptr.armed || _ptr.busy) return;
+    const fire = _ptr.dy >= PTR_TRIGGER;
+    _ptr.armed = false;
+    if (fire) nativeRefreshNow();
+    else _ptrReset();
+  };
+  document.addEventListener('touchend', end, { passive: true });
+  document.addEventListener('touchcancel', end, { passive: true });
+}
+
+function _ptrReset() {
+  const el = document.getElementById('ptr');
+  if (!el) return;
+  el.classList.remove('on', 'ready', 'spin');
+  el.style.transform = 'translateX(-50%) translateY(0)';
+  el.style.opacity = '0';
+}
+
+/**
+ * What "refresh" means here: re-read the household config, re-read every
+ * device, repaint.
+ *
+ * NOT location.reload(). A reload tears down the wake-word listener and the
+ * microphone it holds, re-runs first-run checks, and re-initialises Athena --
+ * seconds of work to solve a problem that is almost always just stale device
+ * state. This does the part that was actually stale.
+ *
+ * Config first, because a device list rendered against yesterday's rooms is
+ * exactly as stale as the device states were.
+ */
+async function nativeRefreshNow() {
+  if (_ptr) _ptr.busy = true;
+  const el = _ptrIndicator();
+  el.classList.add('on', 'spin');
+  el.style.transform = 'translateX(-50%) translateY(' + PTR_TRIGGER + 'px)';
+  el.style.opacity = '1';
+  let ok = true;
+  try {
+    if (HUB_STORE && !_breakerIsOpen()) {
+      const cfg = await loadConfigFromHub();
+      /* Only on a real answer. A failed read must not be mistaken for an empty
+         household here either -- same rule as boot, and the reason the PIN was
+         lost in the first place. */
+      if (cfg) { applyParsedConfig(cfg); _persistConfigKeepingSecret(cfg); applyConfig(); }
+    }
+    await fetchAllDevices();
+    lastConnOk = true;
+    setConn('ok');
+  } catch (e) {
+    ok = false;
+    lastConnOk = false;
+    setConn('err');
+    console.warn('[Refresh] failed:', e && e.message);
+  }
+  try {
+    refreshActiveView();
+    updateStats();
+    syncTopbar();
+    if (CONFIG.artemisEnabled) { artemisHsmSync(); updateArmedStatus(); }
+    /* ⛔ Cameras are deliberately NOT refreshed here, and this cost a real
+       debugging session to learn. Snapshots go to the same host as everything
+       else, OkHttp allows 5 concurrent requests per host, and a hub snapshot
+       can take seconds. Firing three of them beside a device fetch while the
+       1s poll is running saturated the dispatcher: polls queued, hit the 10s
+       read timeout, and the "Lost connection to your hub" screen appeared on a
+       hub that was answering in 75ms. The poll kept feeding the jam.
+       Cameras already refresh on their own timer while their view is open. */
+  } catch (e) {}
+  // Held briefly even on a fast hub: an indicator that vanishes in 80ms reads
+  // as "nothing happened" rather than as a refresh.
+  setTimeout(() => {
+    _ptrReset();
+    if (_ptr) _ptr.busy = false;
+    // A silent failure would be indistinguishable from a successful refresh
+    // that found nothing new, which is the one thing it must not look like.
+    if (!ok) showDeviceToast('Could not reach your hub — showing the last known state');
+  }, 450);
+}
+
 function nativeModulesPending(on) {
   try {
     if (on) _LS.setItem(NFM_PENDING_KEY, '1');
@@ -21940,6 +22126,7 @@ function launchOnboarding() {
      line above has run. A no-op in a browser and on any launch that did not
      just complete a first run. */
   nativeModulesIfPending();
+  nativePullToRefreshInit();
 })();
 </script>
 </body>

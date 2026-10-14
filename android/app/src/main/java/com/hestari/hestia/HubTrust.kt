@@ -168,6 +168,23 @@ object HubTrust {
             }
             OkHttpClient.Builder()
                 .sslSocketFactory(ssl.socketFactory, trustManager)
+                /* ⛔ OkHttp's default is 5 requests per host, and EVERYTHING
+                   here is one host: device polling, the companion app store,
+                   and every camera snapshot served through HubProxy. A hub
+                   snapshot can take seconds, so a household with three cameras
+                   refreshing can hold the whole allowance while the 1s device
+                   poll queues behind them and times out at 10s. Observed on a
+                   real household: "Lost connection to your hub" on a hub that
+                   was answering the same request in 75ms, with the poll feeding
+                   the jam faster than it drained.
+                   The hub is a device on the LAN answering in milliseconds, so
+                   the cap is protecting nothing here -- it exists for servers
+                   on the open internet. Raised well clear of any realistic
+                   camera count plus control traffic. */
+                .dispatcher(okhttp3.Dispatcher().apply {
+                    maxRequests = 32
+                    maxRequestsPerHost = 16
+                })
                 /* Replaced, not weakened by accident. The certificate has no
                    SAN, so there is nothing any verifier could match. Identity
                    is proved by the pinned key instead, which is a stronger
