@@ -947,25 +947,31 @@ console.log('\n=== 20. Pull to refresh reaches the app and nothing else ===');
   check('an ordinary dashboard does NOT block it', blockEnv({})() === false,
     'blocking everywhere would be a feature that never runs');
 
-  /* A failed hub read must not be mistaken for an empty household here either.
-     That confusion is what erased a household's disarm PIN. */
+  /* IT IS A BROWSER REFRESH. The first version re-read the config, re-fetched
+     devices and repainted, and that was wrong twice: it is not what the gesture
+     promises, and it kept state a reload clears -- `artemisCamerasView` only
+     resets via its own back button, so a repaint could land the user in the
+     camera list instead of where they were. Reported from the real app. */
   const refresh = codeOnlyJs(extractFn('nativeRefreshNow'));
-  check('refresh applies a config only when one actually came back',
-    /const cfg = await loadConfigFromHub\(\);[\s\S]{0,120}if \(cfg\) \{/.test(refresh),
-    'the PIN-wipe bug, one function over');
-  check('...and never reloads the page instead',
-    !/location\.reload/.test(refresh),
-    'a reload tears down the wake-word listener and the mic it holds');
-  check('a failed refresh says so', /showDeviceToast\(/.test(refresh),
-    'silence is indistinguishable from a refresh that found nothing new');
+  check('refresh reloads the page', /location\.reload\(\)/.test(refresh),
+    'anything less leaves nested view state behind and the user unsure what happened');
+  check('...and does not hand-roll a partial resync instead',
+    !/fetchAllDevices|applyParsedConfig|refreshActiveView/.test(refresh),
+    'the half-state was the bug');
+  check('...after painting the spinner, not before',
+    /requestAnimationFrame\([\s\S]*location\.reload/.test(refresh),
+    'a reload blocks the main thread, so an unpainted spinner means no feedback at all');
 
-  /* Found by running it, not by reading it. Snapshots share one host with
-     device polling, OkHttp allows 5 concurrent per host, and a hub snapshot
-     takes seconds -- so three of them beside a device fetch starved the 1s
-     poll into its 10s timeout and put "Lost connection to your hub" on screen
-     while the hub was answering in 75ms. */
-  check('refresh does NOT kick the cameras', !/camRefreshAll/.test(refresh),
-    'they have their own timer, and they starve device polling for the same host');
+  /* The banner is WHY this gesture exists: the user updated their companion
+     app and had no way to see the dashboard notice. A successful check does not
+     run again for six hours, so without this the banner outlived its own
+     reason for being on screen. */
+  const companion = codeOnlyJs(extractFn('checkCompanionVersion'));
+  check('the update banner is hidden once there is nothing to say',
+    /if \(!text\) \{ _companionBannerHide\(\); return; \}/.test(companion),
+    'it used to return and leave a resolved mismatch on screen for six hours');
+  check('...and when the other update banner supersedes it',
+    /classList\.contains\('visible'\)\) \{ _companionBannerHide\(\); return; \}/.test(companion));
 }
 
 console.log(`\n${PASS} passed, ${FAIL} failed`);

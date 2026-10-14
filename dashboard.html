@@ -5028,7 +5028,7 @@ async function checkCompanionVersion() {
     // Don't stack a second amber bar saying the same thing -- checkAppVersion()'s
     // banner already carries this call to action when it's showing.
     const appBanner = document.getElementById('app-update-banner');
-    if (appBanner && appBanner.classList.contains('visible')) return;
+    if (appBanner && appBanner.classList.contains('visible')) { _companionBannerHide(); return; }
 
     const appCmp  = _versionCmp(data.appVersion, HESTIA_VERSION);
     // dashboardVersion is the index.html actually on the hub (what wall panels
@@ -5044,13 +5044,23 @@ async function checkCompanionVersion() {
       // /local/index.html is a static file only downloadDashboard() rewrites.
       text = `This dashboard is v${HESTIA_VERSION} but your hub has v${data.appVersion}. Open the Hestia app on your hub and click Done to refresh the copy this device loads.`;
     }
-    if (!text) return;
+    /* Hidden when there is nothing left to say, not merely left alone. This
+       banner used to `return` here, so once the versions finally matched it
+       stayed on screen -- and since a successful check does not run again for
+       six hours, updating the companion app did not visibly change anything.
+       The user had no way to confirm their own update had landed. */
+    if (!text) { _companionBannerHide(); return; }
     const banner = document.getElementById('companion-update-banner');
     const msg    = document.getElementById('companion-update-msg');
     if (!banner || !msg) return;
     msg.textContent = text;
     banner.classList.add('visible');
   } catch(e) {}
+}
+
+function _companionBannerHide() {
+  const banner = document.getElementById('companion-update-banner');
+  if (banner) banner.classList.remove('visible');
 }
 function dismissCompanionUpdateBanner() {
   const banner = document.getElementById('companion-update-banner');
@@ -20432,64 +20442,39 @@ function _ptrReset() {
 }
 
 /**
- * What "refresh" means here: re-read the household config, re-read every
- * device, repaint.
+ * A BROWSER REFRESH. Nothing cleverer, on purpose.
  *
- * NOT location.reload(). A reload tears down the wake-word listener and the
- * microphone it holds, re-runs first-run checks, and re-initialises Athena --
- * seconds of work to solve a problem that is almost always just stale device
- * state. This does the part that was actually stale.
+ * The first version re-read the config, re-fetched the devices and repainted,
+ * on the reasoning that a reload is expensive. It was the wrong model twice
+ * over:
  *
- * Config first, because a device list rendered against yesterday's rooms is
- * exactly as stale as the device states were.
+ *  - It is not what the gesture promises. People pull down expecting the page
+ *    they would get from a reload, and anything less leaves them unsure what
+ *    actually happened.
+ *  - It kept state a reload would have cleared. Nested view flags survive a
+ *    re-render -- `artemisCamerasView` only resets via its own back button, a
+ *    documented wart -- so refreshing could repaint into the camera list
+ *    instead of where the user was. Reported from the real app.
+ *
+ * And the expense argument does not hold here. The page is served from bundled
+ * assets, so there is no download; OWW wake-word detection does not run on a
+ * phone; and the reload is what re-runs the version checks that clear the
+ * update banner, which is the actual reason this gesture was asked for.
+ *
+ * ⛔ A reload CANNOT deliver a newer dashboard in the app. The page comes from
+ * the APK's own assets, so a new dashboard build arrives only with a new APK.
+ * What a reload does deliver is a fresh read of the hub's config and a fresh
+ * companion-app version check.
  */
-async function nativeRefreshNow() {
+function nativeRefreshNow() {
   if (_ptr) _ptr.busy = true;
   const el = _ptrIndicator();
   el.classList.add('on', 'spin');
   el.style.transform = 'translateX(-50%) translateY(' + PTR_TRIGGER + 'px)';
   el.style.opacity = '1';
-  let ok = true;
-  try {
-    if (HUB_STORE && !_breakerIsOpen()) {
-      const cfg = await loadConfigFromHub();
-      /* Only on a real answer. A failed read must not be mistaken for an empty
-         household here either -- same rule as boot, and the reason the PIN was
-         lost in the first place. */
-      if (cfg) { applyParsedConfig(cfg); _persistConfigKeepingSecret(cfg); applyConfig(); }
-    }
-    await fetchAllDevices();
-    lastConnOk = true;
-    setConn('ok');
-  } catch (e) {
-    ok = false;
-    lastConnOk = false;
-    setConn('err');
-    console.warn('[Refresh] failed:', e && e.message);
-  }
-  try {
-    refreshActiveView();
-    updateStats();
-    syncTopbar();
-    if (CONFIG.artemisEnabled) { artemisHsmSync(); updateArmedStatus(); }
-    /* ⛔ Cameras are deliberately NOT refreshed here, and this cost a real
-       debugging session to learn. Snapshots go to the same host as everything
-       else, OkHttp allows 5 concurrent requests per host, and a hub snapshot
-       can take seconds. Firing three of them beside a device fetch while the
-       1s poll is running saturated the dispatcher: polls queued, hit the 10s
-       read timeout, and the "Lost connection to your hub" screen appeared on a
-       hub that was answering in 75ms. The poll kept feeding the jam.
-       Cameras already refresh on their own timer while their view is open. */
-  } catch (e) {}
-  // Held briefly even on a fast hub: an indicator that vanishes in 80ms reads
-  // as "nothing happened" rather than as a refresh.
-  setTimeout(() => {
-    _ptrReset();
-    if (_ptr) _ptr.busy = false;
-    // A silent failure would be indistinguishable from a successful refresh
-    // that found nothing new, which is the one thing it must not look like.
-    if (!ok) showDeviceToast('Could not reach your hub — showing the last known state');
-  }, 450);
+  /* One frame so the spinner is actually painted before the reload blocks the
+     main thread, otherwise the gesture ends with no feedback at all. */
+  requestAnimationFrame(() => setTimeout(() => location.reload(), 60));
 }
 
 function nativeModulesPending(on) {
