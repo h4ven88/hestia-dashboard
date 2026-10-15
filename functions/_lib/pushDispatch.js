@@ -126,7 +126,27 @@ export function prunableNow(fresh, ref) {
   return current === ref;
 }
 
-export async function dispatchPush(env, shortHash, { category, title, body, armed, targetDeviceId }) {
+/* What a notification REPLACES in the shade.
+ *
+ * Both transports collapse on this value, and both were getting it wrong in
+ * the same direction -- too coarse, so unrelated events overwrote each other:
+ *
+ *   FCM        was sent `tag: category`, so the back door opening replaced the
+ *              front door opening and the household only ever saw the later one.
+ *   Web Push   was sent no tag at all, so sw.js fell back to a single constant
+ *              for EVERYTHING -- a smoke alert replaced a door alert. Shipped
+ *              that way since v1.6.2.
+ *
+ * The right key identifies the THING, not the kind: a sensor that flaps should
+ * still collapse onto itself, which is what a tag is for. Callers that know
+ * which device fired pass it; a manual test send has no device and falls back
+ * to the category, which is correct for a single ad-hoc notification. */
+export function collapseKeyFor(category, deviceId) {
+  const base = String(category || 'hestia');
+  return deviceId ? `${base}:${deviceId}` : base;
+}
+
+export async function dispatchPush(env, shortHash, { category, title, body, armed, targetDeviceId, deviceKey }) {
   const pushRaw = await env.HESTIA_KV.get(`push:${shortHash}`);
   if (!pushRaw) return { sent: 0, failed: 0, pruned: 0, targetFound: !targetDeviceId };
   const devices = JSON.parse(pushRaw);
@@ -157,12 +177,16 @@ export async function dispatchPush(env, shortHash, { category, title, body, arme
   // other device in the household, including this same alarming/smoke/water
   // bypass path. Each device's outcome is now independent, and that now also
   // means an FCM outage cannot delay a browser's notification or the reverse.
+  /* One key, both transports. Computed once so the phone and the laptop in the
+     same household cannot disagree about what replaces what. */
+  const tag = collapseKeyFor(category, deviceKey);
+
   const outcomes = await Promise.allSettled(
     eligible.map(([deviceId, device]) =>
       withTimeout(
         isFcm(device)
-          ? sendFcmNotification(env, device.token, { title, body, category, tag: category })
-          : sendPushNotification(keyPair, device.subscription, VAPID_SUBJECT, JSON.stringify({ title, body })),
+          ? sendFcmNotification(env, device.token, { title, body, category, tag })
+          : sendPushNotification(keyPair, device.subscription, VAPID_SUBJECT, JSON.stringify({ title, body, tag })),
         PUSH_SEND_TIMEOUT_MS
       ).then((res) => ({ deviceId, res }))
     )

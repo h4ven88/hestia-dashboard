@@ -240,7 +240,10 @@ export async function processDeviceEvent({ request, env, cap }) {
     if (config.pushEnabled !== true) return Response.json({ status: 'ok', skipped: 'push disabled', logged });
     if (!pushAllowed(config, described, evt)) return Response.json({ status: 'ok', skipped: 'no matching category/gate', logged });
 
-    const result = await dispatchPush(env, shortHash, { category: described.category, title: described.title, body: described.body, armed });
+    /* The sensor that fired, so a flapping contact collapses onto itself while
+       two different doors stay two notifications. Without it the back door
+       opening silently replaced the front door opening. */
+    const result = await dispatchPush(env, shortHash, { category: described.category, title: described.title, body: described.body, armed, deviceKey: evt.deviceId });
     return Response.json({ status: 'ok', logged, ...result });
   } catch (err) {
     console.error('[push/webhook] onRequestPost error:', err);

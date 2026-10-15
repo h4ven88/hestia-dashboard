@@ -8,8 +8,14 @@
  *
  * Run: node tests/pushtransport.mjs
  */
-import { isFcmDevice, selectEligible, shouldPrune, prunableNow } from '../functions/_lib/pushDispatch.js';
+import { isFcmDevice, selectEligible, shouldPrune, prunableNow, collapseKeyFor } from '../functions/_lib/pushDispatch.js';
 import { fcmTokenIsDead } from '../functions/_lib/fcm.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const codeOnly = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ')
+  .split('\n').map(l => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
 
 let PASS = 0, FAIL = 0;
 const check = (l, c, x = '') => { c ? PASS++ : FAIL++; console.log(`${c ? 'PASS' : 'FAIL'}  ${l}${x ? `  ${x}` : ''}`); };
@@ -140,6 +146,53 @@ console.log('\n=== 5. A device that re-registered mid-dispatch is not deleted ==
      request to 500 mid-dispatch. */
   check('a malformed record does not throw',
     prunableNow({ name: 'x', mode: 'always' }, 'tok-1') === false);
+}
+
+console.log('\n=== 6. What a notification replaces in the shade ===');
+{
+  /* Both transports collapsed too coarsely, in the same direction.
+     FCM was sent `tag: category`, so the back door opening replaced the front
+     door opening. Web Push was sent NO tag, so sw.js fell back to one constant
+     for everything and a smoke alert replaced a door alert -- shipped that way
+     to every household since v1.6.2. Found by reading the shade on a real
+     phone during the FCM delivery measurements, not by any test. */
+  check('two different sensors of one kind do not collapse',
+    collapseKeyFor('contact', '12') !== collapseKeyFor('contact', '34'),
+    'the back door silently replacing the front door was the bug');
+  check('the same sensor flapping DOES collapse',
+    collapseKeyFor('contact', '12') === collapseKeyFor('contact', '12'),
+    'collapsing repeats is what a tag is for; losing distinct events is not');
+  check('different kinds never share a key',
+    collapseKeyFor('smoke', '12') !== collapseKeyFor('contact', '12'),
+    'a smoke alert must never replace a door alert');
+  check('no device still gives a usable key', collapseKeyFor('test') === 'test',
+    'a manual test send has no sensor behind it');
+  check('a missing category cannot produce an empty key',
+    collapseKeyFor('') === 'hestia' && collapseKeyFor(undefined) === 'hestia',
+    'an empty tag would make every notification collapse onto one slot again');
+  check('a numeric device id is stringified, not concatenated oddly',
+    collapseKeyFor('motion', 7) === 'motion:7');
+
+  /* The key has to actually reach both transports, and the Web Push half is
+     the one that reaches every household today. */
+  const dispatch = codeOnly(fs.readFileSync(path.join(ROOT, 'functions/_lib/pushDispatch.js'), 'utf8'));
+  check('one key is computed for the whole household, not per device',
+    /const tag = collapseKeyFor\(category, deviceKey\);/.test(dispatch),
+    'a phone and a laptop disagreeing about what replaces what would be worse than either bug');
+  check('FCM is sent it', /sendFcmNotification\([^)]*tag\s*\}/.test(dispatch));
+  check('Web Push is sent it too',
+    /JSON\.stringify\(\{ title, body, tag \}\)/.test(dispatch),
+    'this is the half that has been collapsing everything onto one slot since v1.6.2');
+
+  const sw = codeOnly(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'));
+  check('the service worker prefers the sent tag over its constant',
+    /tag:\s*data\.tag \|\|/.test(sw),
+    'it already did; the payload simply never carried one');
+
+  const hook = codeOnly(fs.readFileSync(path.join(ROOT, 'functions/api/push/webhook.js'), 'utf8'));
+  check('the webhook passes the sensor that actually fired',
+    /deviceKey:\s*evt\.deviceId/.test(hook),
+    'without this the key degrades back to the category and the bug returns');
 }
 
 console.log(`\n${PASS} passed, ${FAIL} failed`);
