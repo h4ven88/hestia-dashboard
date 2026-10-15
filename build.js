@@ -290,6 +290,13 @@ async function build() {
   checkVersion('packageManifest.json', 'packageManifest.json', /"version"\s*:\s*"([^"]+)"/);
   checkVersion('Groovy APP_VERSION', 'HestiaDashboard.groovy', /APP_VERSION\s*=\s*"([^"]+)"/);
   checkVersion('Groovy header comment', 'HestiaDashboard.groovy', /Hestia™ Home Dashboard v([0-9][^\s*]*)/);
+  /* The FIFTH place, added once it had already drifted: the Android app
+     reported versionName 2.2.0 while everything else said 2.2.1. Nothing
+     compared it, which is precisely the condition the four checks above exist
+     to end. It matters more than it looks -- versionName is what a user reads
+     in Android's app info and what any crash report is filed against, so a
+     stale one makes a bug report point at the wrong build. */
+  checkVersion('Android versionName', 'android/app/build.gradle.kts', /versionName\s*=\s*"([^"]+)"/);
 
   if (mismatches.length) {
     throw new Error(

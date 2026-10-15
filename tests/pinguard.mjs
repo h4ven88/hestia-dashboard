@@ -287,15 +287,24 @@ console.log('\n=== 6. the Groovy choke point ===');
 }
 
 /* ── 7. Versions move together ───────────────────────────────────────── */
-console.log('\n=== 7. the four version strings agree ===');
+console.log('\n=== 7. the five version strings agree ===');
 {
   const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'packageManifest.json'), 'utf8'));
+  const GRADLE = fs.readFileSync(path.join(ROOT, 'android/app/build.gradle.kts'), 'utf8');
   const dash = /const HESTIA_VERSION\s*=\s*'([^']+)'/.exec(SRC)[1];
   const app = /APP_VERSION\s*=\s*"([^"]+)"/.exec(GROOVY)[1];
   const hdr = /Hestia™ Home Dashboard v([0-9.]+)/.exec(GROOVY)[1];
-  check('dashboard, manifest, APP_VERSION and the Groovy header all match',
-    dash === manifest.version && dash === app && dash === hdr,
-    `${dash} / ${manifest.version} / ${app} / ${hdr}`);
+  const apk = /versionName\s*=\s*"([^"]+)"/.exec(GRADLE)[1];
+  check('dashboard, manifest, APP_VERSION, the Groovy header and the app all match',
+    dash === manifest.version && dash === app && dash === hdr && dash === apk,
+    `${dash} / ${manifest.version} / ${app} / ${hdr} / ${apk}`);
+  /* The Android string was the fifth place, found already drifted at 2.2.0
+     against a 2.2.1 release -- while a comment beside it claimed build.js kept
+     it in step. build.js checks it now; this asserts the check exists, since a
+     passing build proves nothing about a check that was deleted. */
+  const BUILDJS = fs.readFileSync(path.join(ROOT, 'build.js'), 'utf8');
+  check('build.js refuses a build when the Android version drifts',
+    /checkVersion\('Android versionName', 'android\/app\/build\.gradle\.kts'/.test(BUILDJS));
   check('the manifest release-notes URL points at this tag',
     manifest.releaseNotes.endsWith('/v' + dash), manifest.releaseNotes);
   /* HPM parses this file with JsonSlurper, which does NOT tolerate a BOM.
@@ -303,6 +312,49 @@ console.log('\n=== 7. the four version strings agree ===');
   const raw = fs.readFileSync(path.join(ROOT, 'packageManifest.json'));
   check('the manifest has no UTF-8 BOM',
     !(raw[0] === 0xef && raw[1] === 0xbb && raw[2] === 0xbf));
+}
+
+console.log('\n=== 8. Release signing cannot leak, and cannot block a build ===');
+{
+  const GRADLE = fs.readFileSync(path.join(ROOT, 'android/app/build.gradle.kts'), 'utf8');
+
+  /* The repository is public. A signing key in it lets anyone publish an
+     update Android accepts as genuinely Hestia, which is worse than any bug
+     this project has shipped. Asserted on the real .gitignore rather than on
+     the intention, because "deliberately kept local but not ignored" is the
+     state this project has already been burned by once. */
+  const IGNORE = fs.readFileSync(path.join(ROOT, '.gitignore'), 'utf8');
+  check('keystores are ignored', /^\*\.jks$/m.test(IGNORE) && /^\*\.keystore$/m.test(IGNORE));
+  check('...and so is the file holding their passwords',
+    /^android\/keystore\.properties$/m.test(IGNORE));
+  check('no signing material is sitting in the tree right now',
+    !fs.existsSync(path.join(ROOT, 'android/keystore.properties')),
+    'a throwaway key was used to verify the signing path and must not survive it');
+
+  /* Absent a key the release build stays UNSIGNED rather than failing, so a
+     fresh clone, a contributor and CI can all still build. Verified by
+     building both ways: app-release-unsigned.apk without, app-release.apk
+     with. */
+  check('a missing keystore leaves the config null instead of throwing',
+    /signingConfig = signingConfigs\.findByName\("release"\)/.test(GRADLE) &&
+    /if \(keystorePropsFile\.exists\(\)\)/.test(GRADLE));
+
+  /* Play refuses an upload whose versionCode is not strictly greater than the
+     last, and a hand-edited number beside one maintained by a different habit
+     is the drift this file already documents. */
+  check('versionCode is derived from versionName, not hand-maintained',
+    /versionCode = versionName!!\.split\("\."\)/.test(GRADLE));
+  const [maj, min, pat] = /versionName\s*=\s*"([^"]+)"/.exec(GRADLE)[1].split('.').map(Number);
+  check('...and the derivation is monotonic for this version',
+    maj * 10000 + min * 100 + pat === 20201,
+    'built APK reported versionCode 20201 for 2.2.1');
+
+  /* R8 would rename the @JavascriptInterface methods the page calls by name,
+     and that fails SILENTLY -- the exact failure mode the bridge was designed
+     to avoid. Off on purpose; this pins the decision so a later "tidy-up"
+     has to argue with it. */
+  check('minification stays off until the bridge has keep rules',
+    /isMinifyEnabled = false/.test(GRADLE));
 }
 
 console.log(`\n${PASS} passed, ${FAIL} failed`);
