@@ -107,6 +107,15 @@ android {
         }
     }
 
+    /* android.util.Log is a framework stub on the JVM and THROWS by default,
+       so a unit test of logic that merely logs fails for the logging. Default
+       values turn those into no-ops. It does not make framework classes work --
+       anything security-critical here parses with java.net.URI precisely so it
+       does not depend on them. */
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

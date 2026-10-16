@@ -74,6 +74,37 @@
         android:name="android.permission.NEARBY_WIFI_DEVICES"
         android:usesPermissionFlags="neverForLocation" />
 
+    <!--
+        usesCleartextTraffic is TRUE below. Read this before changing it.
+
+        It was false, which was better, but it made CameraProxy impossible. The
+        flag is enforced by the HTTP stack, not only the WebView, so OkHttp
+        threw UnknownServiceException before a socket opened. A household whose
+        cameras answer on plain http at the camera's own address (UniFi
+        anonymous snapshot) saw black tiles with no way to fix them. That is a
+        capability a browser gave them and the app took away.
+
+        Android's network security config can permit cleartext per domain, but
+        it is static XML fixed at build time, while camera addresses are
+        per household and set at runtime. There is no way to express "any
+        private address", so scoping it was not an option.
+
+        WHAT HOLDS THE LINE NOW, in code rather than as a side effect of one
+        global flag:
+          1. HubTrust.storedOrigin() returns null for a non-https origin, so
+             neither HubClient nor HubProxy can relay in the clear.
+          2. HubClient.configure() refuses a non-https hub outright.
+          3. CloudClient.request() asserts its own origin is https.
+          4. CameraProxy fetches only registered camera origins whose host
+             resolves to a private address.
+
+        Those four replaced one flag. Do not drop any of them on the grounds
+        that the platform handles it. It no longer does.
+
+        The WebView is unaffected: it keeps the platform default of
+        MIXED_CONTENT_NEVER_ALLOW, so the page still cannot load http itself.
+        Only CameraProxy can, behind the checks above.
+    -->
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
@@ -81,7 +112,7 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.Hestia"
-        android:usesCleartextTraffic="false">
+        android:usesCleartextTraffic="true">
 
         <activity
             android:name=".MainActivity"

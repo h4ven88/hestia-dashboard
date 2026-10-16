@@ -126,6 +126,11 @@ class MainActivity : AppCompatActivity() {
                 ): WebResourceResponse? =
                     assetLoader.shouldInterceptRequest(request.url)
                         ?: HubProxy.serve(applicationContext, request)
+                        /* LAST, so the pinned hub always wins a host it shares
+                           with a configured camera. CameraProxy serves hosts we
+                           hold no pin for and earns its own trust instead --
+                           registered camera origins that resolve private. */
+                        ?: CameraProxy.serve(request)
 
                 /**
                  * Navigation is locked to the asset origin. Android's own

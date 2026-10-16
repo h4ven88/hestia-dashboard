@@ -1904,7 +1904,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '2.2.1';
-const HESTIA_BUILD_DATE = '2026-10-15';
+const HESTIA_BUILD_DATE = '2026-10-16';
 
 /* ═══════════════════════════════════════════════════════
    SANDBOX MODE
@@ -2718,18 +2718,93 @@ function nativeHub() {
  * A no-op in every browser: _nativeHubOrigin is null there, so the URL is
  * returned untouched and mixed content keeps behaving exactly as it does now.
  */
+/* Null unless a native shell will fetch camera snapshots itself. Separate from
+   nativeHub(): the hub relay serves a host this device pinned, the camera proxy
+   serves hosts it holds no pin for and checks them differently. */
+function nativeCamera() {
+  const n = window.hestiaNative;
+  return (n && n.capabilities && n.capabilities.indexOf('camera') >= 0) ? n : null;
+}
+
+/* http -> https for one url, which is the ONLY way either proxy can ever see
+   it. Blink decides mixed content in the renderer, so an http:// <img> dies
+   before shouldInterceptRequest exists. */
+/* No :80 handling, and that is deliberate rather than an omission. The inherited
+   version cleared an explicit :80 "because it would survive the swap", which is
+   not true: new URL() normalises a scheme's default port away at PARSE time, so
+   u.port is already '' for http://host:80/x and the condition could never fire.
+   Verified in node, and the mutation gate flagged the line as removable before
+   the claim was checked. Same dead-condition class as the u.port === '443' note
+   in the hub-url guard. A real port like :8080 is NOT a default and survives,
+   which is what we want. */
+function _camToHttps(u) {
+  u.protocol = 'https:';
+  return u;
+}
+
 function camDeviceUrl(url) {
-  if (!url || !_nativeHubOrigin) return url;
+  if (!url) return url;
   try {
     const u = new URL(url, window.location.href);
     if (u.protocol !== 'http:') return url;
-    if (u.hostname !== new URL(_nativeHubOrigin).hostname) return url;
-    u.protocol = 'https:';
-    /* Port is cleared with the protocol: an explicit :80 would survive the
-       swap and produce https on the cleartext port, which answers nothing. */
-    if (u.port === '80') u.port = '';
-    return u.href;
+    // The pinned hub, served by HubProxy over the connection we hold a key for.
+    if (_nativeHubOrigin && u.hostname === new URL(_nativeHubOrigin).hostname) {
+      return _camToHttps(u).href;
+    }
+    /* A configured camera on its own address, served by CameraProxy. Rewritten
+       only when the native side is actually there to answer it -- in a browser
+       this must stay http, because a browser CAN load it and rewriting would
+       break a camera that works today. */
+    if (nativeCamera() && _camIsConfigured(u)) return _camToHttps(u).href;
+    return url;
   } catch(e) { return url; }
+}
+
+/* Is this one of the household's own camera addresses?
+   Compared by ORIGIN, never by full url: every render path appends a
+   cache-busting token, so matching whole urls would rewrite the first load and
+   silently stop rewriting every refresh after it. */
+function _camIsConfigured(u) {
+  const want = u.protocol + '//' + u.host;
+  return (CONFIG.cameras || []).some(c => {
+    try { const cu = new URL(c.snapshotUrl, window.location.href);
+          return cu.protocol === 'http:' && (cu.protocol + '//' + cu.host) === want; }
+    catch(e) { return false; }
+  });
+}
+
+/* Hands the native side the exact set of origins it may fetch over cleartext.
+   Replaces the whole set, so removing a camera in Settings withdraws it.
+   `from` always shares a host with `to` -- the native side requires that, so
+   this cannot register a mapping that makes some unrelated origin answer from
+   the LAN. */
+function camRegisterNative() {
+  const n = nativeCamera();
+  if (!n) return Promise.resolve(null);
+  let hubHost = '';
+  try { hubHost = _nativeHubOrigin ? new URL(_nativeHubOrigin).hostname : ''; } catch(e) {}
+  const seen = new Set(), pairs = [];
+  (CONFIG.cameras || []).forEach(c => {
+    try {
+      const u = new URL(c.snapshotUrl, window.location.href);
+      if (u.protocol !== 'http:') return;              // https already loads itself
+      /* The pinned hub is HubProxy's job and camDeviceUrl routes it there, so
+         registering it here only widens the camera allow-list for a host that
+         never uses it. Observed for real: a refused hub snapshot was declined
+         by HubProxy and then attempted again by CameraProxy, because every
+         camera in this household is a hub url. */
+      if (hubHost && u.hostname === hubHost) return;
+      const to = 'http://' + u.host;
+      if (seen.has(to)) return;
+      seen.add(to);
+      const f = _camToHttps(new URL(u.href));
+      pairs.push({ from: f.protocol + '//' + f.host, to });
+    } catch(e) {}
+  });
+  return n.call('camera.allow', { pairs }).catch(e => {
+    console.warn('[Camera] could not register origins:', e && e.message);
+    return null;
+  });
 }
 
 /**
@@ -16445,7 +16520,7 @@ async function camWarmStateOnBoot() {
   const cams = CONFIG.cameras || [];
   await Promise.all(cams.map((c, i) => {
     if (!c.snapshotUrl) return Promise.resolve();
-    return _camTestLoadUrl(c.snapshotUrl).then(ok => { ok ? camMarkOnline(i) : camMarkOffline(i); });
+    return _camTestLoadUrl(c.snapshotUrl).then(r => { r.ok ? camMarkOnline(i) : camMarkOffline(i); });
   }));
 }
 // Background auto-refresh — only fires while a camera-viewing surface is
@@ -18225,7 +18300,35 @@ function spMoveCameraDown(i) {
 // already works around the CORS/auth quirks these snapshot endpoints have
 // and correctly renders an MJPEG stream URL too, not just a still image.
 const CAM_TEST_TIMEOUT_MS = 6000;
+/* Probes one camera url the way THIS device will actually load it.
+ *
+ * In the app a cleartext camera cannot be probed with an <img> at all: it is
+ * mixed content, so it fails in the renderer and the button reported "failed to
+ * load" for cameras that work perfectly. A household would hit that while
+ * typing the url in Settings -- before saving, before anything could serve it
+ * -- and reasonably conclude they had it wrong. A test that disagrees with the
+ * render is worse than no test.
+ *
+ * So when native can fetch it, native does the probe, and the answer carries a
+ * reason rather than a bare false.
+ *
+ * ⛔ ALWAYS resolves to {ok, reason}, never a bare boolean. An earlier version
+ * returned `true` or an object, and both callers test truthiness -- so a failed
+ * probe returned a TRUTHY object and marked a dead camera online. One shape for
+ * every path, or the next caller inherits the same trap. */
 function _camTestLoadUrl(url) {
+  const n = nativeCamera();
+  let isHttp = false;
+  try { isHttp = new URL(url, window.location.href).protocol === 'http:'; } catch(e) {}
+  if (n && isHttp) {
+    return n.call('camera.test', { url: String(url) })
+      .then(r => ({ ok: !!(r && r.ok), reason: (r && r.reason) || '' }))
+      .catch(e => ({ ok: false, reason: (e && e.message) || 'could not reach it' }));
+  }
+  return _camTestLoadImg(url).then(ok => ({ ok: !!ok, reason: '' }));
+}
+
+function _camTestLoadImg(url) {
   return new Promise((resolve) => {
     const img = new Image();
     const timer = setTimeout(() => { img.src = ''; resolve(false); }, CAM_TEST_TIMEOUT_MS);
@@ -18254,12 +18357,17 @@ async function spTestCamera(i) {
   result.className = 'cam-test-result loading';
 
   const checks = [];
-  if (snapshotUrl) checks.push(_camTestLoadUrl(snapshotUrl).then(ok => ({ label: 'Snapshot', ok })));
-  if (streamUrl)   checks.push(_camTestLoadUrl(streamUrl).then(ok => ({ label: 'Stream', ok })));
+  if (snapshotUrl) checks.push(_camTestLoadUrl(snapshotUrl).then(r => ({ label: 'Snapshot', ...r })));
+  if (streamUrl)   checks.push(_camTestLoadUrl(streamUrl).then(r => ({ label: 'Stream', ...r })));
   const outcomes = await Promise.all(checks);
 
   const allOk = outcomes.every(o => o.ok);
-  result.textContent = outcomes.map(o => `${o.ok ? '✓' : '✗'} ${o.label} ${o.ok ? 'loads' : 'failed to load'}`).join('  —  ');
+  /* The reason is shown when there is one. "Failed to load" alone sent a real
+     household looking for a typo that was not there -- the url was right and
+     the app simply could not fetch it. */
+  result.textContent = outcomes.map(o =>
+    o.ok ? `✓ ${o.label} loads`
+         : `✗ ${o.label}: ${o.reason || 'failed to load'}`).join('  —  ');
   result.className = 'cam-test-result ' + (allOk ? 'ok' : 'err');
 }
 
@@ -18329,6 +18437,10 @@ async function saveSettings() {
       if (streamUrl && !isHttpUrl(streamUrl)) badCameraUrls.push(name + ' (stream URL)');
       CONFIG.cameras.push({ name, snapshotUrl, streamUrl });
     });
+    /* Re-registered on every camera save, because the set REPLACES rather than
+       adds: a camera removed here must stop being served, and one added here
+       must start, without waiting for a reload. */
+    camRegisterNative();
   }
   // Settings PIN — hash with SHA-512 before storing
   const pinEl = document.getElementById('sp-settings-pin');
@@ -22093,7 +22205,11 @@ function launchOnboarding() {
   // Ensure all sensors have room + subtype fields (adds defaults if missing)
   migrateSensorMeta();
   if (CONFIG.artemisEnabled) { artemisHsmSync(); updateArmedStatus(); }
-  if ((CONFIG.cameras || []).length > 0) { camWarmStateOnBoot(); }
+  /* BEFORE the warm-up, not after: the probe loads the rewritten https urls,
+     and native refuses any origin it has not been told about yet. Registering
+     second would make every cleartext camera report offline on first boot and
+     only recover on the next render. */
+  if ((CONFIG.cameras || []).length > 0) { camRegisterNative().then(camWarmStateOnBoot); }
   if (CONFIG.athenaEnabled)  { athenaInit(); }
   if (CONFIG.pushEnabled)    { pushResyncOnBoot(); }
   // Registered whenever either Push or Announcements needs device events --

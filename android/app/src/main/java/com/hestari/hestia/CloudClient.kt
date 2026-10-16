@@ -133,6 +133,11 @@ object CloudClient {
         headers: Map<String, String> = emptyMap(),
         timeoutMs: Long = 0,
     ): Result {
+        /* Asserted rather than assumed. ORIGIN is a constant one edit away from
+           being http, and since the app now permits cleartext for cameras the
+           platform would no longer catch that. This call carries the raw Maker
+           API token and the household secret proof. */
+        require(ORIGIN.startsWith("https://")) { "cloud origin must be https://" }
         if (!HubClient.isSafePath(path)) throw BadPath(path)
 
         val mediaType = (contentType ?: "application/json").toMediaTypeOrNull()

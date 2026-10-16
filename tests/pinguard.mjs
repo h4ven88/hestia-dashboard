@@ -22,6 +22,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { execFileSync } from 'child_process';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = fs.readFileSync(path.join(ROOT, 'dashboard.html'), 'utf8');
@@ -327,9 +328,29 @@ console.log('\n=== 8. Release signing cannot leak, and cannot block a build ==='
   check('keystores are ignored', /^\*\.jks$/m.test(IGNORE) && /^\*\.keystore$/m.test(IGNORE));
   check('...and so is the file holding their passwords',
     /^android\/keystore\.properties$/m.test(IGNORE));
-  check('no signing material is sitting in the tree right now',
-    !fs.existsSync(path.join(ROOT, 'android/keystore.properties')),
-    'a throwaway key was used to verify the signing path and must not survive it');
+  /* NOT "the file does not exist". It asserted that once, which was true only
+     because a throwaway key had just been deleted -- and it broke the moment
+     the maintainer created a real one, which is the normal end state. A test
+     that encodes a transient condition as an invariant fails the person doing
+     the thing it was meant to protect.
+     The real property: if it exists, git cannot see it. */
+  const propsPath = path.join(ROOT, 'android/keystore.properties');
+  if (fs.existsSync(propsPath)) {
+    const tracked = (() => {
+      try {
+        execFileSync('git', ['ls-files', '--error-unmatch', 'android/keystore.properties'],
+          { cwd: ROOT, stdio: 'pipe' });
+        return true;
+      } catch { return false; }
+    })();
+    check('the signing properties file is NOT tracked by git', tracked === false,
+      'a signing password in a public repo lets anyone publish as Hestia');
+    const staged = execFileSync('git', ['status', '--porcelain', '--', 'android/keystore.properties'],
+      { cwd: ROOT, encoding: 'utf8' }).trim();
+    check('...and is not staged or showing as untracked', staged === '', staged);
+  } else {
+    check('no signing properties file present (fresh clone or CI)', true);
+  }
 
   /* Absent a key the release build stays UNSIGNED rather than failing, so a
      fresh clone, a contributor and CI can all still build. Verified by

@@ -106,7 +106,7 @@ class HestiaBridge(
         put("appVersion", appVersion)
         /* The page branches on these and on nothing else -- never on platform.
            That rule is what keeps one web layer instead of one per target. */
-        put("capabilities", JSONArray(listOf("hub", "push", "cloud")))
+        put("capabilities", JSONArray(listOf("hub", "push", "cloud", "camera")))
     }.toString()
 
     /**
@@ -184,6 +184,25 @@ class HestiaBridge(
                         .put("permitted", notificationsPermitted())
                         .put("token", HestiaMessaging.storedToken(ctx) ?: JSONObject.NULL)
                         .put("kind", "fcm")
+
+                    /* The camera origins this device may fetch over cleartext.
+                       Replaces the whole set each time, so removing a camera in
+                       Settings withdraws it rather than leaving it served. */
+                    "camera.allow" -> {
+                        val arr = params.optJSONArray("pairs") ?: JSONArray()
+                        val out = ArrayList<Pair<String, String>>(arr.length())
+                        for (i in 0 until arr.length()) {
+                            val o = arr.optJSONObject(i) ?: continue
+                            out.add(o.optString("from") to o.optString("to"))
+                        }
+                        CameraProxy.setAllowed(out)
+                        JSONObject().put("count", out.size)
+                    }
+                    /* The Settings "Test connection" probe. It must go through
+                       the same path the render will, or it reports failure for
+                       a camera that works -- which is what it did before this
+                       existed, in the app, for every cleartext camera. */
+                    "camera.test" -> JSONObject(CameraProxy.test(params.optString("url")))
 
                     "hub.configure" -> HubClient.configure(
                         ctx, params.optString("origin"),

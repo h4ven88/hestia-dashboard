@@ -102,8 +102,15 @@ object HubClient {
      */
     fun configure(ctx: Context, origin: String, commit: Boolean = true): JSONObject {
         val normalised = origin.trimEnd('/')
-        if (!normalised.startsWith("https://") && !normalised.startsWith("http://")) {
-            throw IllegalArgumentException("hub origin must start with http:// or https://")
+        /* HTTPS ONLY, and this tightened deliberately. It accepted http:// and
+           relied on the manifest's usesCleartextTraffic="false" to make that
+           unreachable -- which stopped being true the moment cameras needed
+           cleartext. Every caller already builds https:// (HubDiscovery, and
+           the manual-entry screen), so nothing legitimate is refused; what is
+           refused is a hub relay carrying the Maker API token in the clear. */
+        if (!normalised.startsWith("https://", ignoreCase = true)) {
+            throw IllegalArgumentException(
+                "hub origin must be https:// -- Hestia will not send your hub credentials in the clear")
         }
 
         val pinned = HubTrust.Pinned(null)   // first use: accept and record

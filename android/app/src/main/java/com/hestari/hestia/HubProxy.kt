@@ -43,6 +43,17 @@ object HubProxy {
     private const val TAG = "HestiaProxy"
 
     /**
+     * A path safe to log.
+     *
+     * ⛔ NEVER log the raw path. A Hubitat snapshot url carries the Maker API
+     * access token in its query string, so every warning here was printing a
+     * live credential into logcat -- found by reading the log during camera
+     * verification, where a refused snapshot had logged the whole token.
+     * The path alone is what makes a log line useful; the query never was.
+     */
+    fun safeToLog(path: String): String = path.substringBefore('?')
+
+    /**
      * Answers a WebView resource request, or null to let it proceed normally.
      *
      * Called on a background thread. Chromium marks this path MayBlock() and
@@ -76,7 +87,7 @@ object HubProxy {
 
         val path = url.encodedPath.orEmpty() + (url.encodedQuery?.let { "?$it" } ?: "")
         if (!HubClient.isSafePath(path)) {
-            android.util.Log.w(TAG, "refused an unsafe path: $path")
+            android.util.Log.w(TAG, "refused an unsafe path: ${safeToLog(path)}")
             return null
         }
 
@@ -94,7 +105,7 @@ object HubProxy {
                looking like success -- the camera module's own "Not an image"
                diagnostic exists for that and should keep firing. */
             if (!mime.startsWith("image/")) {
-                android.util.Log.w(TAG, "not serving $mime for $path")
+                android.util.Log.w(TAG, "not serving $mime for ${safeToLog(path)}")
                 res.close()
                 return null
             }
@@ -107,7 +118,7 @@ object HubProxy {
                carries no Location, but "only when" is not "never". */
             val code = res.code
             if (code < 100 || code > 599 || (code in 300..399)) {
-                android.util.Log.w(TAG, "unusable status $code for $path")
+                android.util.Log.w(TAG, "unusable status $code for ${safeToLog(path)}")
                 res.close()
                 return null
             }
@@ -131,10 +142,10 @@ object HubProxy {
                "cameras are blank in the app" would arrive with no record of
                why -- the silent-failure shape this project keeps paying for. */
             if (pinMismatchIn(e)) {
-                android.util.Log.w(TAG, "pin mismatch serving $path: the hub's certificate changed, " +
+                android.util.Log.w(TAG, "pin mismatch serving ${safeToLog(path)}: the hub's certificate changed, " +
                     "or something on this network is answering for it")
             } else {
-                android.util.Log.w(TAG, "could not serve $path: ${e.javaClass.simpleName}: ${e.message}")
+                android.util.Log.w(TAG, "could not serve ${safeToLog(path)}: ${e.javaClass.simpleName}: ${e.message}")
             }
             null
         }

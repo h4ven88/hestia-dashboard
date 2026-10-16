@@ -974,5 +974,137 @@ console.log('\n=== 20. Pull to refresh reaches the app and nothing else ===');
     /classList\.contains\('visible'\)\) \{ _companionBannerHide\(\); return; \}/.test(companion));
 }
 
+console.log('\n=== 21. Camera snapshots the WebView is not allowed to fetch ===');
+{
+  /* The app serves the page from https, so a cleartext camera is mixed content
+     and dies in the renderer -- a real tester's UniFi cameras are black tiles.
+     The rewrite below is the ONLY way either proxy can ever see the request,
+     because shouldInterceptRequest never fires for a blocked http subresource.
+
+     The property that matters most here is the browser one: a browser CAN load
+     http cameras, so rewriting there would break cameras that work today. */
+  const CAM_SRC = ['nativeCamera', '_camToHttps', 'camDeviceUrl', '_camIsConfigured', 'camRegisterNative']
+    .map(extractFn).join('\n\n');
+
+  const camEnv = ({ native = true, hubOrigin = 'https://192.168.1.10', cameras = [] } = {}) => {
+    const win = { location: { href: 'https://appassets.androidplatform.net/assets/index.html' } };
+    const calls = [];
+    if (native) {
+      win.hestiaNative = {
+        capabilities: ['hub', 'camera'],
+        call: (m, p) => { calls.push({ m, p }); return Promise.resolve({ count: (p.pairs || []).length }); },
+      };
+    }
+    const api = new Function('window', 'URL', 'console', '__cams', '__hub', `
+      const CONFIG = { cameras: __cams };
+      let _nativeHubOrigin = __hub;
+      ${CAM_SRC}
+      return { camDeviceUrl, _camIsConfigured, camRegisterNative, nativeCamera };
+    `)(win, URL, { warn() {}, log() {} }, cameras, hubOrigin);
+    return { ...api, calls };
+  };
+
+  const UNIFI = { name: 'Drive', snapshotUrl: 'http://192.168.1.50/snap.jpeg' };
+
+  /* ── the browser must be untouched ── */
+  const browser = camEnv({ native: false, hubOrigin: null, cameras: [UNIFI] });
+  check('a browser leaves a cleartext camera url alone',
+    browser.camDeviceUrl(UNIFI.snapshotUrl) === UNIFI.snapshotUrl,
+    'a browser CAN load it; rewriting would break a camera that works today');
+  check('...and registers nothing',
+    browser.calls.length === 0 && browser.nativeCamera() === null);
+  const noCap = camEnv({ cameras: [UNIFI] });
+  noCap.calls.length = 0;
+
+  /* ── the app ── */
+  const app = camEnv({ cameras: [UNIFI] });
+  check('the app rewrites a CONFIGURED cleartext camera to https',
+    app.camDeviceUrl(UNIFI.snapshotUrl) === 'https://192.168.1.50/snap.jpeg',
+    'the only way the intercept hook can ever see it');
+  check('...and leaves an UNconfigured host alone',
+    app.camDeviceUrl('http://192.168.1.99/snap.jpeg') === 'http://192.168.1.99/snap.jpeg',
+    'the proxy serves registered origins only');
+  check('...and leaves an https camera alone',
+    app.camDeviceUrl('https://cam.example.com/s.jpg') === 'https://cam.example.com/s.jpg',
+    'public https already loads itself, with no proxy involved');
+
+  /* The hub keeps its own path, which predates this and must not regress. */
+  check('a hub url is still rewritten even when it is not a configured camera',
+    app.camDeviceUrl('http://192.168.1.10/apps/api/1/snapshot/x') === 'https://192.168.1.10/apps/api/1/snapshot/x');
+
+  /* Every render path appends a cache-busting token. Matching whole urls would
+     rewrite the first load and silently stop on every refresh after it -- the
+     exact shape of the camAutoRefreshTick bug. */
+  check('matching is by ORIGIN, so a cache-busting query still rewrites',
+    app.camDeviceUrl('http://192.168.1.50/snap.jpeg?t=99181') === 'https://192.168.1.50/snap.jpeg?t=99181');
+  check('...and a different path on the same camera also rewrites',
+    app.camDeviceUrl('http://192.168.1.50/other.jpg') === 'https://192.168.1.50/other.jpg');
+
+  /* :80 must not survive the swap, or we ask for https on the cleartext port. */
+  const p80 = camEnv({ cameras: [{ snapshotUrl: 'http://192.168.1.50:80/s.jpg' }] });
+  check('an explicit :80 is dropped with the scheme',
+    p80.camDeviceUrl('http://192.168.1.50:80/s.jpg') === 'https://192.168.1.50/s.jpg');
+  const p8080 = camEnv({ cameras: [{ snapshotUrl: 'http://192.168.1.50:8080/s.jpg' }] });
+  check('...but a real port is kept',
+    p8080.camDeviceUrl('http://192.168.1.50:8080/s.jpg') === 'https://192.168.1.50:8080/s.jpg');
+
+  /* ── registration ── */
+  const reg = camEnv({ cameras: [UNIFI, { snapshotUrl: 'http://192.168.1.50/other.jpg' },
+                                  { snapshotUrl: 'https://cam.example.com/s.jpg' }] });
+  await reg.camRegisterNative();
+  const pairs = reg.calls[0].p.pairs;
+  check('registration sends one pair per ORIGIN, not per camera',
+    pairs.length === 1, JSON.stringify(pairs));
+  check('...mapping the rewritten origin to its cleartext self',
+    pairs[0].from === 'https://192.168.1.50' && pairs[0].to === 'http://192.168.1.50');
+  check('...and never registers an https camera',
+    !pairs.some(p => p.to.startsWith('https:')),
+    'it already loads itself; registering it would widen the proxy for nothing');
+  check('from and to always share a host',
+    pairs.every(p => p.from.replace(/^https:/, '') === p.to.replace(/^http:/, '')),
+    'native requires it, so a mapping cannot make an unrelated origin answer from the LAN');
+
+  /* Observed on the real phone: every camera in the Haven household is a hub
+     url, so HubProxy declined a bad snapshot and CameraProxy then attempted
+     the same host again. camDeviceUrl routes the hub to HubProxy, so
+     registering it here only widens the camera allow-list for a host that
+     never uses it. */
+  const hubCams = camEnv({ cameras: [{ snapshotUrl: 'http://192.168.1.10/apps/api/1/snapshot/x' }, UNIFI] });
+  await hubCams.camRegisterNative();
+  const hubPairs = hubCams.calls[0].p.pairs;
+  check('the pinned hub is NOT registered as a camera origin',
+    hubPairs.length === 1 && hubPairs[0].to === 'http://192.168.1.50',
+    JSON.stringify(hubPairs));
+
+  /* ── the Test button, which is why this sprint is two parts ── */
+  const TEST_SRC = ['nativeCamera', '_camTestLoadUrl'].map(extractFn).join('\n\n');
+  const testEnv = ({ native = true, reply = { ok: false, reason: 'the camera answered 401' } } = {}) => {
+    const win = { location: { href: 'https://appassets.androidplatform.net/assets/index.html' } };
+    if (native) win.hestiaNative = { capabilities: ['camera'], call: () => Promise.resolve(reply) };
+    return new Function('window', 'URL', '__reply', `
+      function _camTestLoadImg(){ return Promise.resolve(false); }
+      ${TEST_SRC}
+      return { _camTestLoadUrl };
+    `)(win, URL, reply);
+  };
+
+  /* An earlier version returned `true` OR an object, and both callers test
+     truthiness -- so a FAILED probe returned a truthy object and marked a dead
+     camera online. One shape for every path. */
+  const okRes = await testEnv({ reply: { ok: true } })._camTestLoadUrl('http://192.168.1.50/s.jpg');
+  const badRes = await testEnv()._camTestLoadUrl('http://192.168.1.50/s.jpg');
+  const imgRes = await testEnv({ native: false })._camTestLoadUrl('http://192.168.1.50/s.jpg');
+  for (const [label, r] of [['success', okRes], ['failure', badRes], ['browser', imgRes]]) {
+    check(`the probe returns {ok} on ${label}, never a bare boolean`,
+      r !== null && typeof r === 'object' && typeof r.ok === 'boolean',
+      'a truthy failure object marked a dead camera online');
+  }
+  check('a failure carries a reason the user can act on',
+    badRes.ok === false && /401/.test(badRes.reason),
+    '"failed to load" alone sent a household hunting a typo that was not there');
+  check('success is success', okRes.ok === true);
+  check('a browser still probes with an <img>', imgRes.ok === false && imgRes.reason === '');
+}
+
 console.log(`\n${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL ? 1 : 0);

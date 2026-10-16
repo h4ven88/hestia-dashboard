@@ -106,7 +106,35 @@ object HubTrust {
     }
 
     fun storedPin(ctx: Context): String? = prefs(ctx).getString(KEY_PIN, null)
-    fun storedOrigin(ctx: Context): String? = prefs(ctx).getString(KEY_ORIGIN, null)
+    /**
+     * The pinned hub origin, or null -- and NEVER a cleartext one.
+     *
+     * ⛔ THE GUARD HERE IS LOAD-BEARING, and it did not used to be. Until the
+     * camera proxy needed cleartext, the manifest set usesCleartextTraffic
+     * ="false" and the platform refused http for the whole app. That flag was
+     * the ONLY thing stopping the hub relay running in the clear: configure()
+     * accepted an http:// origin, and nothing else objected. Permitting
+     * cleartext for cameras would have quietly taken that protection away and
+     * put the Maker API token on the wire in plaintext.
+     *
+     * So the rule is code now instead of a side effect of a global setting.
+     * Both readers inherit it from here: HubClient.request builds from this,
+     * and so does HubProxy.
+     *
+     * FAILS CLOSED. A non-https value reads as "no hub configured", which sends
+     * the device back through first run and re-pins over https, rather than
+     * silently downgrading. No shipped install can hold one -- discovery and
+     * manual entry both build https:// -- so this recovers a state that should
+     * not exist rather than breaking one that does.
+     */
+    fun storedOrigin(ctx: Context): String? {
+        val v = prefs(ctx).getString(KEY_ORIGIN, null) ?: return null
+        if (!v.startsWith("https://", ignoreCase = true)) {
+            android.util.Log.w("HestiaTrust", "ignoring a non-https stored hub origin; re-pinning is required")
+            return null
+        }
+        return v
+    }
 
     fun remember(ctx: Context, origin: String, pin: String) {
         prefs(ctx).edit().putString(KEY_ORIGIN, origin).putString(KEY_PIN, pin).apply()
