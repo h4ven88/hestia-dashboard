@@ -92,11 +92,29 @@
    ONBOARDING WIZARD
 ═══════════════════════════════════════════════ */
 #cloud-adopt-banner.visible{position:fixed;top:0;left:0;right:0;z-index:300}
-.ob-wrap{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:200;padding:24px;overflow-y:auto}
-.ob-card{background:var(--bg-panel);border:1px solid var(--border);border-radius:20px;width:100%;max-width:540px;overflow:hidden;flex-shrink:0}
+/* ⛔ justify-content is flex-start, NOT center, and the centring is done by the
+   card's auto block margins instead. They are not equivalent once the content
+   is taller than the screen: with justify-content:center the overflow escapes
+   UPWARD, past the top of the scroll container, where scrolling cannot follow.
+   Measured at 375x812 on the household-key screen: content overflowed by 77px,
+   scrollTop was already 0, and the card's top sat at -53px with its heading at
+   -52px. The title of the screen was off-screen and unreachable.
+   Auto margins centre while there is room and collapse when there is not, so
+   the desktop appearance is unchanged and the phone can actually scroll. This
+   is the user's "wonky" report, and it reaches every ob-wrap screen: onboarding,
+   first run, the lockout screen and the hub-unreadable screen. */
+.ob-wrap{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:flex-start;z-index:200;padding:24px;overflow-y:auto}
+.ob-card{background:var(--bg-panel);border:1px solid var(--border);border-radius:20px;width:100%;max-width:540px;overflow:hidden;flex-shrink:0;margin-block:auto}
 .ob-progress{height:3px;background:var(--border);flex-shrink:0}
 .ob-progress-bar{height:100%;background:var(--amber);transition:width .4s cubic-bezier(.4,0,.2,1)}
+/* Applied to the wizard's inner body AND, as a second class, to the two cards
+   that have no inner body of their own: the lockout screen and the
+   hub-unreadable screen. Both had padding:0, so their heading sat 1px from the
+   card border -- measured on the phone, and part of the same "wonky" report.
+   32px each side leaves only ~272px of content at 384px, so it eases off on a
+   narrow screen rather than squeezing a 64-character key field. */
 .ob-body{padding:32px 32px 28px}
+@media(max-width:430px){.ob-body{padding:24px 18px 20px}}
 .ob-step-lbl{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--amber);margin-bottom:10px}
 .ob-title{font-size:22px;font-weight:500;color:var(--t1);margin-bottom:6px;line-height:1.2}
 .ob-sub{font-size:13px;color:var(--t3);margin-bottom:28px;line-height:1.6}
@@ -434,11 +452,16 @@ html[data-display-desktop] .tb-date{display:block !important}
    Escalated from the banner after the hub has been unreachable long
    enough that it is not a blip. Every colour comes from a theme token so
    it reads correctly in all five palettes. */
+/* Same centring rule as .ob-wrap, and for the same measured reason: with
+   justify-content:center the overflow escapes above the scroll container and
+   cannot be scrolled to. This screen carries a cause message whose length
+   depends on the household's setup, so it is exactly the kind that outgrows a
+   phone. Auto margins centre when it fits and scroll when it does not. */
 .disconn{display:none;position:fixed;inset:0;z-index:260;background:var(--bg);
-  align-items:center;justify-content:center;padding:24px;overflow-y:auto}
+  align-items:center;justify-content:flex-start;padding:24px;overflow-y:auto}
 .disconn.visible{display:flex}
 .disconn-inner{display:flex;flex-direction:column;align-items:center;gap:20px;
-  max-width:440px;width:100%;text-align:center}
+  max-width:440px;width:100%;text-align:center;margin-block:auto}
 .disconn-msg{width:100%;box-sizing:border-box;padding:11px 16px;border-radius:9px;
   background:rgba(248,113,113,.07);border:1px solid rgba(248,113,113,.22);
   color:var(--conn-err);font-size:12.5px;line-height:1.5}
@@ -1904,7 +1927,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '2.2.1';
-const HESTIA_BUILD_DATE = '2026-10-16';
+const HESTIA_BUILD_DATE = '2026-10-17';
 
 /* ═══════════════════════════════════════════════════════
    SANDBOX MODE
@@ -4381,7 +4404,7 @@ function renderHubUnreadable() {
   }
   const hub = (CONFIG.hub || _sharedHubUrl || '').replace(/\/+$/, '');
   wrap.innerHTML = `
-    <div class="ob-card" style="max-width:520px">
+    <div class="ob-card ob-body" style="max-width:520px">
       <h2 style="margin:0 0 10px">Your hub did not answer</h2>
       <p style="color:var(--t3);line-height:1.6;margin:0 0 14px">
         Hestia found your hub${hub ? ` at <span style="color:var(--t1);word-break:break-all">${h(hub)}</span>` : ''}
@@ -4455,7 +4478,7 @@ function renderCloudLockout() {
   }
   const hub = (CONFIG.hub || '').replace(/\/+$/, '') || 'http://YOUR_HUB_IP';
   wrap.innerHTML = `
-    <div class="ob-card" style="max-width:560px">
+    <div class="ob-card ob-body" style="max-width:560px">
       <h2 style="margin:0 0 10px">This device needs your household key</h2>
       <p style="color:var(--t3);line-height:1.6;margin:0 0 14px">
         There are already encrypted Hestia settings saved for this internet

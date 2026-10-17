@@ -1106,5 +1106,51 @@ console.log('\n=== 21. Camera snapshots the WebView is not allowed to fetch ==='
   check('a browser still probes with an <img>', imgRes.ok === false && imgRes.reason === '');
 }
 
+console.log('\n=== 22. Full-screen overlays stay scrollable on a phone ===');
+{
+  /* A flex container that is BOTH justify-content:center and overflow-y:auto
+     cannot be scrolled to its own top: centring pushes the overflow above the
+     scroll container, where scrolling cannot follow. Measured on the
+     household-key screen at 375x812 before the fix -- content overflowed by
+     77px, scrollTop was already 0, and the heading sat at -52px, off-screen
+     and unreachable. That is the user's "wonky" report.
+
+     Auto block margins centre while there is room and collapse when there is
+     not, so desktop is unchanged and a phone can actually scroll. Asserted
+     over the stylesheet because it is a layout invariant with no runtime
+     behaviour to call. */
+  /* Comments stripped BEFORE parsing rules. The first version of this did not,
+     and the explanatory comment above .ob-wrap contains the literal string
+     "justify-content:center" in prose -- so it reported the fixed rule as
+     broken. Same class as the three text-presence false greens this project
+     has already paid for, just failing in the safer direction. */
+  const style = DASH.slice(DASH.indexOf('<style>') + 7, DASH.indexOf('</style>'))
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  const rules = style.match(/[^{}]+\{[^}]*\}/g) || [];
+
+  const centredScrollers = rules.filter(r =>
+    /justify-content:\s*center/.test(r) &&
+    /overflow(-y)?:\s*(auto|scroll)/.test(r) &&
+    /display:\s*flex/.test(r));
+  check('no flex scroll container centres its overflow out of reach',
+    centredScrollers.length === 0,
+    centredScrollers.map(r => r.trim().split('{')[0].trim()).join(', '));
+
+  /* The two that had it, now fixed, must keep their auto margins -- removing
+     those silently restores the bug while the rule above still passes. */
+  for (const sel of ['.ob-card', '.disconn-inner']) {
+    const rule = rules.find(r => r.trim().startsWith(sel + '{') || r.trim().startsWith(sel + ' {'));
+    check(`${sel} centres with auto block margins`,
+      !!rule && /margin-block:\s*auto/.test(rule),
+      rule ? rule.trim().slice(0, 80) : 'rule not found');
+  }
+  for (const sel of ['.ob-wrap', '.disconn']) {
+    const rule = rules.find(r => r.trim().startsWith(sel + '{') || r.trim().startsWith(sel + ' {'));
+    check(`${sel} does not centre its overflow`,
+      !!rule && /justify-content:\s*flex-start/.test(rule),
+      rule ? rule.trim().slice(0, 80) : 'rule not found');
+  }
+}
+
 console.log(`\n${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL ? 1 : 0);
