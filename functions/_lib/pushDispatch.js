@@ -196,7 +196,19 @@ export async function dispatchPush(env, shortHash, { category, title, body, arme
   const pruned = [];
 
   for (const outcome of outcomes) {
-    if (outcome.status !== 'fulfilled') { failed++; continue; }
+    if (outcome.status !== 'fulfilled') {
+      failed++;
+      /* ⛔ THE REASON IS WHY THIS IS LOGGED AT ALL. It used to be dropped on
+         the floor, and fcm.js throws DELIBERATELY and loudly when
+         FCM_SERVICE_ACCOUNT is missing precisely so the cause is not lost --
+         only for that throw to be swallowed one layer up. The result was that
+         "push does not work in the app" and a transport outage looked
+         identical, with nothing in the Workers log to tell them apart.
+         console.error, not warn: a send that threw is never routine. */
+      const reason = outcome.reason;
+      console.error('[push] send threw:', (reason && reason.message) || String(reason));
+      continue;
+    }
     const { deviceId, res } = outcome.value;
     const device = devices[deviceId];
     if (res.ok) {
@@ -214,6 +226,12 @@ export async function dispatchPush(env, shortHash, { category, title, body, arme
       failed++;
     } else {
       failed++;
+      /* A non-OK status that is not a prune. Worth a line because it is the
+         shape of a misconfiguration -- a 401 from FCM means the service
+         account is rejected, not that this device is gone -- and without it
+         the only evidence is a `failed` count with no cause attached.
+         The device ID is safe to log; the token is not, and is not logged. */
+      console.warn(`[push] ${isFcm(device) ? 'fcm' : 'webpush'} refused device ${deviceId}: status ${res.status}`);
     }
   }
 

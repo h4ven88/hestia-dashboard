@@ -6,7 +6,7 @@
  * module with a THROWAWAY key rather than the user's service account.
  */
 import { generateKeyPairSync, createVerify } from 'node:crypto';
-import { sendFcmNotification } from '../functions/_lib/fcm.js';
+import { sendFcmNotification, invalidateAccessToken, hasCachedAccessToken } from '../functions/_lib/fcm.js';
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const pem = privateKey.export({ type: 'pkcs8', format: 'pem' });
@@ -98,6 +98,68 @@ for (const [label, bad] of [
   let threw = null;
   await sendFcmNotification(bad, 't', { title: 'x', body: 'y' }).catch(e => { threw = e; });
   check(`a ${label} service account throws rather than silently not sending`, !!threw, threw && threw.message);
+}
+
+/* ── The access token cache, and what happens when it goes bad ────────── */
+
+/* The token is cached in module scope for an hour because a Worker isolate is
+   reused across many requests. Nothing used to clear it when a send came back
+   401, so a revoked or rotated FCM_SERVICE_ACCOUNT failed EVERY push in that
+   isolate for up to an hour with no self-correction. The 60-second expiry
+   margin is no help: a revoked key expires in zero seconds, not in an hour. */
+{
+  calls.length = 0;
+  // A second send reuses the cached token rather than minting another.
+  await sendFcmNotification(env, 'device-token-abc', { title: 'x', body: 'y' });
+  check('a cached token is reused instead of re-minted',
+    calls.length === 1 && !calls[0].url.includes('oauth2'),
+    calls.map(c => c.url).join(' | '));
+  check('...and the cache says so', hasCachedAccessToken() === true);
+
+  // Now the service rejects it, as a revoked key would.
+  let sendStatus = 401;
+  globalThis.fetch = async (url, opts) => {
+    calls.push({ url: String(url), opts });
+    if (String(url).includes('oauth2')) {
+      return { ok: true, status: 200, json: async () => ({ access_token: 'ya29.second', expires_in: 3600 }) };
+    }
+    return { ok: sendStatus === 200, status: sendStatus, text: async () => '{}' };
+  };
+
+  calls.length = 0;
+  const rejected = await sendFcmNotification(env, 'device-token-abc', { title: 'x', body: 'y' });
+  check('a 401 is reported to the caller', rejected.ok === false && rejected.status === 401);
+  check('...and the cached token is discarded',
+    hasCachedAccessToken() === false,
+    'otherwise every push in this isolate fails for up to an hour with no recovery');
+
+  // The next send must mint a fresh one rather than reuse the dead value.
+  calls.length = 0;
+  sendStatus = 200;
+  const recovered = await sendFcmNotification(env, 'device-token-abc', { title: 'x', body: 'y' });
+  check('the next send mints a new token and succeeds',
+    recovered.ok === true && calls.some(c => c.url.includes('oauth2')),
+    calls.map(c => c.url).join(' | '));
+
+  // 403 is the same class of answer and must behave the same way.
+  sendStatus = 403;
+  await sendFcmNotification(env, 'device-token-abc', { title: 'x', body: 'y' });
+  check('a 403 also discards the token', hasCachedAccessToken() === false);
+
+  /* A dead REGISTRATION is not a dead credential. A 404 means that one device
+     is gone; throwing the account's token away over it would re-mint for every
+     uninstalled app on the household. */
+  sendStatus = 200;
+  await sendFcmNotification(env, 'device-token-abc', { title: 'x', body: 'y' });   // re-cache
+  const hadToken = hasCachedAccessToken();
+  sendStatus = 404;
+  await sendFcmNotification(env, 'dead-token', { title: 'x', body: 'y' });
+  check('a 404 does NOT discard the token',
+    hadToken === true && hasCachedAccessToken() === true,
+    'that is one dead device, not a bad service account');
+
+  invalidateAccessToken();
+  check('invalidateAccessToken clears it', hasCachedAccessToken() === false);
 }
 
 console.log(`\n${PASS} passed, ${FAIL} failed`);

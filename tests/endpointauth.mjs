@@ -25,11 +25,31 @@ import * as configPut from '../functions/api/config/index.js';
 let PASS = 0, FAIL = 0;
 const check = (l, c, x = '') => { c ? PASS++ : FAIL++; console.log(`${c ? 'PASS' : 'FAIL'}  ${l}${x ? `  ${x}` : ''}`); };
 
+/* Mirrors the Workers KV binding surface the handlers actually use.
+ *
+ * ⛔ KEEP THIS FAITHFUL. It has to carry `metadata` because
+ * mutatePushDevices now reads it to decide whether a byte-identical record is
+ * old enough to need rewriting -- functions/_lib/pushDevices.js:38 and :57.
+ * Adding that read turned this whole suite red, which is the stub-drift
+ * mechanism working: a stub that drifts from the code it mirrors tests
+ * fiction. The `_m` escape hatch stays value-only so the existing assertions
+ * over it read the same way they always did. */
 function makeKV() {
-  const m = new Map();
+  const meta = new Map();
+  const m = {
+    _v: new Map(),
+    has(k) { return this._v.has(k); },
+    get(k) { return this._v.get(k); },
+    set(k, v) { this._v.set(k, v); },
+    delete(k) { this._v.delete(k); meta.delete(k); },
+    keys() { return this._v.keys(); },
+  };
   return { _m: m,
     async get(k) { return m.has(k) ? m.get(k) : null; },
-    async put(k, v) { m.set(k, v); },
+    async getWithMetadata(k) {
+      return { value: m.has(k) ? m.get(k) : null, metadata: meta.has(k) ? meta.get(k) : null };
+    },
+    async put(k, v, opts) { m.set(k, v); if (opts && opts.metadata) meta.set(k, opts.metadata); },
     async delete(k) { m.delete(k); },
     async list({ prefix } = {}) {
       return { keys: [...m.keys()].filter(k => !prefix || k.startsWith(prefix)).map(name => ({ name })), list_complete: true };

@@ -165,7 +165,34 @@ export async function sendFcmNotification(env, registrationToken, { title, body,
     }
   );
 
+  /* ⛔ A 401 MEANS THE CACHED TOKEN IS NO LONGER GOOD, so it must not be
+     handed to the next send. Without this, a revoked or rotated
+     FCM_SERVICE_ACCOUNT fails EVERY push in this isolate for up to an hour
+     with no self-correction, and an isolate can live a long time. The 60s
+     expiry margin is no help: a revoked key expires in zero seconds, not in
+     an hour.
+     Dropped rather than refreshed here -- accessToken() mints a new one on the
+     next call, which keeps one path for minting instead of two. If the account
+     really is revoked the next attempt fails at minting, which is a far
+     clearer place to fail than mid-send. */
+  if (res.status === 401 || res.status === 403) invalidateAccessToken();
+
   return { ok: res.ok, status: res.status };
+}
+
+/**
+ * Forgets the cached access token.
+ *
+ * Exported so a test can prove the 401 path actually clears it, and so a
+ * caller that learns the credentials are bad by some other route can say so.
+ */
+export function invalidateAccessToken() {
+  _cachedToken = null;
+}
+
+/** Test seam: is a token currently cached? */
+export function hasCachedAccessToken() {
+  return _cachedToken !== null;
 }
 
 /**
