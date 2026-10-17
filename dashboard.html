@@ -10855,6 +10855,10 @@ function announceDeviceName(id, fallback) {
 }
 const _announceLastEvent = {};
 let _announceInitialized = false;
+/* Set when polling resumes after a gap; cleared by the next HSM sync, which
+   uses that pass to learn the current arm state rather than report it as a
+   change somebody just made. See announceNoteWatchGap(). */
+let _hsmReseed = false;
 function announceEvent(key, text) {
   if (!isAnnounceDevice()) return;
   const panel = document.getElementById('ath-panel');
@@ -11979,10 +11983,22 @@ async function artemisHsmSync() {
       const isExpiredExternal = isExternalTransition && artemisCountdownEnd && Date.now() > artemisCountdownEnd + 30000;
       const shouldClear = artemisTransition && (isExternalTransition ? (isObservedDisarm || isExpiredExternal) : !isStaleEntryDelayClear);
       if (shouldClear) artemisClearTransition();
+      /* ⛔ CLEARED HERE, OUTSIDE `if (changed)`, and that placement is the
+         whole correctness of it. `changed` is false whenever the arm state is
+         simply steady, so clearing it inside that block would leave the flag
+         set through every quiet sync and swallow the NEXT genuine change --
+         turning a fix for a late announcement into a missing one, which is
+         strictly worse on a security product. This pass has read the hub
+         either way, so by here the state is re-learned. */
+      const reseeding = _hsmReseed;
+      _hsmReseed = false;
       if (changed) {
-        // prevReady === true skips the first sync after boot, which is just
-        // learning the current state rather than observing a change.
-        if (prevReady === true && newMode !== artemisMode) {
+        /* prevReady === true skips the first sync after boot, which is just
+           learning the current state rather than observing a change.
+           `reseeding` extends that to the first sync after polling resumed:
+           the arm state may have changed hours ago while the app was
+           backgrounded, and announcing it on resume states it as news. */
+        if (prevReady === true && !reseeding && newMode !== artemisMode) {
           announceHsmEvent(newMode === 'away' ? 'Armed away' : newMode === 'home' ? 'Armed home' : 'Disarmed');
         }
         // A disarm from anywhere (keypad, Ring app, a rule) ends an intrusion.
@@ -20228,6 +20244,37 @@ function detectRemovedDevices(devices) {
     if (pollIds.has(realDeviceId(key))) state_missCounts[key] = 0;
   });
 }
+/* How long a gap in polling means "we stopped watching".
+ *
+ * The poll runs about once a second and the HSM sync every ten, so anything
+ * past a minute is not jitter -- it is a backgrounded app, a sleeping device,
+ * a throttled tab or an outage. Long enough that no healthy cadence trips it,
+ * short enough to catch a brief backgrounding. */
+const ANNOUNCE_GAP_MS = 60000;
+let _lastPollAt = 0;
+
+/* ⛔ ANNOUNCEMENTS DESCRIBE WHAT WE WATCHED HAPPEN. When the app has not been
+   polling, the next poll is not an observation, it is catching up -- and the
+   difference is invisible from the data alone.
+   Reported from a real phone: the alarm was disarmed at 10:00 AM, the phone was
+   opened at noon, and "Disarmed" was announced then, two hours late, as though
+   it had just happened. On a security product that is not a late notification,
+   it is a false statement about the house at the moment somebody is looking.
+   Both announce paths already know how to seed silently -- the device poll via
+   _announceInitialized, the HSM sync via prevReady -- but each only meant
+   "first since page load". This widens that to "first since we were actually
+   watching", which is what those guards were always for. */
+function announceNoteWatchGap() {
+  const now = Date.now();
+  const gap = _lastPollAt ? now - _lastPollAt : 0;
+  _lastPollAt = now;
+  if (gap > ANNOUNCE_GAP_MS) {
+    console.log('[Announce] ' + Math.round(gap / 1000) + 's without polling — re-seeding instead of announcing');
+    _announceInitialized = false;   // device poll re-seeds on this pass
+    _hsmReseed = true;              // HSM sync re-seeds on its next pass
+  }
+}
+
 function scheduleNextPoll() {
   clearTimeout(pollTimer);
   pollTimer = setTimeout(async function runPoll() {
@@ -20235,6 +20282,10 @@ function scheduleNextPoll() {
       scheduleNextPoll();
       return;
     }
+    /* BEFORE fetchAllDevices, because that is what applies the new states and
+       fires the device-side announcements. Noting the gap afterwards would
+       announce the catch-up first and suppress the next real event instead. */
+    announceNoteWatchGap();
     try {
       await fetchAllDevices();
       if (lastConnOk === false) console.log('[POLL] sync restored');

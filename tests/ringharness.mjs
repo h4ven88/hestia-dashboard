@@ -28,6 +28,13 @@ let artemisAlarmType = null, artemisMode = 'away', activeTab = 'home', activeRoo
 let HUB_STORE = { appId: 1 }, _companionAppVersion = '1.6.7', _companionAppVersionFor = '1';
 let _hsmAlertHandledAt = null, _hsmAlertLoggedAt = null, _hsmSecInFlight = false, _hsmSecFails = 0, _hsmSecRetryAt = 0;
 let artemisHsmReady = null, _artemisLastUnrecognizedHsm = null, hsmResp = 'armedAway';
+/* Mirrors dashboard.html's declaration beside _announceInitialized. Set when
+   polling resumes after a gap so the next sync re-learns the arm state instead
+   of announcing it as a change somebody just made; artemisHsmSync reads and
+   clears it on every pass. Declared here because this harness runs the real
+   function, and a missing binding is a ReferenceError rather than a quiet
+   wrong answer -- which is how this file caught it. */
+let _hsmReseed = false;
 const _ringPrev = { seen: false, entry: false, exit: false, siren: false, lastAt: 0, exitEndedAt: 0 };
 let mobile = true, hubResp = null;
 const Date = { now: () => __now(), parse: (s) => globalThis.Date.parse(s) };

@@ -1225,5 +1225,104 @@ console.log('\n=== 23. The system bars follow the household theme ===');
     bogus.calls.length === 1 && bogus.calls[0].p.color === bogus.THEME_META.dark);
 }
 
+console.log('\n=== 24. Announcements describe what we watched, not what we missed ===');
+{
+  /* Reported from a real phone: the alarm was disarmed at 10:00 AM, the phone
+     was opened at noon, and "Disarmed" was announced then -- two hours late,
+     as though it had just happened. On a security product that is not a late
+     notification, it is a false statement about the house at the moment
+     somebody is looking at it.
+     Both announce paths already seeded silently on their first pass, but each
+     only meant "first since page load". A backgrounded app is never reloaded,
+     so its next poll looked exactly like a live transition. */
+  const GAP_SRC = extractFn('announceNoteWatchGap');
+
+  /* Read from the source, NOT hardcoded. A copy here passes whatever the
+     shipped constant becomes -- a mutation dropping it to one second survived
+     a harness that carried its own 60000. */
+  const gapMs = Number(/const ANNOUNCE_GAP_MS\s*=\s*(\d+)/.exec(DASH)?.[1]);
+  check('the gap threshold is read from the source and is a sane size',
+    gapMs >= 30000 && gapMs <= 300000, String(gapMs));
+
+  const gapEnv = () => {
+    const logs = [];
+    return new Function('console', `
+      const ANNOUNCE_GAP_MS = ${gapMs};
+      let _lastPollAt = 0, _announceInitialized = true, _hsmReseed = false;
+      ${GAP_SRC}
+      return {
+        poll: (at) => { const r = Date.now; Date.now = () => at; try { announceNoteWatchGap(); } finally { Date.now = r; } },
+        state: () => ({ seeded: _announceInitialized, reseed: _hsmReseed }),
+      };
+    `)({ log: (m) => logs.push(m) });
+  };
+
+  const t0 = 1_700_000_000_000;
+
+  /* A healthy cadence must never trip it, or every quiet minute would suppress
+     the next real event. */
+  const steady = gapEnv();
+  steady.poll(t0);
+  for (let i = 1; i <= 30; i++) steady.poll(t0 + i * 1000);
+  check('a one-second cadence never re-seeds',
+    steady.state().seeded === true && steady.state().reseed === false);
+
+  const jitter = gapEnv();
+  jitter.poll(t0);
+  jitter.poll(t0 + 45000);          // a slow hub, still watching
+  check('45s of jitter is still watching',
+    jitter.state().seeded === true && jitter.state().reseed === false,
+    'the HSM sync alone runs every ~10s, so the threshold must clear real lag');
+
+  /* The reported case. */
+  const resumed = gapEnv();
+  resumed.poll(t0);
+  resumed.poll(t0 + 2 * 60 * 60 * 1000);   // opened two hours later
+  check('a two-hour gap re-seeds both paths',
+    resumed.state().seeded === false && resumed.state().reseed === true,
+    'the arm state changed while nobody was watching; announcing it states it as news');
+
+  const brief = gapEnv();
+  brief.poll(t0);
+  brief.poll(t0 + 90000);           // a minute and a half backgrounded
+  check('...and so does a 90-second backgrounding',
+    brief.state().seeded === false && brief.state().reseed === true);
+
+  /* The very first poll has nothing to compare against and must not look like
+     a gap, or boot would re-seed something already seeding. */
+  const first = gapEnv();
+  first.poll(t0);
+  check('the first poll of all is not treated as a gap',
+    first.state().seeded === true && first.state().reseed === false);
+
+  /* ⛔ THE TRAP THIS NEARLY SHIPPED WITH. The flag must be cleared on every
+     HSM sync, not only when the arm state changed -- `changed` is false during
+     steady state, so clearing it inside that branch would leave it set through
+     every quiet sync and swallow the NEXT genuine change. A fix for a late
+     announcement becoming a missing one is strictly worse here. */
+  const sync = codeOnlyJs(extractFn('artemisHsmSync'));
+  const clearIdx = sync.indexOf('_hsmReseed = false');
+  const changedIdx = sync.indexOf('if (changed) {');
+  check('the re-seed flag is cleared before the changed branch',
+    clearIdx > 0 && changedIdx > 0 && clearIdx < changedIdx,
+    'clearing it inside `if (changed)` would suppress the next real change');
+  check('...and the announcement is gated on it',
+    /!reseeding && newMode !== artemisMode/.test(sync));
+
+  /* Noting the gap has to happen before the fetch that applies new states and
+     fires the device-side announcements. */
+  /* Existence asserted BEFORE order. indexOf returns -1 for a call that was
+     deleted outright, and -1 is less than any real index, so an order-only
+     check passes most loudly exactly when the call is gone. A mutation
+     removing it survived until this line was added. */
+  const poll = codeOnlyJs(extractFn('scheduleNextPoll'));
+  const gapAt = poll.indexOf('announceNoteWatchGap()');
+  const fetchAt = poll.indexOf('await fetchAllDevices()');
+  check('the poll notes the gap at all', gapAt >= 0);
+  check('...before devices are fetched',
+    gapAt >= 0 && fetchAt >= 0 && gapAt < fetchAt,
+    'otherwise the catch-up announces and the next real event is suppressed instead');
+}
+
 console.log(`\n${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL ? 1 : 0);
