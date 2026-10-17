@@ -1244,17 +1244,21 @@ console.log('\n=== 24. Announcements describe what we watched, not what we misse
   check('the gap threshold is read from the source and is a sane size',
     gapMs >= 30000 && gapMs <= 300000, String(gapMs));
 
-  const gapEnv = () => {
+  const gapEnv = ({ announceOn = true } = {}) => {
     const logs = [];
-    return new Function('console', `
+    const box = { on: announceOn };
+    return Object.assign(new Function('console', '__box', `
       const ANNOUNCE_GAP_MS = ${gapMs};
       let _lastPollAt = 0, _announceInitialized = true, _hsmReseed = false;
+      let _announceWasOn = null;
+      function isAnnounceDevice(){ return __box.on; }
       ${GAP_SRC}
       return {
         poll: (at) => { const r = Date.now; Date.now = () => at; try { announceNoteWatchGap(); } finally { Date.now = r; } },
         state: () => ({ seeded: _announceInitialized, reseed: _hsmReseed }),
+        reseed: () => { _announceInitialized = true; _hsmReseed = false; },
       };
-    `)({ log: (m) => logs.push(m) });
+    `)({ log: (m) => logs.push(m) }, box), { box, logs });
   };
 
   const t0 = 1_700_000_000_000;
@@ -1311,6 +1315,42 @@ console.log('\n=== 24. Announcements describe what we watched, not what we misse
 
   /* Noting the gap has to happen before the fetch that applies new states and
      fires the device-side announcements. */
+  /* REPORTED LIVE while item 4 was still uncommitted: Announcements were
+     switched on and a garage entrance door that had been open for hours
+     announced itself as having just opened. Enabling them is the same
+     situation as resuming -- `prev` was null on every pass while they were
+     off, so nothing the house did since boot was ever observed for speech. */
+  const enabled = gapEnv({ announceOn: false });
+  enabled.poll(t0);
+  enabled.reseed();                       // boot settles with announcements off
+  enabled.poll(t0 + 1000);
+  check('a quiet poll with announcements off does not re-seed',
+    enabled.state().seeded === true && enabled.state().reseed === false);
+  enabled.box.on = true;                  // user turns them on
+  enabled.poll(t0 + 2000);
+  check('turning announcements ON re-seeds both paths',
+    enabled.state().seeded === false && enabled.state().reseed === true,
+    'otherwise the first pass speaks for everything it was never listening to');
+  enabled.reseed();
+  enabled.poll(t0 + 3000);
+  check('...and only once, not on every poll afterwards',
+    enabled.state().seeded === true && enabled.state().reseed === false);
+
+  /* Turning them OFF must not re-seed -- there is nothing to announce, and a
+     re-seed would be a side effect with no purpose. */
+  enabled.box.on = false;
+  enabled.poll(t0 + 4000);
+  check('turning announcements off does not re-seed', enabled.state().seeded === true);
+
+  /* A device whose state we have never read gets a PLACEHOLDER so the rest of
+     the UI has something to draw. That placeholder was being compared against
+     the first real reading, which is how an already-open door announced itself
+     as opening. */
+  const poll2 = codeOnlyJs(extractFn('fetchAllDevices'));
+  check('a freshly invented device state is not treated as a previous one',
+    /justCreated = true/.test(poll2) && /&& !justCreated\)/.test(poll2),
+    'the placeholder is a default, not an observation');
+
   /* Existence asserted BEFORE order. indexOf returns -1 for a call that was
      deleted outright, and -1 is less than any real index, so an order-only
      check passes most loudly exactly when the call is gone. A mutation

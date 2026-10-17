@@ -5712,6 +5712,9 @@ async function fetchAllDevices() {
     }
     // Allow if known type OR if it's a registered Artemis sensor
     if (!DEVICE_TYPE[id] && !DEVICE_REGISTRY.has(id)) return;
+    /* True when this pass invents a placeholder state for a sensor we have
+       never read. See where `prev` is built below for why it matters. */
+    let justCreated = false;
     // Ensure Artemis sensors have their type set if missing
     if (!DEVICE_TYPE[id] && DEVICE_REGISTRY.has(id)) {
       DEVICE_TYPE[id] = (function() {
@@ -5725,6 +5728,7 @@ async function fetchAllDevices() {
       })();
       if (!DEVICE_TYPE[id]) return;
       if (!S[id]) {
+        justCreated = true;
         if (DEVICE_TYPE[id]==='contact') S[id] = { open: false };
         else if (DEVICE_TYPE[id]==='motion') S[id] = { active: false };
         else if (DEVICE_TYPE[id]==='smoke')  S[id] = { detected: false };
@@ -5733,7 +5737,15 @@ async function fetchAllDevices() {
       }
     }
     const attrs = parseAttrs(device);
-    const prev = (_announceInitialized && isAnnounceDevice() && S[id]) ? { open: S[id].open, locked: S[id].locked, active: S[id].active, detected: S[id].detected, wet: S[id].wet } : null;
+    /* ⛔ justCreated: the entry above is a DEFAULT, not an observation. It was
+       being captured as `prev` one line later, so the first real reading of a
+       sensor that was already open announced it as having just opened.
+       Reported live: turning Announcements on re-registers the Artemis sensors,
+       which creates these entries, and a garage entrance door that had been
+       open for hours announced itself as "opened". Same class as the resume
+       bug -- a state we have never seen is not a state we watched change. */
+    const prev = (_announceInitialized && isAnnounceDevice() && S[id] && !justCreated)
+      ? { open: S[id].open, locked: S[id].locked, active: S[id].active, detected: S[id].detected, wet: S[id].wet } : null;
     const changed = applyAttrs(id, attrs);
     if (changed && prev) {
       const dn = announceDeviceName(id, device.label);
@@ -20252,6 +20264,10 @@ function detectRemovedDevices(devices) {
  * short enough to catch a brief backgrounding. */
 const ANNOUNCE_GAP_MS = 60000;
 let _lastPollAt = 0;
+/* null until the first poll reads it, so enabling announcements BEFORE the
+   first poll is start-up rather than a change, and does not log a re-seed for
+   something that was already going to seed. */
+let _announceWasOn = null;
 
 /* ⛔ ANNOUNCEMENTS DESCRIBE WHAT WE WATCHED HAPPEN. When the app has not been
    polling, the next poll is not an observation, it is catching up -- and the
@@ -20268,8 +20284,21 @@ function announceNoteWatchGap() {
   const now = Date.now();
   const gap = _lastPollAt ? now - _lastPollAt : 0;
   _lastPollAt = now;
-  if (gap > ANNOUNCE_GAP_MS) {
-    console.log('[Announce] ' + Math.round(gap / 1000) + 's without polling — re-seeding instead of announcing');
+  let why = '';
+  if (gap > ANNOUNCE_GAP_MS) why = Math.round(gap / 1000) + 's without polling';
+
+  /* Turning Announcements ON is the same situation as resuming: everything
+     the house has done since boot is unobserved as far as speech is concerned,
+     because `prev` was null on every pass while it was off. Without this the
+     first pass after enabling compares against states nobody was listening
+     for. Reported live, as a garage entrance door announcing itself open hours
+     after the fact. */
+  const on = isAnnounceDevice();
+  if (on && _announceWasOn === false) why = why || 'announcements just enabled';
+  _announceWasOn = on;
+
+  if (why) {
+    console.log('[Announce] ' + why + ' — re-seeding instead of announcing');
     _announceInitialized = false;   // device poll re-seeds on this pass
     _hsmReseed = true;              // HSM sync re-seeds on its next pass
   }
