@@ -42,6 +42,9 @@ class HestiaBridge(
        main thread; answers true once the permission is held. */
     private val ensureLocalNetwork: ((Boolean) -> Unit) -> Unit = { it(true) },
     private val ensureNotifications: ((Boolean) -> Unit) -> Unit = { it(false) },
+    /* Supplied by the Activity, because only an Activity owns the window whose
+       bars these are. A no-op default keeps the class constructible in tests. */
+    private val setBarColor: (Int) -> Unit = {},
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -106,7 +109,7 @@ class HestiaBridge(
         put("appVersion", appVersion)
         /* The page branches on these and on nothing else -- never on platform.
            That rule is what keeps one web layer instead of one per target. */
-        put("capabilities", JSONArray(listOf("hub", "push", "cloud", "camera")))
+        put("capabilities", JSONArray(listOf("hub", "push", "cloud", "camera", "ui")))
     }.toString()
 
     /**
@@ -204,6 +207,17 @@ class HestiaBridge(
                        existed, in the app, for every cleartext camera. */
                     "camera.test" -> JSONObject(CameraProxy.test(params.optString("url")))
 
+                    /* The household's live theme colour, so the status and
+                       navigation bar strips stop being dark on a Light or
+                       Cream dashboard. Parsed HERE rather than trusted: a
+                       malformed value must leave the bars as they are, not
+                       throw a colour exception into a settings change. */
+                    "ui.bars" -> {
+                        val parsed = parseColor(params.optString("color"))
+                        if (parsed != null) setBarColor(parsed)
+                        JSONObject().put("applied", parsed != null)
+                    }
+
                     "hub.configure" -> HubClient.configure(
                         ctx, params.optString("origin"),
                         if (params.has("commit")) params.optBoolean("commit") else true,
@@ -230,6 +244,19 @@ class HestiaBridge(
         return ""
     }
 
+    /**
+     * `#rrggbb` to an opaque colour, or null.
+     *
+     * Deliberately narrow and hand-parsed rather than Color.parseColor, which
+     * THROWS on anything it dislikes and also accepts named colours and 4- and
+     * 8-digit forms. The page only ever sends a six-digit hex from THEME_META,
+     * so anything else is a bug or a caller that is not the page, and the right
+     * answer to both is to leave the bars alone rather than to raise.
+     *
+     * Alpha is forced opaque: a translucent bar would show the WebView's own
+     * white background through it, which is the exact framing this container
+     * exists to prevent.
+     */
     /** JSON object to a header map. Absent or malformed means no headers. */
     private fun headerMap(o: JSONObject?): Map<String, String> {
         if (o == null) return emptyMap()
@@ -283,6 +310,58 @@ class HestiaBridge(
     companion object {
         /** Bumped only when the contract itself changes shape. */
         const val CONTRACT_VERSION = 1
+
+        /**
+         * `#rrggbb` to an opaque colour, or null.
+         *
+         * Deliberately narrow and hand-parsed rather than Color.parseColor,
+         * which THROWS on anything it dislikes and also accepts named colours
+         * and 4- and 8-digit forms. The page only ever sends a six-digit hex
+         * from THEME_META, so anything else is a bug or a caller that is not
+         * the page, and the right answer to both is to leave the bars alone
+         * rather than to raise during a settings change.
+         *
+         * Alpha is forced opaque: a translucent bar would show the WebView's
+         * own white background through it, which is the exact framing the
+         * container exists to prevent.
+         *
+         * In the companion object because it is pure -- which also means it is
+         * testable on a plain JVM without constructing a bridge.
+         */
+        fun parseColor(s: String?): Int? {
+            val v = s?.trim()?.removePrefix("#") ?: return null
+            if (v.length != 6 || !v.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) return null
+            return runCatching { (0xFF000000.toInt()) or v.toInt(16) }.getOrNull()
+        }
+
+        /**
+         * Does this bar colour need DARK system icons?
+         *
+         * sRGB relative luminance, the same formula ColorUtils uses, written
+         * out rather than called. ColorUtils reaches android.graphics.Color for
+         * the channels, which is a framework stub on the JVM and returns zero,
+         * so every colour measured as pitch black and the test that was meant
+         * to prove Light themes get dark icons passed for Cream and failed for
+         * Light with "luminance 0.0". A decision this visible should not rest
+         * on a call the suite cannot execute.
+         *
+         * Luminance rather than a simple average because the transfer curve is
+         * what makes a saturated mid-tone read the way a person sees it, and
+         * two of the five shipped themes are near-white where getting this
+         * backwards hides the clock, battery and signal entirely.
+         */
+        fun needsDarkIcons(color: Int): Boolean = luminanceOf(color) > 0.5
+
+        fun luminanceOf(color: Int): Double {
+            fun lin(c: Int): Double {
+                val s = c / 255.0
+                return if (s <= 0.03928) s / 12.92 else Math.pow((s + 0.055) / 1.055, 2.4)
+            }
+            val r = lin((color shr 16) and 0xFF)
+            val g = lin((color shr 8) and 0xFF)
+            val b = lin(color and 0xFF)
+            return 0.2126 * r + 0.7152 * g + 0.0722 * b
+        }
 
         /** The name the shim looks for. Must match hestia-bridge.js. */
         const val JS_NAME = "__hestiaNativeRaw"

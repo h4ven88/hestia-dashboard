@@ -313,8 +313,15 @@ body{
 /* ── TOPBAR ── */
 .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 22px;background:var(--bg-panel);border-bottom:1px solid var(--border);flex-shrink:0}
 .tb-left{display:flex;align-items:center;gap:12px}
-.tb-clock{font-size:26px;font-weight:500;color:var(--t1);letter-spacing:-.5px;text-shadow:var(--ts-lg)}
-.tb-date{font-size:12px;color:var(--t3);font-weight:400}
+/* nowrap, because "12:55 AM" is one thing and not two. The clock lives in
+   .tb-left while the lock and the sync pill live in .tb-stats beside it, so
+   whenever that pill grows -- "live" becoming "15s ago", or "2h 45m ago" --
+   .tb-left is squeezed and the time broke mid-string, dropping AM onto a
+   second line and pushing the topbar taller. Reported from a phone, where the
+   row is tightest. flex-shrink:0 keeps it from being compressed in the first
+   place; the pill is the thing that should give. */
+.tb-clock{font-size:26px;font-weight:500;color:var(--t1);letter-spacing:-.5px;text-shadow:var(--ts-lg);white-space:nowrap;flex-shrink:0}
+.tb-date{font-size:12px;color:var(--t3);font-weight:400;white-space:nowrap}
 .tb-stats{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
 .tb-stat{display:flex;align-items:center;gap:7px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:5px 12px}
 .tb-stat-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
@@ -2071,11 +2078,29 @@ const THEME_META = {
   cream: '#F5F0E8'
 };
 
+/* Tells a native shell what colour the system bar strips should be.
+ *
+ * The app lays the page out edge to edge and pads a container to clear the
+ * status and navigation bars, so that container's colour IS the strips. It was
+ * fixed at the dark default, which is right for three of the five themes and
+ * leaves a Light or Cream household framed in two dark bands.
+ *
+ * No-op in a browser, where the theme-color meta tag already does this job and
+ * there is no container to paint. */
+function nativeSetBars(color) {
+  const n = window.hestiaNative;
+  if (!n || !n.capabilities || n.capabilities.indexOf('ui') < 0) return;
+  try { n.call('ui.bars', { color: String(color || '') }).catch(() => {}); } catch(e) {}
+}
+
 function setTheme(name) {
   if (!THEME_META[name]) name = 'dark';
   document.documentElement.setAttribute('data-theme', name === 'dark' ? '' : name);
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', THEME_META[name]);
+  /* The same value the meta tag gets, so the bars can never disagree with the
+     page: one source, two consumers. */
+  nativeSetBars(THEME_META[name]);
   try { _LS.setItem('dashboard-theme', name); } catch(e) {}
   document.querySelectorAll('.sp-swatch').forEach(s => s.classList.remove('active'));
   const active = document.getElementById('sw-' + name);

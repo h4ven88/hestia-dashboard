@@ -1152,5 +1152,78 @@ console.log('\n=== 22. Full-screen overlays stay scrollable on a phone ===');
   }
 }
 
+console.log('\n=== 23. The system bars follow the household theme ===');
+{
+  /* The app lays out edge to edge and pads a container to clear the status and
+     navigation bars, so that container's colour IS the strips. It was fixed at
+     the dark default, which framed Light and Cream households in two dark
+     bands. The page already knows the exact colour -- THEME_META feeds the
+     theme-color meta tag -- it simply never reached native. */
+  const BAR_SRC = ['nativeSetBars', 'setTheme'].map(extractFn).join('\n\n');
+
+  const themeEnv = ({ capabilities = ['hub', 'ui'] } = {}) => {
+    const win = {};
+    const calls = [];
+    if (capabilities !== null) {
+      win.hestiaNative = {
+        capabilities,
+        call: (m, p) => { calls.push({ m, p }); return Promise.resolve({ applied: true }); },
+      };
+    }
+    const THEME_META = { dark: '#0D0F12', light: '#F5F5F3', slate: '#1C2028',
+                         warm: '#1C1A17', cream: '#F5F0E8' };
+    const api = new Function('window', 'console', '__meta', '__calls', `
+      const THEME_META = __meta;
+      const _LS = { setItem(){}, getItem(){ return null; } };
+      /* setTheme repaints the Artemis gem fills too. Stubbed rather than
+         extracted: it is unrelated to the bars, and pulling it in would drag
+         the whole icon layer into a test about one bridge call. */
+      function updateFabGemFills(){}
+      const document = {
+        documentElement: { setAttribute(){} },
+        querySelector(){ return { setAttribute(){} }; },
+        querySelectorAll(){ return []; },
+        getElementById(){ return null; },
+      };
+      ${BAR_SRC}
+      return { setTheme, nativeSetBars };
+    `)(win, { warn() {}, log() {} }, THEME_META, calls);
+    return { ...api, calls, THEME_META };
+  };
+
+  const browser = themeEnv({ capabilities: null });
+  browser.setTheme('cream');
+  check('a browser reports nothing to native',
+    browser.calls.length === 0,
+    'the theme-color meta tag already does this job there');
+  const noUi = themeEnv({ capabilities: ['hub'] });
+  noUi.setTheme('cream');
+  check('...and neither does a bridge without the ui capability', noUi.calls.length === 0);
+
+  const app = themeEnv();
+  app.setTheme('cream');
+  check('the app reports the theme colour', app.calls.length === 1 && app.calls[0].m === 'ui.bars');
+  check('...the SAME value the meta tag gets',
+    app.calls[0].p.color === app.THEME_META.cream,
+    'one source, two consumers, so the bars cannot disagree with the page');
+
+  /* Every theme, because the two near-white ones are the whole reason this
+     exists and a map that silently lacked an entry would send undefined. */
+  for (const name of ['dark', 'light', 'slate', 'warm', 'cream']) {
+    const e = themeEnv();
+    e.setTheme(name);
+    check(`${name} reports a real colour`,
+      e.calls.length === 1 && /^#[0-9A-Fa-f]{6}$/.test(e.calls[0].p.color),
+      e.calls[0] && e.calls[0].p.color);
+  }
+
+  /* An unknown theme falls back to dark rather than sending nothing, or the
+     bars would keep whatever the previous theme painted them. */
+  const bogus = themeEnv();
+  bogus.setTheme('chartreuse');
+  check('an unknown theme still paints the bars',
+    bogus.calls.length === 1 && bogus.calls[0].p.color === bogus.THEME_META.dark);
+}
+
 console.log(`\n${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL ? 1 : 0);

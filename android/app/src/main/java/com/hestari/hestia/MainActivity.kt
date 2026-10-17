@@ -31,6 +31,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var bridge: HestiaBridge
 
+    /* The container whose padding holds the system bars, kept so the page can
+       repaint it when the household changes theme. Nullable rather than
+       lateinit: applyBarColor can be called from the bridge before onCreate
+       has finished building it. */
+    private var barRoot: android.view.View? = null
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -153,11 +159,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         bridge = HestiaBridge(applicationContext, webView, BuildConfig.VERSION_NAME,
-            ::ensureLocalNetworkPermission, ::ensureNotificationPermission)
+            ::ensureLocalNetworkPermission, ::ensureNotificationPermission, ::applyBarColor)
         webView.addJavascriptInterface(bridge, HestiaBridge.JS_NAME)
         installBridgeShim()
 
-        setContentView(fitToSystemBars(webView))
+        barRoot = fitToSystemBars(webView)
+        setContentView(barRoot)
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -200,11 +207,10 @@ class MainActivity : AppCompatActivity() {
      * being typed into, which is the sort of defect that only shows up on a
      * phone and never in a desktop browser.
      *
-     * KNOWN LIMIT: the bar area takes the page's DEFAULT (dark) background, not
-     * the live theme. A household on the Light or Cream theme gets two dark
-     * strips. Fixing that properly means the page telling the native layer
-     * which theme is active, which is a web-layer change and belongs with the
-     * rest of the theme work rather than smuggled into a layout fix.
+     * The colour set here is only the STARTING one, used until the page says
+     * which theme is live -- see applyBarColor(). It is the dark default
+     * because that is what most households run and what the page itself paints
+     * before any theme is applied, so the common case never flashes.
      */
     private fun fitToSystemBars(content: WebView): android.view.View {
         val root = android.widget.FrameLayout(this).apply {
@@ -221,10 +227,56 @@ class MainActivity : AppCompatActivity() {
             androidx.core.view.WindowInsetsCompat.CONSUMED
         }
         /* Dark bars need light icons. The default is dark-on-light, which on
-           this background renders the clock and battery nearly invisible. */
+           this background renders the clock and battery nearly invisible.
+           applyBarColor() revises this once the page reports its theme. */
         androidx.core.view.WindowCompat.getInsetsController(window, root)
             .isAppearanceLightStatusBars = false
         return root
+    }
+
+    /**
+     * Paints the bar areas to match the page's live theme.
+     *
+     * ⛔ THE ICONS MATTER AS MUCH AS THE BACKGROUND. Hestia ships five themes,
+     * two of which (Light #F5F5F3, Cream #F5F0E8) are near-white. Painting the
+     * strips to match without flipping the system icons leaves white icons on a
+     * white bar: the clock, battery and signal simply vanish. So the contrast
+     * is decided from the colour itself rather than from a theme NAME, which
+     * also means a sixth theme added later needs no change here.
+     *
+     * Luminance, not lightness-by-eye: the sRGB transfer curve makes a
+     * saturated mid-tone read the way a person actually sees it. 0.5 is the
+     * conventional split and all five palettes sit well clear of it, which the
+     * test asserts so a sixth theme added near the boundary is noticed.
+     *
+     * HestiaBridge.needsDarkIcons rather than ColorUtils: ColorUtils reaches
+     * android.graphics.Color, a framework stub on the JVM that returns zero, so
+     * the suite could not exercise this decision at all.
+     *
+     * Called on the UI thread from the bridge, which runs on its own thread.
+     */
+    fun applyBarColor(color: Int) {
+        runOnUiThread {
+            val root = barRoot ?: return@runOnUiThread
+            root.setBackgroundColor(color)
+            /* ⛔ WITHOUT THIS THE BOTTOM BAR STAYS DARK however the container is
+               painted, and it looks like the colour simply did not apply. It is
+               not the container: in edge-to-edge Android draws its OWN
+               translucent scrim behind three-button navigation for contrast,
+               on top of whatever is beneath. Seen on a Galaxy A16 with the
+               Cream theme -- status bar correctly cream, navigation bar still a
+               dark band. Gesture navigation has no buttons to protect and shows
+               nothing, which is why this would never appear on a phone set up
+               that way. */
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                window.isNavigationBarContrastEnforced = false
+            }
+            val light = HestiaBridge.needsDarkIcons(color)
+            androidx.core.view.WindowCompat.getInsetsController(window, root).apply {
+                isAppearanceLightStatusBars = light
+                isAppearanceLightNavigationBars = light
+            }
+        }
     }
 
     /**
