@@ -8,6 +8,11 @@ check_min.js
 CLAUDE.md
 ROLLBACK.md
 
+# ⛔ LIVE SECURITY FINDINGS against a public repo. Ignored, not merely
+# untracked -- an entry here is what protects it from `git clean -fd` AND from
+# an accidental `git add -A` publishing open vulnerabilities.
+SECURITY-SWEEP.md
+
 # ── Wake word training material ──────────────────────────────────────────
 # Deliberately local and never committed: the scraped clips and per-word
 # datasets are large and reproducible from the url lists, which ARE tracked.
