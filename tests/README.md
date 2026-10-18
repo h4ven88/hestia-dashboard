@@ -1,6 +1,6 @@
 # Test harnesses — CRITICAL, DO NOT DELETE
 
-344 tests across 9 suites. Run them all:
+937 tests across 15 suites. Run them all:
 
 ```bash
 node tests/runall.mjs
@@ -34,25 +34,41 @@ carried them.
 
 ## What each suite covers
 
+Counts drift as suites grow, so `runall.mjs`'s own output is authoritative.
+Update this table when you add a section rather than letting it go stale.
+
 | Suite | Tests | Covers |
 |---|---:|---|
-| `ringharness` | 45 | Ring/HSM entry-delay state machine, transitions, alarm panel ranking |
-| `hubharness` | 14 | `_hubUrlForThisDevice` / `_hubUrlToShare`, per-device vs shared hub URL |
-| `relinkharness` | 9 | Diagnostics companion-app relink flow |
-| `healthharness` | 34 | Alarm connection health, HSM/Ring mismatch, lost-connection cause text |
-| `cloudharness` | 26 | Cloud config adoption trust decisions, alarm panel ranking |
+| `bridgeharness` | 181 | Native/web bridge: `hubFetch` identity on the browser path, relay origin pinning, `cloudFetch` header forwarding, camera URL rewriting, bar colours |
+| `cloudsecret` | 164 | Household secret lifecycle, what goes on the wire, key derivation |
+| `reminderharness` | 111 | Recurrence engine across DST and both hemispheres, local-date helpers, hub-vs-device firing, tick heartbeat |
+| `pushtransport` | 71 | Both push transports: armed gate, pruning rules, collapse keys, failure logging, the no-op KV write skip |
 | `garageharness` | 67 | Garage door command style, state honesty, voice/routine gating |
-| `projection-equivalence` | 19 | The service half carries every field the Workers actually read |
 | `writeauth` | 66 | Cloud record write authority: token proof, recovery verifier, both attacks |
-| `cloudsecret` | 64 | Household secret lifecycle, what goes on the wire, key derivation |
+| `pinguard` | 62 | PIN storage and merge guards, no-PIN warnings, version and signing config |
+| `ringharness` | 45 | Ring/HSM entry-delay state machine, transitions, alarm panel ranking |
+| `healthharness` | 34 | Alarm connection health, HSM/Ring mismatch, lost-connection cause text |
+| `endpointauth` | 34 | Authorisation on the endpoints v2.0.0 missed: discover, webhook, subscribe, activity, config PUT |
+| `fcmcrypto` | 28 | The FCM JWT path executed for real: PEM parse, pkcs8 import, RS256 signing, access-token cache invalidation |
+| `cloudharness` | 26 | Cloud config adoption trust decisions, alarm panel ranking |
+| `hubharness` | 20 | `_hubUrlForThisDevice` / `_hubUrlToShare`, per-device vs shared hub URL |
+| `projection-equivalence` | 19 | The service half carries every field the Workers actually read |
+| `relinkharness` | 9 | Diagnostics companion-app relink flow |
 
-### The two security suites
+### The security suites
 
-`writeauth` and `cloudsecret` exist because the others did **not** constrain this
-code. A reviewer mutated the shipped source two ways, deleted the line stripping
-the secret out of the record it encrypts, and replaced `crypto.getRandomValues`
-with a constant so every household shared one key, and the full suite stayed
-green both times.
+`writeauth`, `cloudsecret`, `endpointauth` and `pinguard` exist because the
+others did **not** constrain this code. A reviewer mutated the shipped source two
+ways, deleted the line stripping the secret out of the record it encrypts, and
+replaced `crypto.getRandomValues` with a constant so every household shared one
+key, and the full suite stayed green both times.
+
+`endpointauth` covers the asymmetry v2.0.0 left behind: it secured the endpoints
+the **hub** calls, and missed the ones the **browser** calls for push and
+activity. A neighbour could read a smoke sensor's id from `discover.js` and POST
+a fake `smoke` event to `webhook.js`, and `smoke` bypasses the armed gate by
+design. **When you close a trust gap, grep for every sibling that shares the
+assumption.**
 
 They encode the two attacks that killed eleven earlier designs of the trust
 model. Re-run both against any change in this area:
