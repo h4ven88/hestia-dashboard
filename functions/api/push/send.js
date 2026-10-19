@@ -1,5 +1,6 @@
 import { dispatchPush } from '../../_lib/pushDispatch.js';
-import { getHouseholdConfig, sha256Hex } from '../../_lib/householdConfig.js';
+import { getHouseholdConfig } from '../../_lib/householdConfig.js';
+import { authorizeHousehold, AUTH } from '../../_lib/householdAuth.js';
 import { logActivity } from '../../_lib/activityLog.js';
 
 async function sha256(str) {
@@ -42,14 +43,41 @@ export async function onRequestPost({ request, env }) {
     const household = await getHouseholdConfig(env, ip, shortHash);
     if (!household) return Response.json({ status: 'error', message: 'unknown household' }, { status: 404 });
 
-    // The Workers never USE the Maker token, they only ever compared it -- so
-    // the record now carries sha256(token) and the token itself moved into the
-    // encrypted half, out of reach of anyone sharing this public IP. Groovy is
-    // unchanged: it still posts the raw token and we hash it here.
-    const presentedHash = await sha256Hex(token);
-    const storedHash = household.config && household.config.tokenHash;
-    if (!storedHash || presentedHash !== storedHash) {
-      return Response.json({ status: 'error', message: 'unauthorized' }, { status: 401 });
+    /* ⛔ THIS GOES THROUGH authorizeHousehold, AND IT DID NOT USED TO.
+     *
+     * It compared sha256(token) against household.config.tokenHash directly.
+     * For a LEGACY record that stored value is DERIVED, in
+     * householdConfig.js:70, from plaintext decrypted under
+     * SHA-256(publicIP + ':hestia-cloud-sync') -- a constant in a public repo.
+     * householdAuth.js:76 refuses a legacy record for exactly that reason and
+     * says so in prose: it "proves nothing about who is calling and must never
+     * satisfy an authorisation check". This handler then authorised on
+     * precisely that value. One module forbade it and two accepted it.
+     *
+     * Two ways in, both reachable: decrypt a genuine unmigrated household's
+     * record (discover.js serves legacy ciphertext to anyone, since its
+     * `service` gate cannot fire on a record with no `service` key) and replay
+     * the real token; or TOFU-write a legacy-SHAPED record over any lapsed
+     * slot, sealed under the public key, carrying a token of your choosing.
+     * Either way send.js authorised a stranger, and `smoke` is in
+     * ALWAYS_CATEGORIES so it bypasses the armed gate by design -- a fabricated
+     * "Smoke / CO Alert" to every phone in a house, at any hour, repeatably.
+     *
+     * ⚠ STATED TRADE: a household still holding a genuine legacy record loses
+     * push until it opens a dashboard once (which mints and pushes a modern
+     * record). That population should be empty three weeks past v2.0.0, since
+     * the record TTL is 30 days and any boot migrates it -- but it cannot be
+     * distinguished from a forgery, because the legacy key is public. Refusing
+     * is the only safe side, and the warn below makes a real case diagnosable
+     * instead of silent. */
+    const auth = await authorizeHousehold(env, {
+      household, shortHash, presented: { token },
+    });
+    if (!auth.ok) {
+      if (auth.reason === AUTH.LEGACY) {
+        console.warn(`[push/send] refused a legacy record for ${shortHash}; household must open a dashboard once to migrate`);
+      }
+      return Response.json({ status: 'error', reason: auth.reason, message: 'unauthorized' }, { status: 401 });
     }
 
     // This endpoint is the only path for hsmAlert intrusion trips AND

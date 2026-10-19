@@ -55,12 +55,54 @@ async function authorize(request, env) {
   });
   if (auth.ok) return { ok: true };
 
+  /* ⛔ THE GRACE IS JUSTIFIED BY A CLAIM ABOUT THE ROSTER, SO TEST THE ROSTER.
+   *
+   * Every condition below is a fact about the CONFIG RECORD -- absent, legacy,
+   * no recoveryHash -- while the comment above justifies them with "there is
+   * nothing in push:<hash> to protect yet". Those are two different KV keys
+   * with independent lifetimes, so the premise was simply false in two
+   * ordinary states: an `ip:` record lapsed at 30 days, or one written by a
+   * pre-v2.2.0 client.
+   *
+   * In either state, with NO credential of any kind:
+   *   DELETE {deviceId} -> 200, roster emptied, the household's alarms stop
+   *                        reaching any phone, and nothing on any screen says
+   *                        so. pushResyncOnBoot() only re-registers when a
+   *                        dashboard opens, which for a push-only household is
+   *                        never. This is the quiet half and the worse one.
+   *   31x PUT           -> fills MAX_DEVICES, and the household's next real
+   *                        device gets 409. The ceiling comment above
+   *                        anticipates roster-flooding as an attack; the grace
+   *                        let it through unauthenticated.
+   *
+   * So: grace ONLY while the roster is genuinely empty. That is the condition
+   * the comment always described, and it makes the premise true instead of
+   * assumed. It also makes DELETE safe by construction -- a delete against an
+   * empty roster removes nothing.
+   *
+   * Still self-closing, and sooner than before: the moment a household
+   * registers its first device there is something to protect, and from then on
+   * this is enforced. A household with no devices registered cannot be harmed
+   * by a write, and cannot be locked out of making its first one. */
+  const rosterRaw = await env.HESTIA_KV.get(`push:${shortHash}`);
+  let rosterEmpty = true;
+  if (rosterRaw) {
+    try { rosterEmpty = Object.keys(JSON.parse(rosterRaw) || {}).length === 0; }
+    catch { rosterEmpty = false; }   // unreadable is not empty -- refuse, never fail open
+  }
+
+  if (!rosterEmpty) {
+    console.warn('[push/subscribe] refused an unauthorised write to a NON-EMPTY roster',
+      shortHash, auth.reason);
+    return { ok: false, status: 401, message: authMessage(auth.reason), reason: auth.reason };
+  }
+
   if (auth.reason === AUTH.NO_RECORD) {
-    console.warn('[push/subscribe] no record for this household yet; accepting on first use', shortHash);
+    console.warn('[push/subscribe] no record for this household yet, and the roster is empty; accepting on first use', shortHash);
     return { ok: true };
   }
   if (auth.reason === AUTH.LEGACY || !(household.config || {}).recoveryHash) {
-    console.warn('[push/subscribe] pre-upgrade record, accepting during the migration window', shortHash);
+    console.warn('[push/subscribe] pre-upgrade record and an empty roster, accepting during the migration window', shortHash);
     return { ok: true };
   }
   return { ok: false, status: 401, message: authMessage(auth.reason), reason: auth.reason };

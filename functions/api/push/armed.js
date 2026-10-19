@@ -1,4 +1,5 @@
-import { getHouseholdConfig, sha256Hex } from '../../_lib/householdConfig.js';
+import { getHouseholdConfig } from '../../_lib/householdConfig.js';
+import { authorizeHousehold, AUTH } from '../../_lib/householdAuth.js';
 import { logActivity } from '../../_lib/activityLog.js';
 
 async function sha256(str) {
@@ -41,14 +42,28 @@ export async function onRequestPost({ request, env }) {
     const household = await getHouseholdConfig(env, ip, shortHash);
     if (!household) return Response.json({ status: 'error', message: 'unknown household' }, { status: 404 });
 
-    // The Workers never USE the Maker token, they only ever compared it -- so
-    // the record now carries sha256(token) and the token itself moved into the
-    // encrypted half, out of reach of anyone sharing this public IP. Groovy is
-    // unchanged: it still posts the raw token and we hash it here.
-    const presentedHash = await sha256Hex(token);
-    const storedHash = household.config && household.config.tokenHash;
-    if (!storedHash || presentedHash !== storedHash) {
-      return Response.json({ status: 'error', message: 'unauthorized' }, { status: 401 });
+    /* ⛔ ROUTED THROUGH authorizeHousehold -- see the long note in send.js.
+     *
+     * The direct tokenHash comparison this replaces authorised on a value that
+     * householdAuth.js:76 explicitly forbids as an authorisation basis: for a
+     * LEGACY record it is derived from plaintext decrypted under a key that is
+     * a constant in a public repo, so a neighbour can forge a record whose
+     * stored hash is one they chose.
+     *
+     * What that bought an attacker HERE is worse than a fake notification. This
+     * endpoint writes the household's arm state, and webhook.js reads it to
+     * decide "armed only" gating. POST {armed:false} and every armed-only
+     * device in the house goes silent for a real intrusion, and the motion
+     * cooldown relaxes so real motion stops being logged. Silencing an alarm
+     * is quieter than firing a false one, and strictly worse. */
+    const auth = await authorizeHousehold(env, {
+      household, shortHash, presented: { token },
+    });
+    if (!auth.ok) {
+      if (auth.reason === AUTH.LEGACY) {
+        console.warn(`[push/armed] refused a legacy record for ${shortHash}; household must open a dashboard once to migrate`);
+      }
+      return Response.json({ status: 'error', reason: auth.reason, message: 'unauthorized' }, { status: 401 });
     }
 
     // This key is current STATE, not an event record -- unlike config/push

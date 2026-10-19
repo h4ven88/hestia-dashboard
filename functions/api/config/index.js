@@ -92,6 +92,43 @@ export async function onRequestPut({ request, env }) {
     let tokenProved = false;
 
     const existingRaw = await env.HESTIA_KV.get(ipKey);
+
+    /* ⛔ AN EMPTY SLOT IS NOT NECESSARILY AN ANONYMOUS ONE.
+     *
+     * Every guard below lives inside `if (existingRaw ...)`, so a LAPSED record
+     * skipped all of them: no wcap check, no legacy check, no token check. The
+     * TOFU justification is "nothing there to protect yet", and that is sound
+     * for the record itself -- the attacker wins a slot holding nothing, and the
+     * household reclaims it on its next save.
+     *
+     * What it is NOT sound for is everything that treats this record as its
+     * authorisation ROOT. push:<shortHash> is a different KV key with an
+     * independent lifetime, holding the household's real registered phones. So
+     * claiming a lapsed config slot handed a stranger authority over a roster
+     * that was still very much there -- and `smoke` bypasses the armed gate by
+     * design, so that is a fabricated "Smoke / CO Alert" to every phone in a
+     * house they do not live in, plus {armed:false} to silence the real ones.
+     *
+     * The record's TTL is 30 days and wcap's is 60, so days 30-60 after a
+     * household's last write is exactly the window where the record is gone and
+     * the household is STILL IDENTIFIABLE. A caller who cannot present the
+     * secret in that window is not "first through the door". This is the same
+     * reasoning already applied at the storedSecretHash check further down; it
+     * simply was never applied to the empty-slot case.
+     *
+     * NOT A LOCKOUT, and that distinction is load-bearing here: the household
+     * holds the secret, so it presents secretProof and writes normally. Only a
+     * caller without it is refused, and wcap expires at 60 days, after which
+     * the slot is genuinely anonymous and TOFU opens again. A recoverable
+     * refusal, never a permanent one -- which is the invariant the v2.0.0 work
+     * settled on. */
+    if (!existingRaw && storedSecretHash && !secretProves) {
+      return Response.json({
+        status: 'error', reason: 'bad-secret',
+        message: 'this network already has a household key; present it, or use the household key field on the recovery screen',
+      }, { status: 401 });
+    }
+
     if (existingRaw && !secretProves) {
       const household = await getHouseholdConfig(env, ip, shortHash);
       if (!household) {

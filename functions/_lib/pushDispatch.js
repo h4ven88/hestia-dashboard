@@ -164,13 +164,35 @@ export async function dispatchPush(env, shortHash, { category, title, body, arme
   // have been eligible under the household's current arm state.
   const eligible = selectEligible(devices, { category, armed, targetDeviceId });
 
-  // Derived only if a Web Push device is actually eligible. See isFcm above.
-  const keyPair = eligible.some(([, d]) => !isFcm(d))
-    ? await deserializeVapidKeys({
+  /* ⛔ THE COMMENT ABOVE THIS USED TO CLAIM a missing VAPID_PRIVATE_KEY
+     "cannot take down a send that was never going to use it". That is true
+     only for an FCM-ONLY household. This derivation sits before the dispatch
+     loop and fires whenever ANY eligible device is Web Push, unwrapped -- so
+     for a MIXED household (a phone running the app plus the same person's
+     laptop, which is the case the old comment itself named as motivating) a
+     bad or absent key threw before a single FCM send was attempted, and
+     send.js/webhook.js returned 500 to the whole household. Same shared-fate
+     shape as the 2026-10-04 KV incident: one bad secret, every household's
+     smoke alert becomes an HTTP 500.
+
+     Now the failure is CONTAINED to the transport that actually needs the key.
+     The Web Push devices are counted as failed and logged; the FCM devices are
+     dispatched normally. A comment asserting a protection the code does not
+     provide is worse than no comment, because the next reader stops looking. */
+  let keyPair = null;
+  let vapidError = null;
+  if (eligible.some(([, d]) => !isFcm(d))) {
+    try {
+      keyPair = await deserializeVapidKeys({
         publicKey: VAPID_PUBLIC_KEY,
         privateKey: env.VAPID_PRIVATE_KEY,
-      })
-    : null;
+      });
+    } catch (err) {
+      vapidError = err;
+      console.error('[push] VAPID key unusable; Web Push devices will fail, FCM unaffected:',
+        (err && err.message) || String(err));
+    }
+  }
 
   // Dispatched in parallel with Promise.allSettled -- previously a plain
   // sequential for-loop, so one slow/hung device delayed or blocked every
@@ -186,7 +208,19 @@ export async function dispatchPush(env, shortHash, { category, title, body, arme
       withTimeout(
         isFcm(device)
           ? sendFcmNotification(env, device.token, { title, body, category, tag })
-          : sendPushNotification(keyPair, device.subscription, VAPID_SUBJECT, JSON.stringify({ title, body, tag })),
+          /* A null keyPair means the VAPID key was unusable. Fail THIS device
+             rather than calling the vendored sender with null, which would
+             throw from inside the crypto and read as a transport fault. The
+             FCM branch above is untouched, which is the whole point of
+             containing the failure here instead of before the loop. */
+          : (keyPair
+              ? sendPushNotification(keyPair, device.subscription, VAPID_SUBJECT, JSON.stringify({ title, body, tag }))
+              /* Names VAPID *and* keeps the cause. The raw deserialize error is
+                 "Invalid character", which in the Workers log is
+                 indistinguishable from a push-service fault -- and telling
+                 those apart is the only thing this branch is for. */
+              : Promise.reject(new Error('VAPID key unusable: ' +
+                  ((vapidError && vapidError.message) || 'not configured')))),
         PUSH_SEND_TIMEOUT_MS
       ).then((res) => ({ deviceId, res }))
     )

@@ -194,6 +194,43 @@ console.log('\n=== 2. The device-event webhook capability ===');
      future endpoint that spreads a record could hand it straight over. */
   check('the stored verifier is a hash, not the capability itself',
     kvB._m.get(`hcap:${shB}`) !== CAP && /^[0-9a-f]{64}$/.test(kvB._m.get(`hcap:${shB}`)));
+
+  /* ⛔ (c) THE GRACE WINDOW IS REACHABLE BY CSRF, NOT ONLY BY THE IP NEIGHBOUR.
+     There are no CORS headers anywhere in functions/, no _middleware.js and no
+     Origin check, and request.json() parses a text/plain body regardless of
+     content type. A POST with Content-Type: text/plain and a JSON string body
+     is a CORS *simple* request, so no preflight protects it -- meaning ANY
+     website a household member visits could fire a fabricated smoke alert into
+     that house, blind, without sharing the public IP at all. That is outside
+     the settled threat model's boundary, which is the CGNAT neighbour.
+     A browser always attaches Origin to a cross-origin POST; the hub never
+     does, because it is not a browser. */
+  const kvC = makeKV(); await seedRecord(kvC);
+  const browserPost = new Request('https://hestari.com/api/push/webhook', {
+    method: 'POST',
+    headers: hdr({ Origin: 'https://evil.example', 'Content-Type': 'text/plain' }),
+    body: JSON.stringify(evt),
+  });
+  const csrf = await webhook.onRequestPost({ request: browserPost, env: env(kvC) });
+  check('an uncapped POST carrying an Origin header is refused',
+    csrf.status === 401, `HTTP ${csrf.status}`);
+  check('...and it logged nothing to the Activity Log',
+    [...kvC._m.keys()].every(k => !k.startsWith('activity:')),
+    'an accepted forgery also writes KV, which is an unauthenticated write amplifier');
+
+  /* ...and the guard is scoped to the grace path ONLY, so it cannot break push
+     for a household that HAS registered a capability even if some hub
+     somewhere does send an Origin header. That scoping is deliberate. */
+  const kvD = makeKV(); const shD = await seedRecord(kvD);
+  kvD._m.set(`hcap:${shD}`, await sha256Hex(CAP));
+  const capWithOrigin = await cappedWebhook.onRequestPost({
+    request: new Request(`https://hestari.com/api/push/webhook/${CAP}`, {
+      method: 'POST', headers: hdr({ Origin: 'https://hestari.com' }), body: JSON.stringify(evt),
+    }),
+    env: env(kvD), params: { cap: CAP },
+  });
+  check('a capability-authorised POST is accepted even with an Origin header',
+    capWithOrigin.status === 200, `HTTP ${capWithOrigin.status}`);
 }
 
 console.log('\n=== 3. push/subscribe: auth, first-use, and the migration window ===');
@@ -325,6 +362,155 @@ console.log('\n=== 6. config PUT: the third door, and the legacy claim is closed
   check('the record carries an expiry the UI can quote',
     typeof JSON.parse(stored).service.expiresAt === 'number',
     'KV does not expose a key\'s own TTL, so a locked-out household could not be told how long it lasts');
+}
+
+console.log('\n=== 7. The two endpoints the HUB calls, which this suite only ever named in prose ===');
+{
+  /* ⛔ THE GAP THAT LET THIS LIVE. This file's own header says v2.0.0 "closed
+     config/index.js and the two endpoints the HUB calls (send.js, armed.js)".
+     It then never imported either of them. They were closed against a wrong
+     token and WIDE OPEN against a legacy record, and no assertion anywhere
+     touched them, because the suite agreed with its own header comment.
+
+     householdAuth.js:76 refuses a legacy record and says why in prose: its
+     tokenHash is DERIVED, in householdConfig.js:70, from plaintext decrypted
+     under SHA-256(publicIP + ':hestia-cloud-sync') -- a constant in a public
+     repo. Both handlers compared against that value directly, so they
+     authorised on exactly what the auth module forbids. */
+  const send  = await import('../functions/api/push/send.js');
+  const armed = await import('../functions/api/push/armed.js');
+  const { getHouseholdConfig } = await import('../functions/_lib/householdConfig.js');
+
+  const ATTACKER_TOKEN = 'a-token-the-attacker-picked';
+
+  // A FORGED legacy record: shape anyone can build, sealed under the public
+  // key, carrying a token of the attacker's choosing.
+  const forge = async (kv) => {
+    const sh = await shortHashOf(IP);
+    const payload = await encryptLegacy(IP, {
+      config: { config: { hub: 'http://192.168.1.50', token: ATTACKER_TOKEN } },
+    });
+    kv._m.set(`ip:${sh}`, JSON.stringify({ encrypted: true, payload }));
+    return sh;
+  };
+
+  // First prove the attack's precondition, or the refusals below prove nothing.
+  const kvPre = makeKV(); await forge(kvPre);
+  const read = await getHouseholdConfig(env(kvPre), IP, await shortHashOf(IP));
+  check('a forged legacy record really does decrypt and yield a derived tokenHash',
+    !!read && read.legacy === true && read.config.tokenHash === await sha256Hex(ATTACKER_TOKEN),
+    'if this failed the handler would refuse at an earlier branch for an unrelated reason');
+
+  const body = (o) => new Request('https://hestari.com/x', {
+    method: 'POST', headers: hdr(), body: JSON.stringify(o),
+  });
+
+  // send.js — the fabricated-smoke-alert path.
+  const kvS = makeKV(); await forge(kvS);
+  const sendRes = await send.onRequestPost({
+    request: body({ category: 'smoke', title: 'Smoke / CO Alert', body: 'Hall', armed: false, token: ATTACKER_TOKEN }),
+    env: env(kvS),
+  });
+  check('send.js REFUSES a legacy record even when the presented token matches it',
+    sendRes.status === 401, `HTTP ${sendRes.status}`);
+  check('...and dispatched nothing', !kvS._m.has(`push:${await shortHashOf(IP)}`));
+
+  // armed.js — the quieter and worse one: silencing real alerts.
+  const kvA2 = makeKV(); await forge(kvA2);
+  const armedRes = await armed.onRequestPost({
+    request: body({ armed: false, token: ATTACKER_TOKEN }), env: env(kvA2),
+  });
+  check('armed.js REFUSES a legacy record too',
+    armedRes.status === 401, `HTTP ${armedRes.status}`);
+  check('...and did NOT write the arm state',
+    !kvA2._m.has(`armed:${await shortHashOf(IP)}`),
+    'writing armed:false here silences every armed-only device during a real intrusion');
+
+  /* The other half. Refusing legacy must not refuse the real hub, which is the
+     only thing that legitimately calls either endpoint. */
+  const kvOk = makeKV(); await seedRecord(kvOk);
+  const okArmed = await armed.onRequestPost({
+    request: body({ armed: true, token: TOKEN }), env: env(kvOk),
+  });
+  check('a MODERN record still authorises the real hub',
+    okArmed.status === 200, `HTTP ${okArmed.status}`);
+  check('...and the arm state is written',
+    kvOk._m.get(`armed:${await shortHashOf(IP)}`) === '1');
+
+  const kvBad = makeKV(); await seedRecord(kvBad);
+  const badTok = await armed.onRequestPost({
+    request: body({ armed: false, token: 'not-the-households-token' }), env: env(kvBad),
+  });
+  check('...while a wrong token is still refused', badTok.status === 401);
+}
+
+console.log('\n=== 8. The roster grace now tests the roster, and the date cutoff exists ===');
+{
+  const subscribe = await import('../functions/api/push/subscribe.js');
+  const webhook2  = await import('../functions/api/push/webhook.js');
+
+  const DEV = (id) => ({
+    deviceId: id, deviceName: id, mode: 'always',
+    subscription: { endpoint: `https://push/${id}`, keys: { p256dh: 'p'.repeat(87), auth: 'a'.repeat(22) } },
+  });
+  const anonReq = (method, body) => new Request('https://hestari.com/api/push/subscribe', {
+    method, headers: hdr(), body: JSON.stringify(body),
+  });
+
+  /* ⛔ THE PREMISE WAS ABOUT THE ROSTER AND THE TEST WAS ABOUT THE RECORD.
+     subscribe.js graced on NO_RECORD / LEGACY / no-recoveryHash -- all facts
+     about ip:<hash> -- while justifying it with "there is nothing in
+     push:<hash> to protect yet". Independent lifetimes, so the premise was
+     false whenever the record had lapsed but the roster had not. */
+
+  // (a) The destructive half, which is the quiet one: an anonymous DELETE.
+  const kvDel = makeKV(); const shDel = await shortHashOf(IP);
+  kvDel._m.set(`push:${shDel}`, JSON.stringify({ Phone: DEV('Phone') }));
+  // No ip: record at all -> used to be NO_RECORD -> used to be graced.
+  const del = await subscribe.onRequestDelete({ request: anonReq('DELETE', { deviceId: 'Phone' }), env: env(kvDel) });
+  check('an anonymous DELETE against a NON-EMPTY roster is refused',
+    del.status === 401, `HTTP ${del.status}`);
+  check('...and the household still has its device',
+    JSON.parse(kvDel._m.get(`push:${shDel}`)).Phone !== undefined,
+    'emptying this silently stops every alarm reaching every phone');
+
+  // (b) The flooding half.
+  const kvFlood = makeKV(); const shF = await shortHashOf(IP);
+  kvFlood._m.set(`push:${shF}`, JSON.stringify({ Phone: DEV('Phone') }));
+  const flood = await subscribe.onRequestPut({ request: anonReq('PUT', DEV('evil-1')), env: env(kvFlood) });
+  check('an anonymous PUT against a non-empty roster is refused too',
+    flood.status === 401, `HTTP ${flood.status}`);
+
+  /* ⛔ AND THE HALF THAT MATTERS MORE: a household must still be able to make
+     its FIRST registration, or nobody could ever enable push. An empty roster
+     really has nothing to protect, which is what the comment always claimed. */
+  const kvFirst = makeKV(); const shFirst = await shortHashOf(IP);
+  const first = await subscribe.onRequestPut({ request: anonReq('PUT', DEV('Phone')), env: env(kvFirst) });
+  check('a first registration on an EMPTY roster still succeeds',
+    first.status === 200, `HTTP ${first.status}`);
+  check('...and the device is stored',
+    !!kvFirst._m.get(`push:${shFirst}`) && JSON.parse(kvFirst._m.get(`push:${shFirst}`)).Phone,
+    'refusing here would be the "fix locks out someone who was fine" failure');
+
+  // An unreadable roster must refuse, never fail open into "empty".
+  const kvJunk = makeKV(); const shJ = await shortHashOf(IP);
+  kvJunk._m.set(`push:${shJ}`, 'not json at all');
+  const junk = await subscribe.onRequestDelete({ request: anonReq('DELETE', { deviceId: 'Phone' }), env: env(kvJunk) });
+  check('an UNREADABLE roster is treated as non-empty, not as empty',
+    junk.status === 401, `HTTP ${junk.status}`,
+    );
+
+  /* The webhook date cutoff, which CLAUDE.md promised and the code lacked. */
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../functions/api/push/webhook.js', import.meta.url), 'utf8');
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .split(/\r?\n/).map(l => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+  check('a real date cutoff exists in the webhook source',
+    /UNCAPPED_GRACE_UNTIL\s*=\s*Date\.parse\(/.test(code),
+    'the notes claimed 2026-11-30 as shipped behaviour and no date comparison existed anywhere');
+  check('...and it is compared against the WORKER clock, not a caller value',
+    /Date\.now\(\)\s*>\s*UNCAPPED_GRACE_UNTIL/.test(code),
+    'a cutoff an attacker can choose the other side of is not a cutoff');
 }
 
 console.log(`\n${PASS} passed, ${FAIL} failed`);

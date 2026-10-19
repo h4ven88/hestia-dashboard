@@ -14,8 +14,15 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+/* ⛔ SPLIT ON /\r?\n/, NOT '\n'. Every source file this reads --
+   dashboard.html, the Groovy, every .kt, everything under functions/ -- is
+   CRLF. Splitting on '\n' leaves a trailing '\r' on every line, and since `.`
+   does not match '\r' and `$` (no `m` flag) does not match before it, the
+   comment regex NEVER FIRES. Five copies of this helper were broken that way,
+   which made the project's stated defence against its own three historical
+   text-presence false greens inoperative everywhere it was applied. */
 const codeOnly = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ')
-  .split('\n').map(l => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+  .split(/\r?\n/).map(l => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
 
 let PASS = 0, FAIL = 0;
 const check = (l, c, x = '') => { c ? PASS++ : FAIL++; console.log(`${c ? 'PASS' : 'FAIL'}  ${l}${x ? `  ${x}` : ''}`); };
@@ -362,6 +369,87 @@ console.log('\n=== 8. When a send fails, is there anything in the log to say why
   check('a 401 did not prune the device',
     refused.out.pruned === 0,
     'pruning on a rejected service account would silently empty the household');
+}
+
+console.log('\n=== 9. A bad VAPID key must not take FCM down with it ===');
+{
+  /* ⛔ THE COMMENT IN THE SOURCE USED TO CLAIM THE OPPOSITE OF THE CODE.
+     It said a missing VAPID_PRIVATE_KEY "cannot take down a send that was never
+     going to use it" -- true only for an FCM-ONLY household. The derivation
+     sat before the dispatch loop and fired whenever ANY eligible device was Web
+     Push, unwrapped. So for a MIXED household -- a phone running the app plus
+     the same person's laptop, the exact case the old comment named as
+     motivating -- it threw before a single FCM send, and the handler returned
+     500 to the whole household. One bad secret, every mixed household's smoke
+     alert becomes an HTTP 500. Same shared-fate shape as the 2026-10-04 KV
+     incident. */
+  const { dispatchPush } = await import('../functions/_lib/pushDispatch.js');
+  const { generateKeyPairSync } = await import('node:crypto');
+
+  const MIXED = {
+    Phone:  { name: 'Phone',  mode: 'always', kind: 'fcm', token: 'tok-1' },
+    Laptop: { name: 'Laptop', mode: 'always', subscription: { endpoint: 'https://push/x', keys: { p256dh: 'p', auth: 'a' } } },
+  };
+
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const env = {
+    HESTIA_KV: {
+      get: async (k) => (k === 'push:abc' ? JSON.stringify(MIXED) : null),
+      getWithMetadata: async (k) => ({ value: k === 'push:abc' ? JSON.stringify(MIXED) : null, metadata: null }),
+      put: async () => {},
+    },
+    FCM_SERVICE_ACCOUNT: JSON.stringify({
+      client_email: 'hestia@example.iam.gserviceaccount.com',
+      private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+      project_id: 'hestia-test',
+    }),
+    VAPID_PRIVATE_KEY: 'this-is-not-a-valid-vapid-key',   // the whole point
+  };
+
+  const fcmHits = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes('oauth2')) {
+      return { ok: true, status: 200, json: async () => ({ access_token: 'ya29.fake', expires_in: 3600 }) };
+    }
+    if (u.includes('fcm.googleapis.com')) { fcmHits.push(u); return { ok: true, status: 200, text: async () => '{}' }; }
+    return { ok: true, status: 200, text: async () => '{}' };
+  };
+
+  const errs = [];
+  const oe = console.error, ow = console.warn;
+  console.error = (...a) => errs.push(a.join(' '));
+  console.warn = (...a) => errs.push(a.join(' '));
+  let out, threw = null;
+  try { out = await dispatchPush(env, 'abc', { category: 'smoke', title: 'Smoke / CO Alert', body: 'Hall', armed: false }); }
+  catch (e) { threw = e; }
+  finally { console.error = oe; console.warn = ow; globalThis.fetch = realFetch; }
+
+  check('dispatch does NOT throw out to the handler', threw === null,
+    threw ? String(threw && threw.message) : 'a throw here is the 500 every household saw');
+  check('the FCM device was still sent to', fcmHits.length === 1, `${fcmHits.length} FCM call(s)`);
+  check('...and is counted as sent', !!out && out.sent === 1, JSON.stringify(out));
+  check('the Web Push device is counted as failed, not silently dropped',
+    !!out && out.failed === 1, JSON.stringify(out));
+  check('...and the unusable key is named in the log',
+    errs.some(l => /VAPID/i.test(l)),
+    'otherwise a rotated VAPID secret is indistinguishable from a transport outage');
+  /* ⛔ THE PER-DEVICE FAILURE REASON MUST NAME THE CAUSE, and this is the only
+     thing the explicit reject buys. Verified directly: the vendored
+     sendPushNotification(null, ...) ALSO throws, so passing a null keyPair
+     straight through fails the same device, counts the same failure and prunes
+     nobody -- identical security outcome. What differs is the Workers log,
+     which reads "Cannot read properties of null (reading 'privateKey')" rather
+     than naming VAPID. On this backend an unexplained failure is the shape that
+     costs days, so the guard is here for diagnosability and this assertion
+     tests exactly that rather than pretending to a safety property. */
+  check('...and the per-device failure reason names VAPID, not a null deref',
+    errs.some(l => /send threw:.*VAPID/i.test(l)),
+    errs.filter(l => /send threw/.test(l)).join(' | ') || '(no send-threw line)');
+  check('a dead VAPID key does not prune anybody',
+    !!out && out.pruned === 0,
+    'pruning on a key problem would quietly unregister every browser in the household');
 }
 
 console.log(`\n${PASS} passed, ${FAIL} failed`);

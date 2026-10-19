@@ -106,6 +106,31 @@ function pushAllowed(config, described, evt) {
  * stored side of the comparison is never attacker-chosen. */
 export const webhookCapKey = (shortHash) => `hcap:${shortHash}`;
 
+/* ⛔ THE CUTOFF THAT WAS DOCUMENTED AND NEVER EXISTED.
+ *
+ * CLAUDE.md states, as shipped behaviour, that uncapped posts are "accepted
+ * until 2026-11-30, and refused the moment that household registers a
+ * capability". The second half was real. The FIRST HALF WAS NOT IN THE CODE AT
+ * ALL -- a grep of functions/ for this date, for any date comparison, for
+ * `cutoff` and for `graceUntil` returned nothing. So the window never closed,
+ * and the population it stays open for is precisely the one it was written to
+ * serve: a household that never registers a capability. It waited for an event
+ * that, for its target population, does not occur.
+ *
+ * That is worse than a plain gap, because anyone reading the notes believed a
+ * backstop existed. A documented guard that is absent from the code is the
+ * failure mode this project has paid for repeatedly.
+ *
+ * WHO IS ACTUALLY LEFT IN THE WINDOW, which is what makes the date safe:
+ * registering happens in the dashboard, and enabling push at all requires
+ * opening the dashboard. So any household that has opened one since v2.2.0
+ * already has a capability and never reaches the grace. What remains is a
+ * household that enabled push BEFORE v2.2.0 and has not opened a dashboard
+ * since -- and their `ip:` record has a 30-day TTL, so most have lapsed anyway.
+ * Opening the dashboard once fixes it, and the refusal below says so in the log
+ * rather than failing silently. */
+const UNCAPPED_GRACE_UNTIL = Date.parse('2026-11-30T23:59:59Z');
+
 export async function onRequestPost({ request, env }) {
   return processDeviceEvent({ request, env, cap: null });
 }
@@ -190,6 +215,44 @@ export async function processDeviceEvent({ request, env, cap }) {
          an uncapped call rather than refused. */
       console.warn('[push/webhook] capability presented but none stored yet', shortHash);
     } else {
+      /* ⛔ THE GRACE WINDOW IS REACHABLE BY CSRF, NOT ONLY BY THE IP NEIGHBOUR.
+       *
+       * There are no CORS headers anywhere in functions/, no _middleware.js and
+       * no Origin check. A POST with Content-Type: text/plain and a JSON string
+       * body is a CORS *simple* request -- no preflight -- and request.json()
+       * parses it regardless of content type. So ANY website a member of the
+       * household visits could fire a fabricated smoke alert into that house,
+       * blind, with no need to share the public IP at all. That is outside the
+       * settled threat model's boundary, which is the CGNAT neighbour.
+       *
+       * Every other endpoint is accidentally protected here, because PUT/DELETE
+       * and application/json all force a preflight that then fails.
+       *
+       * A browser ALWAYS attaches Origin to a cross-origin POST. The hub does
+       * not -- it is not a browser. So presence of Origin on this path means a
+       * browser sent it, and nothing legitimate does.
+       *
+       * ⚠ DELIBERATELY SCOPED TO THE GRACE PATH ONLY. A household that has
+       * registered a capability is authorised above and never reaches here, so
+       * this guard cannot break push for them even if some hub somewhere does
+       * send an Origin header. The only path it tightens is the one that
+       * currently accepts anonymous posts. */
+      const origin = request.headers.get('Origin');
+      if (origin) {
+        console.warn('[push/webhook] refused a browser-originated uncapped POST', shortHash, origin);
+        return Response.json({ status: 'error', message: 'unauthorized' }, { status: 401 });
+      }
+      /* The date half of the grace -- see UNCAPPED_GRACE_UNTIL. Note the clock
+         is the Worker's, never anything a caller supplies, so this is not a
+         value an attacker can choose. */
+      if (Date.now() > UNCAPPED_GRACE_UNTIL) {
+        console.warn('[push/webhook] refused an uncapped POST after the grace window closed',
+          shortHash, '-- this household must open a dashboard once to register its webhook');
+        return Response.json({
+          status: 'error',
+          message: 'this household has not registered a webhook capability; open the Hestia dashboard once to register it',
+        }, { status: 401 });
+      }
       // Grace: this household has never registered a capability.
       console.warn('[push/webhook] accepted an uncapped POST (grace window)', shortHash);
     }

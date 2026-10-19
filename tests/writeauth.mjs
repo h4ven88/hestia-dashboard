@@ -180,13 +180,19 @@ console.log('\n=== 1e. A genuinely virgin household may still establish a verifi
 
 console.log('\n=== 1f. An expired record must not cost the household its recovery verifier ===');
 {
-  /* The record's TTL is 30 days, the verifier's is 60. A household quiet long
-     enough for the record to lapse still holds a live verifier -- but the slot
-     is now empty, so the next writer is accepted on trust-on-first-use. If that
-     write also refreshed the verifier, a neighbour would take the record AND
-     destroy the household's only way back in. Losing the slot in that window is
-     unavoidable (an empty slot really is anonymous); losing the credential is
-     not. */
+  /* The record's TTL is 30 days, the verifier's is 60.
+     ⚠ THIS SECTION'S OWN PREMISE WAS WRONG and the sweep caught it. It used to
+     read "losing the slot in that window is unavoidable (an empty slot really
+     is anonymous)" and assert a 200. An empty slot is NOT anonymous while the
+     verifier lives -- wcap:<shortHash> still identifies the household for a
+     further 30 days, and a caller who cannot present it is not "first through
+     the door".
+     What made that assumption expensive is what ELSE trusts this record:
+     send.js and armed.js treat it as the authorisation root for
+     push:<shortHash>, a different key with its own lifetime holding the
+     household's real phones. So claiming a lapsed slot bought a stranger a
+     fabricated smoke alert to every phone in the house, plus {armed:false} to
+     silence the real ones. */
   const kv = makeKV();
   const shortHash = (await sha256Hex(IP)).substring(0, 16);
   const OWNER_PROOF = 'a'.repeat(64);
@@ -201,9 +207,9 @@ console.log('\n=== 1f. An expired record must not cost the household its recover
 
   const squat = await put(kv, { ...(await record(await sha256Hex(EVIL_TOKEN))),
                                 token: EVIL_TOKEN, secretProof: EVIL_PROOF });
-  check('the empty slot is claimable — TOFU, and honestly unavoidable', squat.status === 200,
-    `HTTP ${squat.status}`);
-  check('but the household KEEPS its recovery verifier',
+  check('a lapsed slot is NOT claimable while the verifier still identifies the household',
+    squat.status === 401, `HTTP ${squat.status}`);
+  check('...and the household KEEPS its recovery verifier',
     kv._m.get(`wcap:${shortHash}`) === OWNER_PROOF,
     'losing this is what turns a lapsed record into a permanent lockout');
 
@@ -214,6 +220,26 @@ console.log('\n=== 1f. An expired record must not cost the household its recover
   check('...and the squatter is locked back out',
     (await put(kv, { ...(await record(await sha256Hex(EVIL_TOKEN))),
                      token: EVIL_TOKEN, secretProof: EVIL_PROOF })).status === 401);
+
+  /* ⛔ THE OTHER HALF, AND IT IS THE ONE THAT MATTERS MORE.
+     For a boot-path change the failure that counts is not "the fix does not
+     work", it is "the fix blocks someone who was fine" -- the project has three
+     failed attempts on record in exactly this area, one of which told users
+     they were locked out while their hub sat ready to configure them.
+     A slot with NO verifier of any kind is genuinely anonymous: a brand-new
+     household, or one quiet past the verifier's own 60-day TTL. TOFU must still
+     work there, or no household could ever establish itself. */
+  const fresh = makeKV();
+  const freshHash = (await sha256Hex(IP)).substring(0, 16);
+  check('a genuinely anonymous slot has no verifier to speak for it',
+    fresh._m.get(`wcap:${freshHash}`) === undefined);
+  const firstEver = await put(fresh, { ...(await record(await sha256Hex(OWNER_TOKEN))),
+                                       token: OWNER_TOKEN, secretProof: OWNER_PROOF });
+  check('...so a brand-new household still claims it on first use',
+    firstEver.status === 200, `HTTP ${firstEver.status}`);
+  check('...and establishing itself writes the verifier',
+    fresh._m.get(`wcap:${freshHash}`) === OWNER_PROOF,
+    'without this the refusal above would make the slot permanently unclaimable');
 }
 
 console.log('\n=== 1g. A legitimate secret rotation must still be able to replace the verifier ===');
