@@ -222,12 +222,42 @@ object HubDiscovery {
      * pinned client cannot match a certificate against. The hub also publishes
      * its own IPv4 in TXT, so there is a stated answer to fall back to.
      */
+    /**
+     * Is this an IPv4 dotted-quad literal, and nothing else?
+     *
+     * ⛔ THE TXT FALLBACK BELOW IS AN UNAUTHENTICATED MULTICAST STRING. It is
+     * whatever any device on the current network chose to advertise, and a
+     * phone joins hotel, cafe and guest Wi-Fi where a hub never does. It was
+     * used verbatim, so `IPv4=hub.attacker.example` produced a card named after
+     * the attacker's chosen hub name, and one tap pinned a host on the open
+     * internet as "the hub" -- after which every apiUrl() call, each carrying
+     * the Maker API token in its query, went there over a connection the app
+     * believed was pinned. No XSS needed for that leg.
+     *
+     * Deliberately NOT InetAddress.getByName: that resolves, so a hostname
+     * would pass. The point is to refuse anything that is not already a literal
+     * address, because a name is exactly what the attack supplies.
+     */
+    internal fun isIpv4Literal(s: String): Boolean {
+        val parts = s.split('.')
+        if (parts.size != 4) return false
+        return parts.all { p ->
+            // No empty, no sign, no whitespace, no leading zeros (which some
+            // parsers read as octal), 1..3 digits, 0..255.
+            p.length in 1..3 && p.all { it in '0'..'9' } &&
+                (p.length == 1 || p[0] != '0') && p.toInt() <= 255
+        }
+    }
+
     private fun addressOf(info: NsdServiceInfo): String? {
         @Suppress("DEPRECATION")  // getHostAddresses is API 34+; minSdk is 26
         val host = runCatching { info.host }.getOrNull()
         if (host is Inet4Address) return host.hostAddress
         val stated = txt(info, "IPv4")
-        return stated.ifEmpty { null }
+        // Validated, not trusted -- see isIpv4Literal. A record advertising a
+        // hostname, an IPv6 literal, or anything with a port, path, scheme,
+        // quote or credential in it is dropped rather than turned into an origin.
+        return if (isIpv4Literal(stated)) stated else null
     }
 
     /**
@@ -257,8 +287,15 @@ object HubDiscovery {
      * fallback chains below are reachable by a plain JVM test rather than only
      * by holding a phone.
      *
-     * The port is absent from the signature on purpose: there is no input that
-     * can make this build anything other than an https origin on 443.
+     * The port is absent from the signature on purpose.
+     *
+     * ⚠ THIS COMMENT USED TO CLAIM "there is no input that can make this build
+     * anything other than an https origin on 443". That was FALSE: `ip` reached
+     * here straight from an mDNS TXT field with no validation, so an advertised
+     * hostname became `https://hub.attacker.example` and was pinnable. The
+     * guard is real now but it lives in addressOf/isIpv4Literal, not here --
+     * this function trusts its caller, and the only caller validates. Said
+     * precisely, because an overclaiming comment stops the next reader looking.
      */
     fun hubFrom(
         serviceName: String,

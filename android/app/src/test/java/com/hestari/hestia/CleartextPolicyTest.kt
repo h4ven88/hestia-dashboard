@@ -106,4 +106,48 @@ class CleartextPolicyTest {
             !c.contains("MIXED_CONTENT_ALWAYS_ALLOW") && !c.contains("MIXED_CONTENT_COMPATIBILITY_MODE")
         )
     }
+
+    /* ⛔ WHAT THE NEXT TWO ASSERTIONS DO AND DO NOT CATCH. Read this before
+       trusting them.
+       Both guards live in functions that need an Android Context -- addressOf
+       takes an NsdServiceInfo, configure touches SharedPreferences and the
+       network -- and there is no Robolectric here, only plain JUnit. So neither
+       can be exercised behaviourally, and the mutation gate confirmed it:
+       deleting either one left all 65 Kotlin tests green.
+       These close the DELETE case, which is the realistic refactor accident.
+       They do NOT close present-but-disabled: `if (false && ...)` keeps every
+       token and still passes, which the sweep recorded as an open finding for
+       the two guards above as well. Pinning the whole STATEMENT rather than an
+       identifier is as far as a source assertion can go. The real fix is to
+       extract these decisions into pure functions, the way checkChain was
+       extracted from the trust manager -- recorded, not done here. */
+
+    @Test
+    fun `discovery validates the mDNS address instead of trusting it`() {
+        val c = code(src("HubDiscovery.kt"))
+        assertTrue(
+            "the TXT IPv4 field is an unauthenticated multicast string; used verbatim it " +
+                "made an advertised HOSTNAME into a pinnable https origin",
+            c.contains("return if (isIpv4Literal(stated)) stated else null")
+        )
+        assertTrue(
+            "resolving it would defeat the point -- a hostname would pass",
+            !c.contains("InetAddress.getByName(stated)")
+        )
+    }
+
+    @Test
+    fun `configure requires the hub to be on this network, not merely https`() {
+        val c = code(src("HubClient.kt"))
+        assertTrue(
+            "CameraProxy.resolvePrivate refuses a public destination and this, which carries " +
+                "the Maker API token, used to check only the scheme",
+            c.contains("CameraProxy.resolvePrivate(host)")
+        )
+        assertTrue(
+            "a host it never extracted could not be checked",
+            Regex("""val host\s*=\s*runCatching\s*\{\s*java\.net\.URI\(normalised\)\.host""")
+                .containsMatchIn(c)
+        )
+    }
 }

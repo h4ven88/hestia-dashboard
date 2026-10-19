@@ -133,4 +133,64 @@ class HubDiscoveryTest {
     fun `nothing found is not an error`() {
         assertEquals(emptyList<HubDiscovery.Found>(), HubDiscovery.dedupe(emptyList()))
     }
+
+    /* ⛔ The TXT "IPv4" field is an unauthenticated multicast string -- whatever
+       any device on the current network chose to advertise. It was used
+       verbatim to build "https://$ip", so an advertised HOSTNAME became a
+       pinnable origin on the open internet, and a quote in it broke out of the
+       JS string the picker card put it in. A phone joins hotel, cafe and guest
+       Wi-Fi; a hub never does. These assert the validator, which is the only
+       thing standing between that record and a pinned hub. */
+
+    @Test
+    fun `accepts real dotted-quad addresses`() {
+        for (s in listOf("192.168.50.139", "10.0.0.5", "1.2.3.4", "255.255.255.255", "0.0.0.0")) {
+            assertTrue("should accept $s", HubDiscovery.isIpv4Literal(s))
+        }
+    }
+
+    @Test
+    fun `refuses a hostname, which is the actual attack`() {
+        assertFalse(HubDiscovery.isIpv4Literal("hub.attacker.example"))
+        assertFalse(HubDiscovery.isIpv4Literal("localhost"))
+    }
+
+    @Test
+    fun `refuses anything carrying a scheme, port, path or credential`() {
+        for (s in listOf(
+            "https://192.168.1.1", "192.168.1.1:8443", "192.168.1.1/local/x",
+            "192.168.1.1@evil.example", "192.168.1.1?a=b", "192.168.1.1#f",
+        )) {
+            assertFalse("should refuse $s", HubDiscovery.isIpv4Literal(s))
+        }
+    }
+
+    @Test
+    fun `refuses the quote that breaks out of a JS string`() {
+        // The picker card now uses a data- attribute, so this is defence in
+        // depth rather than the only control -- but a value that cannot contain
+        // a quote cannot be injected wherever it ends up next.
+        assertFalse(HubDiscovery.isIpv4Literal("x');fetch('https://evil/');//"))
+        assertFalse(HubDiscovery.isIpv4Literal("1.2.3.4');alert(1);//"))
+    }
+
+    @Test
+    fun `refuses malformed numerics`() {
+        for (s in listOf(
+            "", "1.2.3", "1.2.3.4.5", "256.1.1.1", "1.1.1.256", "-1.2.3.4",
+            "1.2.3.4 ", " 1.2.3.4", "1.2.3.+4", "1..2.3", "1.2.3.", ".1.2.3",
+            "01.2.3.4",   // leading zero: some parsers read octal
+            "0x7f.0.0.1", // hex
+            "999.999.999.999",
+        )) {
+            assertFalse("should refuse '$s'", HubDiscovery.isIpv4Literal(s))
+        }
+    }
+
+    @Test
+    fun `refuses IPv6, which cannot match a hub certificate anyway`() {
+        assertFalse(HubDiscovery.isIpv4Literal("::1"))
+        assertFalse(HubDiscovery.isIpv4Literal("fe80::1"))
+        assertFalse(HubDiscovery.isIpv4Literal("::ffff:192.168.1.1"))
+    }
 }

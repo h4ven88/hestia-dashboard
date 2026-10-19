@@ -113,6 +113,29 @@ object HubClient {
                 "hub origin must be https:// -- Hestia will not send your hub credentials in the clear")
         }
 
+        /* ⛔ AND IT MUST BE ON THIS NETWORK. The scheme check above was the ONLY
+         * check, which is the asymmetry the pre-production sweep found:
+         * CameraProxy.resolvePrivate refuses a destination on the public
+         * internet, and this function -- which carries far more, every
+         * apiUrl() call with the Maker API token in its query -- did not.
+         *
+         * So an mDNS record advertising `IPv4=hub.attacker.example` produced a
+         * trust screen showing the ATTACKER's certificate fingerprint as the
+         * thing to trust, and one tap pinned a host on the open internet as
+         * the household's hub. HubDiscovery now validates that field, but a
+         * manual-entry screen and the page's own hub.configure call both reach
+         * here too, so the guard belongs at the doorway, not only upstream.
+         *
+         * "The LAN is inside the trust boundary" justifies trusting the
+         * household's OWN network, because the hub publishes its token
+         * unauthenticated there. It does not justify trusting a hotel's. This
+         * EXTENDS that model rather than reopening it. */
+        val host = runCatching { java.net.URI(normalised).host }.getOrNull()
+        if (host.isNullOrEmpty()) {
+            throw IllegalArgumentException("hub origin has no host: $normalised")
+        }
+        CameraProxy.resolvePrivate(host)   // throws CameraProxy.Refused if public
+
         val pinned = HubTrust.Pinned(null)   // first use: accept and record
         val req = Request.Builder().url("$normalised/hub2/hubData").get().build()
 
