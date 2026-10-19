@@ -187,8 +187,19 @@ async function build() {
 
   let src = fs.readFileSync(SRC, 'utf-8');
 
-  // Auto-stamp build date in source before building
-  const today = new Date().toISOString().slice(0, 10);
+  /* ⛔ LOCAL DATE, NOT toISOString(). This was
+     `new Date().toISOString().slice(0, 10)` -- the exact pattern v2.1.1 was cut
+     to remove, because it yields the UTC day. Caught at 20:08 Eastern on the
+     18th, which toISOString() calls the 19th, so every evening build west of
+     UTC was stamped with TOMORROW's date in both HESTIA_BUILD_DATE and
+     build-info.json.
+     v2.1.1 replaced this pattern everywhere in dashboard.html and build.js was
+     missed -- "grep for the wording, not the function", one more time. The
+     build date is what the sandbox banner shows and what a user reads to answer
+     "did my update land", so a date that is wrong by a day is a wrong answer to
+     the one question it exists to answer. */
+  const _d = new Date();
+  const today = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, '0')}-${String(_d.getDate()).padStart(2, '0')}`;
   const datePatched = src.replace(
     /const HESTIA_BUILD_DATE\s*=\s*'[^']*'/,
     `const HESTIA_BUILD_DATE = '${today}'`

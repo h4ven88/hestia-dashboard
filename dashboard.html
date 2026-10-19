@@ -1934,7 +1934,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '2.2.1';
-const HESTIA_BUILD_DATE = '2026-10-17';
+const HESTIA_BUILD_DATE = '2026-10-18';
 
 /* ═══════════════════════════════════════════════════════
    SANDBOX MODE
@@ -12467,7 +12467,7 @@ function spWallPanelBody() {
         <div style="font-size:11px;color:var(--t2);line-height:1.6;margin-bottom:10px">
           Open <span style="color:var(--t1);user-select:all">${h(CONFIG.hub || 'http://YOUR_HUB_IP')}/local/index.html</span> in a new tab, then come back to Settings → Wall Panel.
         </div>
-        <button class="ob-trigger-btn" onclick="window.open('${CONFIG.hub || 'http://YOUR_HUB_IP'}/local/index.html','_blank')" style="width:auto;padding:0 16px;border-style:solid">
+        <button class="ob-trigger-btn" data-hub-url="${h((CONFIG.hub || 'http://YOUR_HUB_IP') + '/local/index.html')}" onclick="window.open(this.dataset.hubUrl,'_blank')" style="width:auto;padding:0 16px;border-style:solid">
           Open hub dashboard ↗
         </button>
         ` : `
@@ -18031,16 +18031,16 @@ function spShowSection(id, force) {
           <div class="cam-cfg-card" data-camera-idx="${i}">
             <div class="sp-input-row" style="align-items:flex-end">
               <div class="sp-field" style="flex:1"><label class="sp-label">Name</label>
-                <input class="sp-input sp-camera-name" value="${cam.name||''}" placeholder="Front Door"></div>
+                <input class="sp-input sp-camera-name" value="${h(cam.name||'')}" placeholder="Front Door"></div>
               <div class="sp-field" style="flex:2"><label class="sp-label">Snapshot URL</label>
-                <input class="sp-input sp-camera-url" value="${cam.snapshotUrl||''}" placeholder="http://192.168.1.50/snapshot.jpg"></div>
+                <input class="sp-input sp-camera-url" value="${h(cam.snapshotUrl||'')}" placeholder="http://192.168.1.50/snapshot.jpg"></div>
               <button class="sp-btn-icon" onclick="spMoveCameraUp(${i})" title="Move up" ${i===0?'disabled':''} style="margin-bottom:6px;color:var(--t3)">&uarr;</button>
               <button class="sp-btn-icon" onclick="spMoveCameraDown(${i})" title="Move down" ${i===(CONFIG.cameras||[]).length-1?'disabled':''} style="margin-bottom:6px;color:var(--t3)">&darr;</button>
               <button class="sp-btn-icon" onclick="spRemoveCamera(${i})" title="Remove" style="margin-bottom:6px;color:var(--conn-err)">&times;</button>
             </div>
             <div class="sp-field" style="margin-bottom:0">
               <label class="sp-label">Live Stream URL <span style="opacity:.65;font-weight:400;text-transform:none;letter-spacing:0">(optional, MJPEG)</span></label>
-              <input class="sp-input sp-camera-stream" value="${cam.streamUrl||''}" placeholder="http://<hub-ip>/hub2/videoStream/<id>.mjpg"></div>
+              <input class="sp-input sp-camera-stream" value="${h(cam.streamUrl||'')}" placeholder="http://<hub-ip>/hub2/videoStream/<id>.mjpg"></div>
             <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
               <button class="sp-btn sp-btn-secondary" style="height:28px;padding:0 12px;font-size:11px" onclick="spTestCamera(${i})">Test connection</button>
               <span class="cam-test-result" id="cam-test-result-${i}"></span>
@@ -21184,8 +21184,21 @@ function nfrSearching() {
   <style>@keyframes nfrsweep{0%{margin-left:0}50%{margin-left:60%}100%{margin-left:0}}</style>`;
 }
 
+/* ⛔ escapeHtml IS NOT A CONTROL IN A JS-STRING CONTEXT, and this used to rely
+   on it: onclick="nfrSelect('${escapeHtml(h.origin)}')". escapeHtml maps ' to
+   &#39;, and inside a double-quoted HTML attribute the parser DECODES that
+   entity before the JavaScript is compiled -- so the quote comes back as a live
+   quote in the JS source and closes the string early.
+   h.origin is built from an mDNS TXT field (HubDiscovery.kt's `IPv4`), which is
+   whatever any device on the current network chose to advertise. A phone joins
+   hotel, cafe and guest Wi-Fi; the hub never does. So this was one tap -- the
+   only instruction on that screen -- from running attacker script in the top
+   frame, beside __hestiaNativeRaw.
+   A data- attribute has no JS-string context at all: h() is correct FOR an
+   attribute value, the parser decodes it to the literal string, and
+   this.dataset reads it back without ever compiling it as code. */
 function nfrHubCard(h, selected) {
-  return `<div onclick="nfrSelect('${escapeHtml(h.origin)}')" role="button" tabindex="0"
+  return `<div data-origin="${escapeHtml(h.origin)}" onclick="nfrSelect(this.dataset.origin)" role="button" tabindex="0"
     style="background:${selected ? 'var(--amber-dim)' : 'var(--card)'};
       border:1px solid ${selected ? 'var(--amber)' : 'var(--border)'};border-radius:11px;
       padding:13px 14px;display:flex;align-items:center;gap:12px;margin:0 0 10px;cursor:pointer">

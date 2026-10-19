@@ -207,7 +207,9 @@ function extractFn(name) {
    that had been deleted. */
 function codeOnlyJs(s) {
   return s.replace(/\/\*[\s\S]*?\*\//g, ' ')
-          .split('\n').map(l => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+          /* /\r?\n/, not '\n' -- every source this reads is CRLF, and on CRLF
+             the comment regex never fires at all. See pushtransport.mjs:17. */
+          .split(/\r?\n/).map(l => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
 }
 
 const RELAY_SRC = ['_originOf', 'nativeHub', 'nativeHubSync', '_nativeHubFetch',
@@ -1362,6 +1364,55 @@ console.log('\n=== 24. Announcements describe what we watched, not what we misse
   check('...before devices are fetched',
     gapAt >= 0 && fetchAt >= 0 && gapAt < fetchAt,
     'otherwise the catch-up announces and the next real event is suppressed instead');
+}
+
+console.log('\n=== 25. Escaping sinks the ~17-site XSS pass missed ===');
+{
+  /* CLAUDE.md records the stored-XSS class as closed across ~17 DISPLAY sites.
+     The pre-production sweep found the SETTINGS EDITOR copies were never
+     touched: three <input value="${cam.…}"> with no escaping at all, inside
+     double-quoted attributes, with save-side validation that only checks the
+     URL starts with http. Same "fixed one copy of the bug" shape as v2.1.3's
+     Diagnostics finding.
+
+     ⛔ ASSERTED AS A CLASS, NOT AS THREE LINES. Pinning the three known sinks
+     would say nothing about a fourth field added later, and this bug class has
+     now recurred twice by exactly that route. */
+  const camBlock = (() => {
+    const a = DASH.indexOf('sp-camera-name');
+    const b = DASH.indexOf('spTestCamera(');
+    return a > 0 && b > a ? DASH.slice(a - 400, b) : '';
+  })();
+  check('found the camera settings block', camBlock.length > 0);
+
+  // Every value="${...}" in that block that reads a cam.* field.
+  const interps = [...camBlock.matchAll(/value="\$\{([^}]*cam\.[^}]*)\}"/g)].map(m => m[1].trim());
+  check('...and it has the camera value interpolations in it', interps.length >= 3,
+    `found ${interps.length}: ${interps.join(' | ')}`);
+  const unescaped = interps.filter(e => !/^h\(|^escapeHtml\(/.test(e));
+  check('EVERY camera field interpolated into an attribute is escaped',
+    unescaped.length === 0,
+    unescaped.length ? `unescaped: ${unescaped.join(' | ')}` : 'a quote here closes the attribute and adds an event handler');
+
+  /* ⛔ escapeHtml IS NOT A CONTROL IN A JS-STRING CONTEXT. It maps ' to &#39;,
+     and inside a double-quoted HTML attribute the parser decodes that entity
+     BEFORE the JavaScript is compiled -- so the quote comes back live and
+     closes the string. The hub picker relied on exactly that, with a value
+     taken from an unauthenticated mDNS TXT field, one tap from running script
+     beside __hestiaNativeRaw. A data- attribute has no JS-string context. */
+  const card = DASH.slice(DASH.indexOf('function nfrHubCard'), DASH.indexOf('function nfrSelect'));
+  check('found nfrHubCard', card.length > 0);
+  check('the hub picker does NOT interpolate into a JS string inside an attribute',
+    !/on\w+="[^"]*\('\$\{/.test(card),
+    'escapeHtml does not protect a JS string context; use a data- attribute');
+  check('...and reads the origin from the element instead',
+    /data-origin="\$\{(h|escapeHtml)\(/.test(card) && /nfrSelect\(this\.dataset\.origin\)/.test(card));
+
+  /* The same shape, in the Wall Panel hint's "open hub dashboard" button. */
+  const hubBtn = DASH.slice(DASH.indexOf('Open hub dashboard') - 700, DASH.indexOf('Open hub dashboard'));
+  check('the hub-url button does not interpolate into a JS string either',
+    !/window\.open\('\$\{/.test(hubBtn),
+    'CONFIG.hub is household-controlled and reached a JS string unescaped');
 }
 
 console.log(`\n${PASS} passed, ${FAIL} failed`);

@@ -44,7 +44,9 @@ function fn(name) {
    deleted. */
 function codeOnly(s) {
   return s.replace(/\/\*[\s\S]*?\*\//g, ' ')
-          .split('\n').map(l => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+          /* /\r?\n/, not '\n' -- every source this reads is CRLF, and on CRLF
+             the comment regex never fires at all. See pushtransport.mjs:17. */
+          .split(/\r?\n/).map(l => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
 }
 
 let PASS = 0, FAIL = 0;
@@ -237,13 +239,43 @@ console.log('\n=== 5. boot can tell "hub has no config" from "hub did not answer
   check('the save-defaults branch is guarded by the refusal arm before it',
     /_hubConfigMiss !== 'absent'[\s\S]{0,900}?\} else if \(hubStoreHasMakerApi\(\)\)/.test(boot),
     'an unguarded hubStoreHasMakerApi() arm is exactly the shipped bug');
-  check('...and the refusal writes nothing',
-    /_hubConfigMiss !== 'absent'\)\s*\{[\s\S]{0,700}?renderHubUnreadable\(\);\s*return;/.test(boot) &&
-    !/_hubConfigMiss !== 'absent'\)\s*\{[\s\S]{0,700}?saveConfig\(/.test(boot),
-    'every other option on that screen writes, and writing DEFAULTS is the bug');
-  check('the cloud fallback still gets its turn first',
-    boot.indexOf('cloudSyncDiscover()') < boot.indexOf("_hubConfigMiss !== 'absent'"),
-    'a device off-LAN with the household key must still configure itself');
+  /* ⛔ PIN THE BRANCH BODY, NOT A CHARACTER WINDOW.
+     This assertion used to be `[\s\S]{0,700}?saveConfig\(` and it passed only
+     because ~1,079 characters of COMMENTS pushed the next branch's legitimate
+     `saveConfig()` outside the window. Once codeOnly() was fixed to strip
+     comments on CRLF (see :45), the window closed on real code and this went
+     red -- against correct source. A window is a proxy for scope; brace
+     matching IS scope. */
+  const branchBody = (src, needle) => {
+    const at = src.indexOf(needle);
+    if (at < 0) return null;
+    const open = src.indexOf('{', at);
+    if (open < 0) return null;
+    let depth = 0;
+    for (let i = open; i < src.length; i++) {
+      if (src[i] === '{') depth++;
+      else if (src[i] === '}' && --depth === 0) return src.slice(open + 1, i);
+    }
+    return null;
+  };
+  const refusal = branchBody(boot, "_hubConfigMiss !== 'absent'");
+  check('the refusal branch exists at all', refusal !== null,
+    'everything below is vacuous if this is null, so assert it before asserting about it');
+  check('...and it refuses by rendering and returning',
+    !!refusal && /renderHubUnreadable\(\);/.test(refusal) && /\breturn;/.test(refusal));
+  check('...and writes NOTHING',
+    !!refusal && !/saveConfig\(|saveConfigToHub\(|cloudSyncPush\(|obFinish\(/.test(refusal),
+    'publishing DEFAULTS here is the v2.0.2 one-device-wipes-the-household bug');
+
+  /* ⛔ ASSERT EXISTENCE BEFORE ORDER. This was an unguarded indexOf comparison,
+     so deleting the call entirely gave -1 < 950 and PASSED -- and what it
+     guards is the v2.1.0 self-service recovery path, the one jbwrd3 needed. */
+  const iCloud = boot.indexOf('cloudSyncDiscover()');
+  const iMiss  = boot.indexOf("_hubConfigMiss !== 'absent'");
+  check('the off-LAN cloud fallback is still called in boot', iCloud !== -1,
+    'a device off-LAND with the household key must still be able to configure itself');
+  check('...and still gets its turn before the refusal arm',
+    iCloud !== -1 && iMiss !== -1 && iCloud < iMiss);
 
   const screen = codeOnly(fn('renderHubUnreadable'));
   check('the refusal screen offers a retry and nothing that writes',
@@ -255,7 +287,9 @@ console.log('\n=== 5. boot can tell "hub has no config" from "hub did not answer
 console.log('\n=== 6. the Groovy choke point ===');
 {
   const g = GROOVY.replace(/\/\*[\s\S]*?\*\//g, ' ')
-                  .split('\n').map(l => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+                  /* /\r?\n/, not '\n' -- every source this reads is CRLF, and on CRLF
+             the comment regex never fires at all. See pushtransport.mjs:17. */
+          .split(/\r?\n/).map(l => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
   const save = g.slice(g.indexOf('def saveConfig()'), g.indexOf('def getVersion()'));
 
   check('saveConfig keeps a stored PIN when an empty one arrives',
