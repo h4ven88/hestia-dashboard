@@ -13,6 +13,11 @@ ROLLBACK.md
 # an accidental `git add -A` publishing open vulnerabilities.
 SECURITY-SWEEP.md
 
+# Business planning for a company that does not exist yet, including a frank
+# assessment of this project's own IP and liability exposure. Not for a public
+# repo, and ignored rather than untracked for the same two reasons as above.
+INCORPORATION-CHECKLIST.md
+
 # ── Wake word training material ──────────────────────────────────────────
 # Deliberately local and never committed: the scraped clips and per-word
 # datasets are large and reproducible from the url lists, which ARE tracked.
