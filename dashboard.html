@@ -1934,7 +1934,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '2.2.1';
-const HESTIA_BUILD_DATE = '2026-10-18';
+const HESTIA_BUILD_DATE = '2026-10-20';
 
 /* ═══════════════════════════════════════════════════════
    SANDBOX MODE
@@ -7354,6 +7354,21 @@ async function athenaStartWakeDetection() {
 
 // Restart wake detection when tab becomes visible again
 document.addEventListener('visibilitychange', () => {
+  /* ⛔ RE-SEED ON RETURN, AND DO IT FROM THE EVENT RATHER THAN A POLL GAP.
+     announceNoteWatchGap() infers "we were not watching" from a gap over 60s
+     between polls, and that inference is unreliable in both directions: a
+     backgrounded tab is throttled to roughly once a minute, which sits right
+     on the threshold, while a FROZEN tab stops polling entirely and only then
+     produces a real gap. visibilitychange is the fact rather than a proxy for
+     it, so hook the fact.
+     Harmless in the throttled case: the poll kept `prev` current, so the first
+     pass after returning has nothing to report anyway. Load-bearing in the
+     frozen case, which is the original two-hours-late bug. */
+  if (!document.hidden) {
+    _announceInitialized = false;   // device poll re-learns on its next pass
+    _hsmReseed = true;              // HSM sync re-learns on its next pass
+    _lastPollAt = Date.now();       // and the gap heuristic starts clean
+  }
   if (!document.hidden && CONFIG.athenaEnabled && athenaState === 'idle' && (!isMobile() || isTablet())) {
     if (OWW.running) return;
     // Prefer OWW restart
@@ -10875,6 +10890,30 @@ function announceEvent(key, text) {
   if (!isAnnounceDevice()) return;
   const panel = document.getElementById('ath-panel');
   if (_athenaRecorder || (panel && panel.classList.contains('open'))) return;
+
+  /* ⛔ DO NOT SPEAK TO AN EMPTY ROOM, AND THIS IS THE REAL FIX FOR THE LATE
+     "DISARMED" ANNOUNCEMENT.
+     The first attempt at this (ANNOUNCE_GAP_MS / _hsmReseed) assumed the
+     announcement was DETECTED late. It is not. A backgrounded tab keeps
+     polling -- throttled to roughly once a minute, which is also why a 60s gap
+     threshold trips unreliably -- so the disarm at 10:00 AM is noticed at
+     10:00 AM and announceHsmEvent fires then, correctly.
+     What is late is the AUDIO. athenaGoogleSpeak builds a NEW AudioContext per
+     utterance and never checks ctx.state or calls resume(); a context created
+     while the page is hidden is suspended, so source.start(0) buffers the
+     speech and the browser plays it when the page comes back. Two hours later,
+     on resume, exactly as reported.
+     An announcement is ambient speech for somebody in the room. If nobody is
+     looking at this page, there is nobody to tell, and push is already the
+     channel for being away -- smoke and water bypass the armed gate there by
+     design. So drop it rather than queue it.
+     NOTE a wall panel is deliberately unaffected: its page stays visible even
+     with the screen off, and it IS a speaker in the room. */
+  if (typeof document !== 'undefined' && document.hidden) {
+    console.log('[Announce] suppressed while hidden (nobody to tell): ' + text);
+    return;
+  }
+
   const now = Date.now();
   if (now - (_announceLastEvent[key] || 0) < 3000) return;
   _announceLastEvent[key] = now;
@@ -20308,6 +20347,12 @@ function scheduleNextPoll() {
   clearTimeout(pollTimer);
   pollTimer = setTimeout(async function runPoll() {
     if (document.activeElement && document.activeElement.type === 'range') {
+      /* Dragging a slider skips the poll so the thumb does not fight incoming
+         state. It must still stamp the clock: without this _lastPollAt froze
+         for the whole drag, and the next real poll then read as a "gap" and
+         re-seeded, silently swallowing the next genuine announcement. A
+         deliberate skip is not the same as not watching. */
+      _lastPollAt = Date.now();
       scheduleNextPoll();
       return;
     }

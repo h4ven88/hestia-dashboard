@@ -1415,5 +1415,81 @@ console.log('\n=== 25. Escaping sinks the ~17-site XSS pass missed ===');
     'CONFIG.hub is household-controlled and reached a JS string unescaped');
 }
 
+console.log('\n=== 26. An announcement is for somebody in the room ===');
+{
+  /* ⛔ THE FIRST FIX FOR THIS WAS AIMED AT THE WRONG MECHANISM, and the user
+     reported the bug still live afterwards. Worth stating both, because the
+     symptom is identical and the causes are not:
+       ASSUMED: the change was DETECTED late, so widen the "first pass" guard.
+       ACTUAL:  a backgrounded tab keeps polling (throttled to roughly once a
+                minute, which is also why a 60s gap threshold trips
+                unreliably), so detection is ON TIME. What is late is the
+                AUDIO -- athenaGoogleSpeak builds a NEW AudioContext per
+                utterance and never checks ctx.state or calls resume(), so a
+                context created while hidden is suspended, source.start(0)
+                buffers, and the browser plays it on resume. Two hours later.
+     So the guard belongs at the point of speaking, not the point of noticing. */
+  const ann = codeOnlyJs(extractFn('announceEvent'));
+  check('announceEvent exists and was extracted', ann.length > 0);
+  check('it refuses to speak while the page is hidden',
+    /document\.hidden/.test(ann),
+    'queuing speech for a hidden page is what produced the two-hours-late announcement');
+
+  /* The order matters: the hidden check must come BEFORE the debounce stamp,
+     or a suppressed announcement would still consume the 3s window and a
+     genuine repeat right after returning would be swallowed. */
+  const hiddenIdx = ann.indexOf('document.hidden');
+  const stampIdx  = ann.indexOf('_announceLastEvent[key] = now');
+  check('...and before the debounce stamp is written',
+    hiddenIdx > 0 && stampIdx > 0 && hiddenIdx < stampIdx,
+    'a suppressed event must not consume the debounce window');
+  check('...and it returns rather than falling through to athenaSpeak',
+    /document\.hidden\)\s*\{[\s\S]{0,200}?return;/.test(ann));
+
+  /* Behavioural, not just structural: run the real extracted function against
+     a hidden and a visible document and see whether it speaks. */
+  const run = (hidden) => {
+    const spoken = [];
+    const fn = new Function('document', 'isAnnounceDevice', 'athenaSpeak', 'console',
+      '_athenaRecorder', '_announceLastEvent', `${ann}; return announceEvent;`);
+    fn({ hidden, getElementById: () => null }, () => true, (t) => spoken.push(t),
+       { log: () => {} }, null, {})('hsm', 'Disarmed');
+    return spoken;
+  };
+  check('hidden page: nothing is spoken', run(true).length === 0);
+  check('visible page: it speaks', run(false).join('') === 'Disarmed',
+    JSON.stringify(run(false)));
+
+  /* ⛔ AND THE RETURN PATH. A FROZEN tab stops polling altogether, which is
+     the one case that does produce a real gap -- so the gap heuristic is still
+     the backstop, but visibilitychange is the FACT rather than a proxy for it.
+     Harmless when merely throttled, since the poll kept `prev` current and the
+     first pass back has nothing to report. */
+  const vis = codeOnlyJs(DASH.slice(
+    DASH.indexOf("addEventListener('visibilitychange'"),
+    DASH.indexOf("addEventListener('visibilitychange'") + 1400));
+  check('returning to the page re-seeds the device poll',
+    /_announceInitialized = false/.test(vis));
+  check('...and the HSM sync', /_hsmReseed = true/.test(vis));
+  check('...and resets the gap clock so the heuristic starts clean',
+    /_lastPollAt = Date\.now\(\)/.test(vis));
+  check('...all gated on becoming VISIBLE, not on going hidden',
+    /if \(!document\.hidden\)\s*\{[\s\S]{0,400}?_hsmReseed = true/.test(vis),
+    'setting these on hide would re-seed at the wrong end and swallow a live event');
+
+  /* A deliberate skip is not the same as not watching. The slider branch
+     returns early so a drag is not fought by incoming state; it froze
+     _lastPollAt for the whole drag, so the next real poll read as a gap and
+     re-seeded, silently swallowing the next genuine announcement. */
+  const poll = codeOnlyJs(extractFn('scheduleNextPoll'));
+  check('the slider skip still stamps the poll clock',
+    /type === 'range'\)\s*\{[\s\S]{0,300}?_lastPollAt = Date\.now\(\)/.test(poll),
+    'a deliberate skip must not later read as "we were not watching"');
+  const gapIdx = poll.indexOf('announceNoteWatchGap()');
+  const fetchIdx = poll.indexOf('await fetchAllDevices()');
+  check('...and the gap is still noted before the fetch that announces',
+    gapIdx > 0 && fetchIdx > 0 && gapIdx < fetchIdx);
+}
+
 console.log(`\n${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL ? 1 : 0);
