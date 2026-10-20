@@ -6,6 +6,36 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!--
+        NOT OPTIONAL, AND NOT COSMETIC. Without this, Play would refuse to
+        serve the app to the devices it was built for.
+
+        Declaring RECORD_AUDIO IMPLIES a hardware requirement. Per
+        developer.android.com/guide/topics/manifest/uses-feature-element,
+        Table 2, RECORD_AUDIO implies android.hardware.microphone, and
+        "uses-feature declarations always take precedence over features
+        implied by the permissions in table 2". With no explicit declaration
+        Play treats the microphone as REQUIRED and filters out every device
+        that has none.
+
+        Hestia's stated primary form factor is a WALL PANEL. Cheap mic-less
+        tablets, most Android TV configurations and many Chromebooks would
+        simply never see the listing, and nobody sees an error either: the
+        app just is not there. Athena is optional in the product and was
+        mandatory in the distribution filter.
+
+        Same reasoning for the nearby-devices and local-network side.
+        Discovery is a convenience with a manual-entry fallback, so a device
+        without Wi-Fi scanning hardware must still be allowed to install.
+
+        (Note for future edits: a double hyphen is ILLEGAL inside an XML
+        comment and breaks the manifest merger with a bare "Error parsing"
+        that names no line. This has cost five separate attempts on this file.)
+    -->
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.hardware.wifi" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+
     <!-- THE PERMISSION THIS ENTIRE APP DEPENDS ON.
 
          Verified against developer.android.com/privacy-and-security/local-network-permission

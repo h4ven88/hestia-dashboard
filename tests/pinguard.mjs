@@ -412,5 +412,60 @@ console.log('\n=== 8. Release signing cannot leak, and cannot block a build ==='
     /isMinifyEnabled = false/.test(GRADLE));
 }
 
+console.log('\n=== 9. Play has to actually SERVE the app to the devices it was built for ===');
+{
+  const AM = fs.readFileSync(path.join(ROOT, 'android/app/src/main/AndroidManifest.xml'), 'utf8');
+  /* Comments stripped first, and in THIS file that is not pedantry: the
+     explanatory comment beside these declarations quotes the documentation and
+     names `uses-feature` three times in prose. An assertion over the raw text
+     would pass with every real element deleted. */
+  const amCode = AM.replace(/<!--[\s\S]*?-->/g, ' ');
+  const feats = {};
+  for (const m of amCode.matchAll(/<uses-feature\s+android:name="([^"]+)"\s+android:required="([a-z]+)"/g)) {
+    feats[m[1]] = m[2];
+  }
+
+  /* ⛔ DECLARING A PERMISSION CAN FILTER THE APP OFF A DEVICE ENTIRELY.
+     RECORD_AUDIO implies android.hardware.microphone (uses-feature docs,
+     Table 2), and with no explicit declaration Play treats it as REQUIRED --
+     so every mic-less device stops seeing the listing, with no error anywhere.
+     Hestia's primary form factor is a WALL PANEL, so that silently excluded
+     the devices the product is for. Athena is optional in the product and was
+     mandatory in the distribution filter. */
+  check('RECORD_AUDIO is declared, so the implied-feature rule applies at all',
+    /android\.permission\.RECORD_AUDIO/.test(amCode));
+  check('...so the microphone is explicitly NOT required',
+    feats['android.hardware.microphone'] === 'false',
+    `declared: ${JSON.stringify(feats)}`);
+  check('...and neither is Wi-Fi hardware (discovery has a manual fallback)',
+    feats['android.hardware.wifi'] === 'false');
+  check('...nor a touchscreen (wall panels and TV boxes)',
+    feats['android.hardware.touchscreen'] === 'false');
+  check('no uses-feature is left implicitly required',
+    Object.values(feats).every(v => v === 'false'),
+    'a required feature is a silent distribution filter, not a runtime error');
+
+  /* ⛔ AND THE DISCOVERY GATE MUST ONLY BITE WHERE THE PERMISSION EXISTS.
+     NEARBY_WIFI_DEVICES is Android 13+, so below API 33 it can never be
+     granted -- the app reported "permission denied" and returned no hubs on
+     every device from Android 8 to 12L. And at API 33-36 local network access
+     is implicitly granted via INTERNET (this manifest quotes the docs saying
+     so), where a STICKY denial killed discovery permanently for no reason.
+     HubDiscovery uses NsdManager, not a WifiManager scan API, so below SDK 37
+     it needs nothing at all. */
+  const BR = fs.readFileSync(path.join(ROOT, 'android/app/src/main/java/com/hestari/hestia/HestiaBridge.kt'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .split(/\r?\n/).map(l => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+  check('the discovery gate is conditional on SDK 37, not unconditional',
+    /val gates\s*=\s*android\.os\.Build\.VERSION\.SDK_INT\s*>=\s*37/.test(BR),
+    'gating at every API level is what killed discovery on Android 8 through 12L');
+  check('...the scan still runs when the gate does not apply',
+    /if\s*\(!gates\s*\|\|\s*granted\)\s*HubDiscovery\.scan\(ctx\)/.test(BR),
+    'the whole point: below 37, scan regardless of the answer');
+  check('...and `permitted` is reported true where nothing was required',
+    /\.put\("permitted",\s*!gates\s*\|\|\s*granted\)/.test(BR),
+    'reporting a denial the platform never asked for sends the user hunting for a toggle that does not exist');
+}
+
 console.log(`\n${PASS} passed, ${FAIL} failed`);
 process.exit(FAIL ? 1 : 0);

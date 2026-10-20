@@ -139,14 +139,43 @@ class HestiaBridge(
             try {
                 val result: Any = when (method) {
                     "hub.discover" -> {
-                        val allowed = awaitLocalNetwork()
+                        /* ⛔ ONLY SDK 37+ MAY GATE THE SCAN ON THE ANSWER.
+                         *
+                         * This used to refuse to scan whenever the permission
+                         * was not granted, at every API level, and that was
+                         * wrong in two directions:
+                         *
+                         * API 26-32: NEARBY_WIFI_DEVICES DOES NOT EXIST
+                         * (Android 13+ only), so it can never be granted. The
+                         * app reported "permission denied" and returned an
+                         * empty hub list on every device from Android 8 to
+                         * 12L -- the headline feature, dead, with a message
+                         * naming a permission the user cannot find anywhere.
+                         *
+                         * API 33-36: local network access is IMPLICITLY
+                         * granted via INTERNET at targetSdk <= 36 -- this
+                         * manifest quotes the documentation saying so. So the
+                         * app asked a question whose answer it should ignore,
+                         * and because a denial is STICKY, one tap killed
+                         * discovery permanently for no reason at all.
+                         *
+                         * HubDiscovery uses NsdManager (multicast DNS), not a
+                         * WifiManager scan API, so below 37 it needs nothing.
+                         * Ask if you like -- the prompt is still worth having
+                         * where it means something -- but scan regardless, and
+                         * only report a denial as fatal where it actually is. */
+                        val gates = android.os.Build.VERSION.SDK_INT >= 37
+                        val granted = awaitLocalNetwork()
+                        val scan = if (!gates || granted) HubDiscovery.scan(ctx) else emptyList()
                         JSONObject()
-                            .put("hubs", if (allowed) HubDiscovery.toJson(HubDiscovery.scan(ctx)) else JSONArray())
+                            .put("hubs", HubDiscovery.toJson(scan))
                             /* Reported so the page can say "permission denied"
                                rather than "no hub found". They are different
                                problems with different remedies, and only one of
-                               them is fixed by typing an address. */
-                            .put("permitted", allowed)
+                               them is fixed by typing an address.
+                               Below SDK 37 this is always true, because below
+                               SDK 37 nothing was ever actually required. */
+                            .put("permitted", !gates || granted)
                     }
                     "hub.request" -> hubRequest(params)
 
