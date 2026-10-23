@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Get Hestia | Apps for Android, iOS and the browser</title>
+<meta name="theme-color" content="#0A0A0A">
+<meta name="description" content="Download the Hestia app for Android, or open the dashboard in any browser. Hestia is a free smart home dashboard for Hubitat Elevation.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Get Hestia — Apps for Android, iOS and the browser">
+<meta property="og:description" content="The Android app is in open beta. The dashboard works in any browser today.">
+<meta property="og:url" content="https://hestari.com/install">
+<meta property="og:site_name" content="Hestari">
+<meta property="og:image" content="https://hestari.com/hestari-preview-desktop.png?v=2">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Get Hestia">
+<meta name="twitter:description" content="The Android app is in open beta. The dashboard works in any browser today.">
+<meta name="twitter:image" content="https://hestari.com/hestari-preview-desktop.png?v=2">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg viewBox='0 0 80 90' xmlns='http://www.w3.org/2000/svg'%3E%3Cpolygon points='40,5 68,21 68,57 40,73 12,57 12,21' fill='none' stroke='%23F59E0B' stroke-width='2' stroke-linejoin='miter'/%3E%3Cpolygon points='40,5 68,21 54,33 26,33 12,21' fill='%23F0EEE8'/%3E%3Cline x1='26' y1='33' x2='54' y2='33' stroke='%23F59E0B' stroke-width='3' stroke-linecap='square'/%3E%3Cpolygon points='26,33 54,33 68,57 40,73 12,57' fill='%23141C26'/%3E%3Cline x1='40' y1='33' x2='40' y2='73' stroke='%2394A3B8' stroke-width='1.1' opacity='.3'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@100;200;300;400;500&display=swap" rel="stylesheet">
+<style>
+/* Tokens lifted verbatim from hestari-landing.html so the two pages cannot
+   drift apart. If that palette changes, change it here too. */
+:root {
+  --bg:        #0A0A0A;
+  --bg-panel:  #111111;
+  --bg-card:   #181818;
+  --bg-hover:  #212121;
+  --border:    #272727;
+  --border-s:  #1C1C1C;
+  --amber:     #F59E0B;
+  --amber-dim: #1A1200;
+  --amber-bdr: #6B4A08;
+  --t1:        #F2F2F2;
+  --t2:        #999999;
+  --t3:        #555555;
+  --t4:        #333333;
+  --a-ok:      #4ADE80;
+  --a-blue:    #60A5FA;
+  --a-warn:    #FBBF24;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  font-family:'Outfit',system-ui,sans-serif;
+  background:var(--bg);color:var(--t1);
+  overflow-x:hidden;-webkit-font-smoothing:antialiased;
+  font-weight:300;font-size:14px;line-height:1.7;
+}
+a{color:inherit;text-decoration:none}
+:focus-visible{outline:2px solid var(--amber);outline-offset:3px;border-radius:4px}
+.skip-link{position:absolute;top:-100%;left:16px;padding:10px 18px;background:var(--amber);color:var(--bg);font-size:13px;font-weight:400;border-radius:6px;z-index:200;transition:top .2s}
+.skip-link:focus{top:12px}
+
+.ambient{position:fixed;inset:0;z-index:0;pointer-events:none}
+.ambient::before{content:'';position:absolute;width:900px;height:900px;top:-300px;right:-200px;background:radial-gradient(circle,rgba(245,158,11,.035) 0%,transparent 65%);animation:drift 28s ease-in-out infinite}
+@keyframes drift{0%,100%{transform:translate(0,0)}50%{transform:translate(25px,18px)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.content{position:relative;z-index:2}
+.wrap{max-width:1240px;margin:0 auto;padding:0 40px}
+
+nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(10,10,10,.7);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border-bottom:1px solid var(--border)}
+.nav-inner{max-width:1240px;margin:0 auto;padding:0 40px;height:56px;display:flex;align-items:center;justify-content:space-between}
+.nav-brand{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:200;letter-spacing:.22em;text-transform:uppercase;color:var(--t1)}
+.nav-links{display:flex;gap:6px;list-style:none;align-items:center}
+.nav-links a{color:var(--t2);font-size:13px;font-weight:300;padding:7px 16px;border-radius:6px;transition:all .2s;letter-spacing:.03em}
+.nav-links a:hover{color:var(--t1);background:var(--bg-card)}
+.nav-links a[aria-current]{color:var(--t1)}
+.nav-cta{color:var(--bg)!important;background:var(--amber)!important;font-weight:400!important}
+.nav-cta:hover{background:#D4891A!important}
+.nav-mobile-cta{display:none}
+.nav-hamburger{display:none;background:none;border:none;cursor:pointer;padding:8px;margin-right:-8px}
+.nav-hamburger span{display:block;width:18px;height:1.5px;background:var(--t2);margin:4px 0;transition:all .25s}
+
+.s-label{font-size:clamp(10px,1vw,13px);font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--amber);margin-bottom:14px}
+.s-title{font-size:clamp(26px,3.5vw,42px);font-weight:300;letter-spacing:.06em;line-height:1.2;margin-bottom:16px}
+.s-desc{font-size:clamp(13px,1.2vw,16px);line-height:1.75;color:var(--t2);max-width:620px;font-weight:300}
+/* ⛔ padding-bottom, NOT the padding shorthand. `.wrap` sets `padding:0 40px`
+   and both are single-class selectors, so a shorthand here wins on source
+   order and silently zeroes the horizontal gutter -- the page then runs flush
+   to the viewport edge. Caught on the first render. */
+.section-gap{padding-bottom:110px}
+
+.btn{display:inline-flex;align-items:center;gap:9px;padding:13px 28px;border-radius:8px;font-size:14px;font-weight:400;letter-spacing:.04em;transition:all .2s;cursor:pointer;border:none;font-family:inherit}
+.btn-amber{background:var(--amber);color:var(--bg)}
+.btn-amber:hover{background:#D4891A;box-shadow:0 4px 18px rgba(245,158,11,.18)}
+.btn-ghost{background:transparent;color:var(--t2);border:1px solid var(--border)}
+.btn-ghost:hover{border-color:var(--t3);color:var(--t1)}
+
+/* ── Page head ── */
+.phead{padding-top:130px;padding-bottom:56px}
+.phead h1{font-size:clamp(30px,4.8vw,52px);font-weight:200;letter-spacing:.02em;line-height:1.15;margin-bottom:16px}
+
+/* ── Platform cards: the whole point of the page ── */
+.plat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-bottom:28px}
+.plat{position:relative;padding:34px 30px 30px;border-radius:14px;background:var(--bg-card);border:1px solid var(--border);display:flex;flex-direction:column}
+.plat.live{border-color:var(--amber-bdr);background:linear-gradient(180deg,var(--amber-dim) 0%,var(--bg-card) 55%)}
+.plat-icon{margin-bottom:20px;color:var(--t2)}
+.plat.live .plat-icon{color:var(--amber)}
+.plat-name{font-size:19px;font-weight:400;letter-spacing:.06em;margin-bottom:5px}
+.plat-state{font-size:10.5px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;margin-bottom:16px}
+.plat-state.beta{color:var(--amber)}
+.plat-state.ready{color:var(--a-ok)}
+.plat-state.soon{color:var(--t3)}
+.plat-desc{font-size:13.5px;line-height:1.7;color:var(--t2);font-weight:300;margin-bottom:24px;flex:1}
+.plat-meta{font-size:11.5px;color:var(--t3);font-weight:300;letter-spacing:.02em;margin-top:14px;line-height:1.6}
+.plat-meta code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;color:var(--t2);word-break:break-all;display:block;margin-top:5px;line-height:1.5}
+.btn-block{width:100%;justify-content:center}
+.plat .btn[aria-disabled="true"]{opacity:.4;cursor:default;pointer-events:none}
+
+/* ── Beta notice ── */
+.notice{border-radius:12px;border:1px solid var(--amber-bdr);background:var(--amber-dim);padding:24px 28px;display:flex;gap:18px;align-items:flex-start;margin-bottom:28px}
+.notice-icon{color:var(--amber);flex-shrink:0;margin-top:1px}
+.notice h2{font-size:14px;font-weight:500;letter-spacing:.04em;margin-bottom:7px;color:var(--t1)}
+.notice p{font-size:13.5px;line-height:1.75;color:var(--t2);font-weight:300}
+.notice p+p{margin-top:9px}
+
+/* ── Steps ── */
+.steps{counter-reset:s;margin-top:44px;display:grid;gap:1px;border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.step{background:var(--bg-panel);padding:28px 32px;display:grid;grid-template-columns:auto 1fr;gap:22px;align-items:start}
+.step::before{counter-increment:s;content:counter(s);font-size:13px;font-weight:400;color:var(--amber);background:var(--amber-dim);border:1px solid var(--amber-bdr);width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+/* Same card shell, no numbering. The browser notes reuse .steps for the
+   divided-list look but are NOT a sequence, and an inherited counter said
+   they were. */
+.steps.plain .step{grid-template-columns:1fr}
+.steps.plain .step::before{content:none}
+.step h3{font-size:15px;font-weight:400;letter-spacing:.02em;margin-bottom:7px}
+.step p{font-size:13.5px;line-height:1.75;color:var(--t2);font-weight:300}
+.step p+p{margin-top:8px}
+.step strong{color:var(--t1);font-weight:400}
+
+/* ── Expectations grid ── */
+.exp-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:44px}
+.exp{padding:30px 28px;border-radius:14px;background:var(--bg-card);border:1px solid var(--border)}
+.exp h3{font-size:13px;font-weight:500;letter-spacing:.12em;text-transform:uppercase;margin-bottom:18px}
+.exp.good h3{color:var(--a-ok)}
+.exp.limit h3{color:var(--a-warn)}
+.exp li{font-size:13.5px;line-height:1.65;color:var(--t2);font-weight:300;display:flex;gap:10px;margin-bottom:11px;list-style:none}
+.exp li:last-child{margin-bottom:0}
+.exp-dot{width:4px;height:4px;border-radius:50%;flex-shrink:0;margin-top:8px}
+.exp.good .exp-dot{background:var(--a-ok)}
+.exp.limit .exp-dot{background:var(--a-warn)}
+.exp strong{color:var(--t1);font-weight:400}
+
+/* ── Roadmap pointer ── */
+.road-pointer{border-radius:12px;border:1px solid var(--border);background:var(--bg-panel);padding:22px 28px}
+.road-pointer p{font-size:13.5px;line-height:1.75;color:var(--t2);font-weight:300;max-width:720px}
+.road-pointer strong{color:var(--t1);font-weight:400}
+.road-pointer a{color:var(--amber);border-bottom:1px solid rgba(245,158,11,.3);transition:border-color .2s}
+.road-pointer a:hover{border-bottom-color:var(--amber)}
+
+/* ── Browser chips ── */
+.browsers{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 0}
+.bchip{display:inline-flex;align-items:center;gap:7px;padding:6px 12px 6px 9px;border-radius:999px;border:1px solid var(--border);background:var(--bg-panel);font-size:11.5px;color:var(--t2);font-weight:300;letter-spacing:.02em}
+.bchip svg{flex-shrink:0}
+.bchip.partial{opacity:.62}
+
+footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
+.footer-inner{display:flex;flex-direction:column;align-items:center;gap:22px;text-align:center}
+.footer-brand{font-size:15px;font-weight:200;letter-spacing:.22em;text-transform:uppercase}
+.footer-links{display:flex;gap:28px;list-style:none;flex-wrap:wrap;justify-content:center}
+.footer-links a{font-size:13px;color:var(--t2);font-weight:300;transition:color .2s}
+.footer-links a:hover{color:var(--t1)}
+.footer-copy{font-size:11.5px;color:var(--t3);font-weight:300;letter-spacing:.04em}
+
+@media (max-width:1000px){
+  .plat-grid{grid-template-columns:1fr}
+  .exp-grid{grid-template-columns:1fr}
+}
+@media (max-width:760px){
+  .wrap{padding:0 20px}
+  .nav-inner{padding:0 20px}
+  .nav-links{
+    display:none;position:fixed;top:56px;left:0;right:0;background:var(--bg-panel);
+    border-bottom:1px solid var(--border);flex-direction:column;align-items:stretch;
+    gap:2px;padding:14px 20px 20px
+  }
+  nav.nav-open .nav-links{display:flex}
+  .nav-links a{font-size:15px;padding:14px 16px;border-radius:8px}
+  .nav-hamburger{display:block}
+  .nav-mobile-cta{display:inline-flex;align-items:center;padding:7px 14px;border-radius:6px;background:var(--amber);color:var(--bg);font-size:12.5px;font-weight:400}
+  .phead{padding-top:104px;padding-bottom:40px}
+  .step{grid-template-columns:1fr;gap:14px;padding:24px 22px}
+  .notice{flex-direction:column;gap:12px;padding:20px 22px}
+  .section-gap{padding-bottom:80px}
+}
+</style>
+</head>
+<body>
+<a href="#main" class="skip-link">Skip to content</a>
+<div class="ambient" aria-hidden="true"></div>
+<div class="content">
+
+<nav>
+  <div class="nav-inner">
+    <a href="/" class="nav-brand">
+      <svg viewBox="0 0 80 90" width="20" height="22" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <polygon points="40,5 68,21 68,57 40,73 12,57 12,21" fill="none" stroke="#F59E0B" stroke-width="2" stroke-linejoin="miter"/>
+        <polygon points="40,5 68,21 54,33 26,33 12,21" fill="#F0EEE8"/>
+        <polygon points="40,5 12,21 26,33" fill="#E4E2DA"/>
+        <polygon points="40,5 68,21 54,33" fill="#D0CEC6"/>
+        <line x1="26" y1="33" x2="54" y2="33" stroke="#F59E0B" stroke-width="3" stroke-linecap="square"/>
+        <polygon points="26,33 54,33 68,57 40,73 12,57" fill="#141C26"/>
+        <polygon points="26,33 12,57 40,73" fill="#0C1218"/>
+        <polygon points="54,33 68,57 40,73" fill="#1A2332"/>
+        <line x1="40" y1="33" x2="40" y2="73" stroke="#94A3B8" stroke-width="1.1" opacity=".3"/>
+      </svg>
+      Hestia
+    </a>
+    <ul class="nav-links">
+      <li><a href="/#modules">Modules</a></li>
+      <li><a href="/#features">Features</a></li>
+      <li><a href="/install" aria-current="page">Get the App</a></li>
+      <li><a href="/#setup">Setup</a></li>
+      <li><a href="/#roadmap">Roadmap</a></li>
+      <li><a href="https://github.com/h4ven88/hestia-dashboard" target="_blank" rel="noopener">GitHub</a></li>
+      <li><a href="/app" class="nav-cta">Open Dashboard</a></li>
+    </ul>
+    <div style="display:flex;align-items:center;gap:4px">
+      <a href="/app" class="nav-mobile-cta">Open Dashboard</a>
+      <button class="nav-hamburger" onclick="document.querySelector('nav').classList.toggle('nav-open')" aria-label="Menu" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<main id="main">
+
+<div class="wrap phead">
+  <div class="s-label">Get Hestia</div>
+  <h1>Install it, and it finds your hub.</h1>
+  <p class="s-desc">Hestia runs in any browser with nothing to install. The Android
+  app adds a few things a browser cannot do: it reaches your hub over a pinned
+  connection, and notifications arrive with the app closed.</p>
+</div>
+
+<div class="wrap section-gap">
+
+  <div class="plat-grid">
+
+    <!-- Android -->
+    <section class="plat live">
+      <div class="plat-icon" aria-hidden="true">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="6" y="2.5" width="12" height="19" rx="2.2"/><line x1="10.6" y1="19" x2="13.4" y2="19"/>
+        </svg>
+      </div>
+      <div class="plat-name">Android</div>
+      <div class="plat-state beta">Open beta &middot; v2.2.1</div>
+      <p class="plat-desc">Finds your hub on its own, keeps the connection pinned to
+      it, and delivers alarm and sensor notifications while the app is closed.
+      Android&nbsp;8.0 or later.</p>
+      <!-- latest/download/<name> resolves to whichever release is current, so
+           this link does not go stale every time a version ships. That is why
+           the asset is named hestia.apk with no version in it: a versioned
+           filename would force this href to be edited per release, which is
+           exactly the class of derived value this project keeps getting wrong.
+           The version is stated above, in the APK, and in the app itself. -->
+      <a class="btn btn-amber btn-block" href="https://github.com/h4ven88/hestia-dashboard/releases/latest/download/hestia.apk" rel="noopener">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M4 20h16"/>
+        </svg>
+        Download APK
+      </a>
+      <div class="plat-meta">
+        27.7&nbsp;MB &middot; released 23 October 2026<br>
+        SHA-256
+        <code>8eae2c75457d51b0ce1ff7a3e8e540680d6dc3a992b3822f8338fa2f6a85fdd5</code>
+      </div>
+    </section>
+
+    <!-- Browser -->
+    <section class="plat">
+      <div class="plat-icon" aria-hidden="true">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9.5"/><path d="M2.5 12h19"/><path d="M12 2.5c2.6 2.6 2.6 16.4 0 19"/><path d="M12 2.5c-2.6 2.6-2.6 16.4 0 19"/>
+        </svg>
+      </div>
+      <div class="plat-name">Any browser</div>
+      <div class="plat-state ready">Available now</div>
+      <p class="plat-desc">The full dashboard, with nothing to install. Works on
+      phones, tablets, desktops and wall panels. This is the right choice for a
+      Fire tablet or anything without the Play Store.</p>
+      <div class="browsers" role="list" aria-label="Tested browsers">
+        <span class="bchip" role="listitem">Chrome</span>
+        <span class="bchip" role="listitem">Edge</span>
+        <span class="bchip" role="listitem">Firefox</span>
+        <span class="bchip" role="listitem">Brave</span>
+        <span class="bchip partial" role="listitem">Safari &middot; partial</span>
+      </div>
+      <a class="btn btn-ghost btn-block" href="/app" style="margin-top:22px">Open Dashboard</a>
+      <div class="plat-meta">No account, no install, no tracking.<br>
+      Some browsers are not fully supported &mdash; see below.</div>
+    </section>
+
+    <!-- iOS -->
+    <section class="plat">
+      <div class="plat-icon" aria-hidden="true">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="6.5" y="2.5" width="11" height="19" rx="2.6"/><circle cx="12" cy="18.4" r="1"/>
+        </svg>
+      </div>
+      <div class="plat-name">iOS</div>
+      <div class="plat-state soon">Planned</div>
+      <p class="plat-desc">Not started. The dashboard works in Safari today, with
+      two known gaps: voice transcription and web push both behave differently
+      on iOS. A native app is on the roadmap below.</p>
+      <span class="btn btn-ghost btn-block" aria-disabled="true">Not yet available</span>
+      <div class="plat-meta">Use Safari in the meantime.</div>
+    </section>
+
+  </div>
+
+  <div class="notice">
+    <div class="notice-icon" aria-hidden="true">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9.5"/><path d="M12 7.5v5.5"/><circle cx="12" cy="16.6" r=".9" fill="currentColor" stroke="none"/>
+      </svg>
+    </div>
+    <div>
+      <h2>The Android app is in open beta, and is not on the Play Store yet</h2>
+      <p>It is installed by downloading the file directly rather than through the
+      Play Store, which means <strong>Android will show you a warning before it
+      installs</strong>. That warning appears for every app not distributed
+      through the store and is not a sign of a problem with this one. The steps
+      below walk through it.</p>
+      <p>A Play Store release is planned &mdash; see the roadmap. Until then, you can
+      confirm you have the real file by checking the SHA-256 above against your
+      download.</p>
+    </div>
+  </div>
+
+</div>
+
+<!-- ════ Installing ════ -->
+<div class="wrap section-gap">
+  <div class="s-label">Installing on Android</div>
+  <h2 class="s-title">Four steps, about two minutes</h2>
+  <p class="s-desc">You will need your hub powered on and the phone connected to
+  the same Wi&#8209;Fi network as the hub.</p>
+
+  <div class="steps">
+    <div class="step">
+      <div>
+        <h3>Already have Hestia installed? Uninstall it first</h3>
+        <p>Only if you were given an earlier test build. This release is signed
+        with a different key, and Android treats that as a different app &mdash;
+        installing over the top will simply fail.</p>
+        <p><strong>Uninstalling clears the app's saved settings</strong>, so you
+        will set up your hub again. That takes a few taps and nothing is typed.
+        If your household uses a household key, have it handy.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div>
+        <h3>Download and open the file</h3>
+        <p>Tap <strong>Download APK</strong> above, then open it when it finishes.
+        Android will ask whether to allow installs from the app you downloaded
+        with &mdash; Chrome, Files or Drive. <strong>That permission applies only
+        to that one app</strong>, not to your phone generally.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div>
+        <h3>Get past the Play Protect warning</h3>
+        <p>You will see something like <em>&ldquo;unsafe app blocked&rdquo;</em> or
+        a warning about an unknown developer. Choose <strong>More details</strong>,
+        then <strong>Install anyway</strong>.</p>
+        <p>This is Android telling you the app did not come from the Play Store,
+        which is true. It is not telling you anything has been found wrong with
+        the file.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div>
+        <h3>Open Hestia and confirm your hub</h3>
+        <p>The app explains what it is about to do, asks permission to find
+        devices on your network, then searches. When it finds your hub it shows
+        you <strong>the hub's name and its certificate fingerprint</strong> so you
+        can confirm it is yours before anything is trusted.</p>
+        <p>If you decline the network permission, discovery cannot work and the
+        app will tell you so. Android remembers that choice, so you may need to
+        re-enable it in your phone's app settings.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ What to expect ════ -->
+<div class="wrap section-gap">
+  <div class="s-label">Before you start</div>
+  <h2 class="s-title">What works, and what does not yet</h2>
+  <p class="s-desc">This is a beta and it is worth being plain about the edges.
+  None of the items on the right are faults you need to report &mdash; they are
+  known, and some are not fixable from our side.</p>
+
+  <div class="exp-grid">
+    <section class="exp good">
+      <h3>What the app adds</h3>
+      <ul>
+        <li><span class="exp-dot" aria-hidden="true"></span><div><strong>It finds your hub.</strong> No address to type, no certificate to accept by hand.</div></li>
+        <li><span class="exp-dot" aria-hidden="true"></span><div><strong>Notifications with the app closed.</strong> Door, motion, lock, smoke, water and alarm alerts.</div></li>
+        <li><span class="exp-dot" aria-hidden="true"></span><div><strong>Camera snapshots served through your hub</strong> now work, which a browser blocks.</div></li>
+        <li><span class="exp-dot" aria-hidden="true"></span><div><strong>Nothing loaded from the internet.</strong> Every asset ships inside the app; it talks only to your hub and your own settings sync.</div></li>
+      </ul>
+    </section>
+
+    <section class="exp limit">
+      <h3>Known limits</h3>
+      <ul>
+        <li><span class="exp-dot" aria-hidden="true"></span><div><strong>Fire tablets cannot run this.</strong> Fire OS has no Google Play Services, so notifications cannot work at all. Use the browser version there.</div></li>
+        <li><span class="exp-dot" aria-hidden="true"></span><div><strong>Cameras with their own IP address</strong> &mdash; UniFi and similar &mdash; are not supported in the app yet. Hub&#8209;served snapshots are.</div></li>
+        <li><span class="exp-dot" aria-hidden="true"></span><div><strong>Force&#8209;stopping the app stops notifications</strong> until you open it again. That is Android's rule for apps you explicitly stop, and nothing in the app can change it.</div></li>
+        <li><span class="exp-dot" aria-hidden="true"></span><div><strong>Outside the US</strong>, Google began enforcing developer verification for directly&#8209;installed apps in Brazil, Indonesia, Singapore and Thailand on 30&nbsp;September 2026. In those countries this file may be blocked.</div></li>
+      </ul>
+    </section>
+  </div>
+</div>
+
+<!-- ════ Browser support ════ -->
+<div class="wrap section-gap" id="browsers">
+  <div class="s-label">Browser support</div>
+  <h2 class="s-title">Most browsers work. A few have quirks.</h2>
+  <p class="s-desc">The dashboard itself works anywhere. What varies is voice and
+  notifications, because those depend on browser features that are not evenly
+  implemented.</p>
+
+  <div class="steps plain" style="margin-top:36px">
+    <div class="step">
+      <div>
+        <h3>Chrome, Edge and Brave &mdash; fully supported</h3>
+        <p>Everything works, including voice and notifications. <strong>On Brave,
+        notifications need &ldquo;Use Google services for push messaging&rdquo;
+        turned on</strong> in Brave's own settings, otherwise registering for them
+        fails with no useful error.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div>
+        <h3>Firefox &mdash; fully supported</h3>
+        <p>No known issues.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div>
+        <h3>Safari and iOS &mdash; partial</h3>
+        <p>The dashboard works. <strong>Voice input does not</strong>, because
+        Safari records audio in a format the speech service does not accept.
+        Notifications behave differently from other browsers and are not something
+        we can promise there yet. Both are reasons the iOS app is on the roadmap.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div>
+        <h3>Samsung Internet &mdash; known display issue</h3>
+        <p>Colours can render incorrectly. This is most likely Samsung Internet's
+        own dark-mode setting rewriting the page's colours on top of a theme that
+        is already dark. <strong>If the dashboard looks wrong there, try Chrome
+        before reporting it.</strong></p>
+      </div>
+    </div>
+    <div class="step">
+      <div>
+        <h3>Fire tablets and kiosk browsers &mdash; dashboard only</h3>
+        <p>The dashboard works, but <strong>voice does not</strong>: the Fire OS
+        browser engine lacks the audio recording API it needs. Notifications are
+        unavailable too, since Fire OS has no Google Play Services. Fully Kiosk
+        users with a self-signed hub certificate may also need to enable
+        <strong>Ignore SSL Errors</strong> in its advanced web settings.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- One line, not a section. The roadmap lives on the main page; repeating it
+     here would be two copies to keep in step, and this page only needs to
+     answer "is Play Store coming?" without restating everything else. -->
+<div class="wrap section-gap">
+  <div class="road-pointer">
+    <p><strong>A Play Store release is planned</strong>, so the app can update
+    itself and install without warnings. It is on the
+    <a href="/#roadmap">roadmap</a> along with an iOS app and support for cameras
+    on their own address.</p>
+  </div>
+</div>
+
+</main>
+
+<footer>
+  <div class="wrap footer-inner">
+    <div class="footer-brand">Hestia</div>
+    <ul class="footer-links">
+      <li><a href="/app">Open Dashboard</a></li>
+      <li><a href="/#setup">Setup Guide</a></li>
+      <li><a href="https://github.com/h4ven88/hestia-dashboard" target="_blank" rel="noopener">GitHub</a></li>
+      <li><a href="https://github.com/h4ven88/hestia-dashboard/issues" target="_blank" rel="noopener">Report a Bug</a></li>
+      <li><a href="https://community.hubitat.com/t/hestia-a-new-smart-home-dashboard-for-hubitat/162853" target="_blank" rel="noopener">Community Forum</a></li>
+    </ul>
+    <!-- ⚠ MOCK-UP NOTE: the landing page footer currently says "Apache 2.0
+         License" while LICENSE and the dashboard footer both say CC BY-NC 4.0.
+         Three different claims across one product. Left blank here rather than
+         guessing which is right. -->
+    <div class="footer-copy">&copy; 2026 Hestari</div>
+  </div>
+</footer>
+
+</div>
+<script>
+document.querySelectorAll('.nav-links a').forEach(a => {
+  a.addEventListener('click', () => document.querySelector('nav').classList.remove('nav-open'));
+});
+</script>
+</body>
+</html>

@@ -2,6 +2,19 @@
 # Pretty URLs is enabled — avoid 200 rewrites that loop.
 # Routing handled by JS in dashboard.html instead.
 
+# The APK is NOT served from this site. Cloudflare Pages caps a single asset at
+# 25 MiB ("The maximum file size for a single Cloudflare Pages site asset is
+# 25 MiB", developers.cloudflare.com/pages/platform/limits, checked 2026-10-22)
+# and the APK is 27.7 MiB, so serving it here would fail at deploy time rather
+# than degrade. It lives on GitHub Releases, which caps at 2 GB and carries the
+# bandwidth; committing a 29 MB binary would also sit in git history forever.
+#
+# latest/download/<name> follows whichever release is current, so this line
+# does not need editing per release -- provided the asset keeps the name
+# hestia.apk.
+/download       https://github.com/h4ven88/hestia-dashboard/releases/latest/download/hestia.apk   302
+/download.apk   https://github.com/h4ven88/hestia-dashboard/releases/latest/download/hestia.apk   302
+
 # The sandbox build ships in the repo (so it can be uploaded to a hub) but is
 # not part of the public site.
 /sandbox.html   /   302
