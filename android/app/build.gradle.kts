@@ -53,7 +53,7 @@ android {
            It matters more than it looks: versionName is what Android shows in
            app info and what a crash report is filed against, so a stale one
            points a bug report at the wrong build. */
-        versionName = "2.2.1"
+        versionName = "2.2.2"
 
         /* DERIVED, never hand-maintained. Play refuses an upload whose
            versionCode is not strictly greater than the last, and a number

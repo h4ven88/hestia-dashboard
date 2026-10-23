@@ -399,10 +399,34 @@ console.log('\n=== 8. Release signing cannot leak, and cannot block a build ==='
      is the drift this file already documents. */
   check('versionCode is derived from versionName, not hand-maintained',
     /versionCode = versionName!!\.split\("\."\)/.test(GRADLE));
-  const [maj, min, pat] = /versionName\s*=\s*"([^"]+)"/.exec(GRADLE)[1].split('.').map(Number);
-  check('...and the derivation is monotonic for this version',
-    maj * 10000 + min * 100 + pat === 20201,
-    'built APK reported versionCode 20201 for 2.2.1');
+  /* ⛔ THIS USED TO ASSERT === 20201, AND ITS MESSAGE SAID "built APK reported
+     versionCode 20201 for 2.2.1" WHILE READING NO APK AT ALL. It computed the
+     formula from versionName and compared it against a frozen copy of the same
+     arithmetic, so it could only ever agree with itself, and it failed on every
+     version bump forever -- training whoever hit it to edit the constant rather
+     than look. Caught on the 2.2.2 bump.
+
+     What actually matters about this derivation is that Play refuses an upload
+     whose versionCode is not strictly greater than the last. So the property to
+     pin is ORDERING, not one snapshot of it: the formula must rank any sequence
+     of versions the project can express. Checked against synthetic versions, so
+     this stays true at every future version without being edited.
+
+     The multipliers are read OUT of build.gradle.kts rather than copied here.
+     A local copy would only prove this file agrees with itself, which is the
+     same fault being fixed: change gradle to p[0]*100 and this must go red. */
+  const vn = /versionName\s*=\s*"([^"]+)"/.exec(GRADLE)[1];
+  const mul = /p\[0\]\.toInt\(\)\s*\*\s*(\d+)\s*\+\s*p\[1\]\.toInt\(\)\s*\*\s*(\d+)\s*\+\s*p\[2\]\.toInt\(\)/.exec(GRADLE);
+  check('...and the multipliers can be read out of the build file',
+    !!mul, mul ? `major*${mul[1]} minor*${mul[2]} patch*1` : 'derivation expression not found');
+  const [MAJ, MIN] = mul ? [Number(mul[1]), Number(mul[2])] : [0, 0];
+  const code = (v) => { const [a, b, c] = v.split('.').map(Number); return a * MAJ + b * MIN + c; };
+  check('...and versionName is three numeric parts, as the derivation requires',
+    /^\d+\.\d+\.\d+$/.test(vn), vn);
+  const ladder = ['2.2.1', '2.2.2', '2.2.10', '2.3.0', '2.10.0', '3.0.0'];
+  check('...and the derivation orders every version the project can express',
+    ladder.every((v, i) => i === 0 || code(v) > code(ladder[i - 1])),
+    ladder.map(v => v + '=' + code(v)).join(' '));
 
   /* R8 would rename the @JavascriptInterface methods the page calls by name,
      and that fails SILENTLY -- the exact failure mode the bridge was designed

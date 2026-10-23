@@ -36,7 +36,7 @@ needs Android 8.0 or later.
 
 SHA-256, if you want to check the file before you open it:
 
-`8eae2c75457d51b0ce1ff7a3e8e540680d6dc3a992b3822f8338fa2f6a85fdd5`
+`88632196329fbb05957f66fb548698fe57fc2d48310fe9fd352a65c7889e6ee1`
 
 Two warnings will try to stop you, and both are normal for anything not
 installed from the Play Store. Your browser will say the file type may harm your

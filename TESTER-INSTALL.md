@@ -10,10 +10,10 @@ live yet.
 
 | | |
 |---|---|
-| Version | **2.2.1** |
+| Version | **2.2.2** |
 | Built | 2026-10-22 |
-| Size | 29,019,343 bytes (27.7 MiB) |
-| SHA-256 | `8eae2c75457d51b0ce1ff7a3e8e540680d6dc3a992b3822f8338fa2f6a85fdd5` |
+| Size | 29,019,347 bytes (27.7 MiB) |
+| SHA-256 | `88632196329fbb05957f66fb548698fe57fc2d48310fe9fd352a65c7889e6ee1` |
 | Minimum Android | **8.0** (API 26) |
 | Signing | Release key, v2/v3 scheme |
 
