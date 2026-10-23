@@ -138,10 +138,18 @@ console.log('\n--- Lost-connection screen: naming the likely cause');
       if (src[j] === '{') d++; else if (src[j] === '}' && --d === 0) return src.slice(m.index, j + 1);
     }
   };
-  const banner = (hub, pageProto, pageHost) => new Function(`
+  /* nativeHub mirrors dashboard.html:2741 -- it returns the bridge only when
+     it advertises the 'hub' capability, and null in any browser. Stubbed
+     rather than extracted because the real one reads window.hestiaNative,
+     which this harness does not build; `native` drives it directly so a test
+     can say "this is the app" without constructing a bridge.
+     Added when _offlineBannerHTML grew a native branch: the suite crashed
+     outright with ReferenceError, which runall reported as NO SUMMARY. */
+  const banner = (hub, pageProto, pageHost, native = false) => new Function(`
     const CONFIG = { hub: ${JSON.stringify(hub)} };
     const window = { location: { protocol: ${JSON.stringify(pageProto)}, hostname: ${JSON.stringify(pageHost)} } };
     const escapeHtml = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const nativeHub = () => ${native ? '({ capabilities: ["hub"] })' : 'null'};
     ${fn('isServedFromHub')}
     ${fn('_offlineBannerHTML')}
     return _offlineBannerHTML();
@@ -162,6 +170,23 @@ console.log('\n--- Lost-connection screen: naming the likely cause');
   const onHub = banner('https://192.168.50.139:8443', 'https:', '192.168.50.139');
   check('https hub while served BY that hub: no certificate nag',
     !/certificate/.test(onHub), onHub.slice(0, 70));
+
+  /* ⛔ The app shape is IDENTICAL to the certificate branch's shape -- https
+     hub, page not served from the hub -- so without the native branch every
+     app user who lost their hub was told to go and accept a certificate in a
+     WebView that has no way to accept one. Found on a real phone. */
+  const app = banner('https://192.168.50.139', 'https:', 'appassets.androidplatform.net', true);
+  check('in the app: never tells the user to accept a certificate',
+    !/certificate/i.test(app), app.slice(0, 70));
+  check('in the app: names the hub power and the Wi-Fi network instead',
+    /powered on/.test(app) && /same Wi-Fi/.test(app), app.slice(0, 70));
+  check('in the app: offers no link to tap, since there is nowhere useful to go',
+    !/<a /.test(app), app.slice(0, 70));
+  /* The browser must KEEP the certificate advice: it is correct and
+     actionable there, and the native branch must not have swallowed it. */
+  const browserStill = banner('https://192.168.50.139:8443', 'https:', 'hestari.com', false);
+  check('browser with an https hub: still gets the certificate advice',
+    /accepted the hub's certificate/.test(browserStill), browserStill.slice(0, 70));
 
   const none = banner('', 'https:', 'hestari.com');
   check('no hub configured at all: still returns the generic message, no crash',

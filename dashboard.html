@@ -1934,7 +1934,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '2.2.1';
-const HESTIA_BUILD_DATE = '2026-10-20';
+const HESTIA_BUILD_DATE = '2026-10-22';
 
 /* ═══════════════════════════════════════════════════════
    SANDBOX MODE
@@ -5266,6 +5266,24 @@ function _offlineBannerHTML() {
     `<a href="${escapeHtml(href)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline">${text}</a>`;
   let origin = '';
   try { origin = new URL(hub).origin; } catch(e) {}
+  /* ⛔ THE APP MUST NEVER BE TOLD TO ACCEPT A CERTIFICATE. In the app this
+     page is served from appassets.androidplatform.net against an https hub,
+     which is exactly the shape of the branch below -- so every app user who
+     lost their hub was handed browser advice that CANNOT be followed there.
+     A WebView offers no "accept this certificate once" affordance at all;
+     that capability is the one the app deliberately removes and replaces with
+     a pin taken during first run.
+
+     Observed on a real phone during the pre-release device pass, on the
+     lost-connection screen, naming the hub's address and inviting a tap that
+     leads nowhere useful.
+
+     This is the v2.0.2 lesson in its second form: enumerate who actually
+     REACHES the screen you wrote, and check the instruction is possible for
+     them rather than for the median reader. */
+  if (nativeHub()) {
+    return 'Hub unreachable, showing last known state. Check that your hub is powered on and that this phone is on the same Wi-Fi network as the hub.';
+  }
   if (origin && hub.startsWith('https://') && !isServedFromHub()) {
     return `Hub unreachable. If this device hasn't accepted the hub's certificate yet, ${link(origin, 'open ' + escapeHtml(origin))}, accept it, then come back.`;
   }
