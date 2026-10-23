@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#0A0A0A">
 <meta name="description" content="Download the Hestia app for Android, or open the dashboard in any browser. Hestia is a free smart home dashboard for Hubitat Elevation.">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Get Hestia — Apps for Android, iOS and the browser">
+<meta property="og:title" content="Get Hestia: Apps for Android, iOS and the browser">
 <meta property="og:description" content="The Android app is in open beta. The dashboard works in any browser today.">
 <meta property="og:url" content="https://hestari.com/install">
 <meta property="og:site_name" content="Hestari">
@@ -157,6 +157,27 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(10,10,10,.7)
 .bchip{display:inline-flex;align-items:center;gap:7px;padding:6px 12px 6px 9px;border-radius:999px;border:1px solid var(--border);background:var(--bg-panel);font-size:11.5px;color:var(--t2);font-weight:300;letter-spacing:.02em}
 .bchip svg{flex-shrink:0}
 .bchip.partial{opacity:.62}
+.bchip.partial svg{filter:grayscale(.45)}
+
+/* Collapsed by default: the hash matters to the few people who check it and
+   is visual noise to everyone else. */
+.verify{margin-top:12px}
+.verify summary{cursor:pointer;display:inline-flex;align-items:center;gap:6px;
+  font-size:11.5px;color:var(--t3);letter-spacing:.02em;list-style:none;
+  padding:4px 0;transition:color .2s}
+.verify summary::-webkit-details-marker{display:none}
+.verify summary::before{content:"";width:0;height:0;
+  border-left:4px solid currentColor;border-top:3.5px solid transparent;
+  border-bottom:3.5px solid transparent;transition:transform .2s}
+.verify[open] summary::before{transform:rotate(90deg)}
+.verify summary:hover{color:var(--t2)}
+.verify summary:focus-visible{outline:2px solid var(--amber);outline-offset:3px;border-radius:3px}
+.verify p{margin:8px 0 6px;font-size:11px;line-height:1.6;color:var(--t3)}
+.verify > code{display:block;word-break:break-all;font-size:10.5px;line-height:1.7;
+  color:var(--t2);background:var(--bg-panel);border:1px solid var(--border);
+  border-radius:6px;padding:8px 10px;user-select:all}
+.verify .verify-how{margin-top:10px}
+.verify code.inline{background:none;border:0;padding:0;font-size:10.5px;color:var(--t2);user-select:all}
 
 footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
 .footer-inner{display:flex;flex-direction:column;align-items:center;gap:22px;text-align:center}
@@ -267,9 +288,22 @@ footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
         Download APK
       </a>
       <div class="plat-meta">
-        27.7&nbsp;MB &middot; released 23 October 2026<br>
-        SHA-256
-        <code>88632196329fbb05957f66fb548698fe57fc2d48310fe9fd352a65c7889e6ee1</code>
+        27.7&nbsp;MB &middot; released 23 October 2026
+        <!-- A checksum is public by nature, not a secret: it is what lets a
+             tester prove the file they got is the file that was built. For a
+             sideloaded APK it is the only integrity check there is, since no
+             store signature sits in front of it. But a bare 64-character hash
+             was the loudest thing on the card, which is backwards -- almost
+             nobody needs it, and the few who do will go looking. -->
+        <details class="verify">
+          <summary>Verify this download</summary>
+          <p>Compare this against your downloaded file. They should match
+          exactly.</p>
+          <code>88632196329fbb05957f66fb548698fe57fc2d48310fe9fd352a65c7889e6ee1</code>
+          <p class="verify-how">On Windows:
+          <code class="inline">certutil -hashfile hestia.apk SHA256</code><br>
+          On macOS or Linux: <code class="inline">shasum -a 256 hestia.apk</code></p>
+        </details>
       </div>
     </section>
 
@@ -285,16 +319,45 @@ footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
       <p class="plat-desc">The full dashboard, with nothing to install. Works on
       phones, tablets, desktops and wall panels. This is the right choice for a
       Fire tablet or anything without the Play Store.</p>
+      <!-- Simplified marks drawn as inline SVG rather than the vendors' own
+           logo files: nothing is fetched from a CDN, nothing is a trademarked
+           asset redistributed, and at 15px what the eye actually resolves is
+           colour and silhouette rather than detail. -->
       <div class="browsers" role="list" aria-label="Tested browsers">
-        <span class="bchip" role="listitem">Chrome</span>
-        <span class="bchip" role="listitem">Edge</span>
-        <span class="bchip" role="listitem">Firefox</span>
-        <span class="bchip" role="listitem">Brave</span>
-        <span class="bchip partial" role="listitem">Safari &middot; partial</span>
+        <span class="bchip" role="listitem">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+            <path d="M3.34 7A10 10 0 0 1 20.66 7L15.64 9.9A4.2 4.2 0 0 0 8.36 9.9Z" fill="#EA4335"/>
+            <path d="M20.66 7A10 10 0 0 1 12 22L12 16.2A4.2 4.2 0 0 0 15.64 9.9Z" fill="#FBBC05"/>
+            <path d="M12 22A10 10 0 0 1 3.34 7L8.36 9.9A4.2 4.2 0 0 0 12 16.2Z" fill="#34A853"/>
+            <circle cx="12" cy="12" r="4.2" fill="#fff"/>
+            <circle cx="12" cy="12" r="3.4" fill="#4285F4"/>
+          </svg>Chrome</span>
+        <span class="bchip" role="listitem">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" fill="#0C70B2"/>
+            <path d="M4.2 16.4A10 10 0 0 1 21.8 9.6 8.6 8.6 0 0 0 5.4 14.9Z" fill="#3DD8E0"/>
+          </svg>Edge</span>
+        <span class="bchip" role="listitem">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" fill="#FF5C1B"/>
+            <path d="M4.5 8.4A10 10 0 0 1 19.2 6.2 8.3 8.3 0 0 0 5.8 15.1 10 10 0 0 1 4.5 8.4Z" fill="#FFC244"/>
+          </svg>Firefox</span>
+        <span class="bchip" role="listitem">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+            <path d="M12 2.4 19.6 5.6v7.1c0 4-3.2 7.4-7.6 8.9-4.4-1.5-7.6-4.9-7.6-8.9V5.6Z" fill="#FB542B"/>
+            <path d="M12 6.6 8.3 9.7l1.3 5.2L12 16.5l2.4-1.6 1.3-5.2Z" fill="#fff" opacity=".93"/>
+          </svg>Brave</span>
+        <span class="bchip partial" role="listitem">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" fill="#1E9CF0"/>
+            <circle cx="12" cy="12" r="7.8" fill="#0A5E9E" opacity=".3"/>
+            <path d="m16.6 7.4-6.3 2.9-2.9 6.3 6.3-2.9Z" fill="#fff"/>
+            <path d="m16.6 7.4-6.3 2.9 1.5 1.5Z" fill="#FF4B4B"/>
+          </svg>Safari &middot; partial</span>
       </div>
       <a class="btn btn-ghost btn-block" href="/app" style="margin-top:22px">Open Dashboard</a>
       <div class="plat-meta">No account, no install, no tracking.<br>
-      Some browsers are not fully supported &mdash; see below.</div>
+      Some browsers are not fully supported. See below.</div>
     </section>
 
     <!-- iOS -->
@@ -305,12 +368,13 @@ footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
         </svg>
       </div>
       <div class="plat-name">iOS</div>
-      <div class="plat-state soon">Planned</div>
-      <p class="plat-desc">Not started. The dashboard works in Safari today, with
-      two known gaps: voice transcription and web push both behave differently
-      on iOS. A native app is on the roadmap below.</p>
-      <span class="btn btn-ghost btn-block" aria-disabled="true">Not yet available</span>
-      <div class="plat-meta">Use Safari in the meantime.</div>
+      <div class="plat-state soon">Coming soon</div>
+      <p class="plat-desc">Use Safari in the meantime. The dashboard runs
+      there today.</p>
+      <!-- The status chip above already says "Coming soon"; repeating it on the
+           button is noise. The button stays rather than being removed so the
+           three cards keep a common baseline in the grid. -->
+      <span class="btn btn-ghost btn-block" aria-disabled="true">Not available yet</span>
     </section>
 
   </div>
@@ -328,7 +392,7 @@ footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
       installs</strong>. That warning appears for every app not distributed
       through the store and is not a sign of a problem with this one. The steps
       below walk through it.</p>
-      <p>A Play Store release is planned &mdash; see the roadmap. Until then, you can
+      <p>A Play Store release is planned. See the roadmap. Until then, you can
       confirm you have the real file by checking the SHA-256 above against your
       download.</p>
     </div>
@@ -348,8 +412,8 @@ footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
       <div>
         <h3>Already have Hestia installed? Uninstall it first</h3>
         <p>Only if you were given an earlier test build. This release is signed
-        with a different key, and Android treats that as a different app &mdash;
-        installing over the top will simply fail.</p>
+        with a different key, and Android treats that as a different app, so installing over the top
+        will simply fail.</p>
         <p><strong>Uninstalling clears the app's saved settings</strong>, so you
         will set up your hub again. That takes a few taps and nothing is typed.
         If your household uses a household key, have it handy.</p>
@@ -359,10 +423,15 @@ footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
     <div class="step">
       <div>
         <h3>Download and open the file</h3>
-        <p>Tap <strong>Download APK</strong> above, then open it when it finishes.
-        Android will ask whether to allow installs from the app you downloaded
-        with &mdash; Chrome, Files or Drive. <strong>That permission applies only
-        to that one app</strong>, not to your phone generally.</p>
+        <p>Tap <strong>Download APK</strong> above. Your browser will warn that this
+        type of file can harm your phone, which it says for every APK. Open the
+        file once it finishes.</p>
+        <p>Android will then say installs from that source are not allowed, and
+        offer Settings. It means <strong>whichever app opens the file</strong>,
+        which is not always the one that downloaded it: open it from My Files on
+        a Samsung phone and it is My Files that needs the permission, not the
+        browser. Grant it to whatever the dialog names. <strong>That permission
+        applies only to that one app</strong>, not to your phone generally.</p>
       </div>
     </div>
 
@@ -398,7 +467,7 @@ footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
   <div class="s-label">Before you start</div>
   <h2 class="s-title">What works, and what does not yet</h2>
   <p class="s-desc">This is a beta and it is worth being plain about the edges.
-  None of the items on the right are faults you need to report &mdash; they are
+  None of the items on the right are faults you need to report. They are
   known, and some are not fixable from our side.</p>
 
   <div class="exp-grid">
@@ -416,7 +485,7 @@ footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
       <h3>Known limits</h3>
       <ul>
         <li><span class="exp-dot" aria-hidden="true"></span><div><strong>Fire tablets cannot run this.</strong> Fire OS has no Google Play Services, so notifications cannot work at all. Use the browser version there.</div></li>
-        <li><span class="exp-dot" aria-hidden="true"></span><div><strong>Cameras with their own IP address</strong> &mdash; UniFi and similar &mdash; are not supported in the app yet. Hub&#8209;served snapshots are.</div></li>
+        <li><span class="exp-dot" aria-hidden="true"></span><div><strong>Cameras with their own IP address</strong>, UniFi and similar, are not supported in the app yet. Hub&#8209;served snapshots are.</div></li>
         <li><span class="exp-dot" aria-hidden="true"></span><div><strong>Force&#8209;stopping the app stops notifications</strong> until you open it again. That is Android's rule for apps you explicitly stop, and nothing in the app can change it.</div></li>
         <li><span class="exp-dot" aria-hidden="true"></span><div><strong>Outside the US</strong>, Google began enforcing developer verification for directly&#8209;installed apps in Brazil, Indonesia, Singapore and Thailand on 30&nbsp;September 2026. In those countries this file may be blocked.</div></li>
       </ul>
@@ -435,7 +504,7 @@ footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
   <div class="steps plain" style="margin-top:36px">
     <div class="step">
       <div>
-        <h3>Chrome, Edge and Brave &mdash; fully supported</h3>
+        <h3>Chrome, Edge and Brave: fully supported</h3>
         <p>Everything works, including voice and notifications. <strong>On Brave,
         notifications need &ldquo;Use Google services for push messaging&rdquo;
         turned on</strong> in Brave's own settings, otherwise registering for them
@@ -444,13 +513,13 @@ footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
     </div>
     <div class="step">
       <div>
-        <h3>Firefox &mdash; fully supported</h3>
+        <h3>Firefox: fully supported</h3>
         <p>No known issues.</p>
       </div>
     </div>
     <div class="step">
       <div>
-        <h3>Safari and iOS &mdash; partial</h3>
+        <h3>Safari and iOS: partial</h3>
         <p>The dashboard works. <strong>Voice input does not</strong>, because
         Safari records audio in a format the speech service does not accept.
         Notifications behave differently from other browsers and are not something
@@ -459,7 +528,7 @@ footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
     </div>
     <div class="step">
       <div>
-        <h3>Samsung Internet &mdash; known display issue</h3>
+        <h3>Samsung Internet: known display issue</h3>
         <p>Colours can render incorrectly. This is most likely Samsung Internet's
         own dark-mode setting rewriting the page's colours on top of a theme that
         is already dark. <strong>If the dashboard looks wrong there, try Chrome
@@ -468,7 +537,7 @@ footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
     </div>
     <div class="step">
       <div>
-        <h3>Fire tablets and kiosk browsers &mdash; dashboard only</h3>
+        <h3>Fire tablets and kiosk browsers: dashboard only</h3>
         <p>The dashboard works, but <strong>voice does not</strong>: the Fire OS
         browser engine lacks the audio recording API it needs. Notifications are
         unavailable too, since Fire OS has no Google Play Services. Fully Kiosk
