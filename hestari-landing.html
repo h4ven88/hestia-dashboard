@@ -352,6 +352,14 @@ footer{border-top:1px solid var(--border);padding:40px 0}
   .hero h1{font-size:26px}
   .hero-sub{font-size:13px}
   .nav-mobile-cta{font-size:11px;padding:7px 12px}
+  /* The four preview tabs are width:fit-content with auto margins, so the row
+     could not shrink below its content: 382px of buttons inside a 375px
+     viewport. That pushed the document's scrollWidth past its clientWidth, and
+     because .ambient and .nav-inner are full-width they stretched to the
+     overflowed width too and looked like the cause. They were symptoms. The
+     whole page could be dragged sideways. */
+  .preview-toggle{flex-wrap:wrap;max-width:100%}
+  .preview-toggle button{padding:8px 12px;font-size:12px}
 }
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:0.01ms!important;animation-iteration-count:1!important;transition-duration:0.01ms!important;scroll-behavior:auto!important}
