@@ -452,8 +452,15 @@ html[data-display-desktop] .tb-date{display:block !important}
 
 /* ── MAIN ── */
 .main{flex:1;overflow:hidden;display:flex;flex-direction:column}
-.offline-banner{display:none;align-items:center;justify-content:center;gap:8px;padding:7px 22px;background:rgba(248,113,113,.08);border-bottom:1px solid rgba(248,113,113,.2);font-size:12px;color:var(--conn-err);flex-shrink:0}
-.offline-banner.visible{display:flex}
+/* ⛔ PROSE, NOT FLEX ITEMS. This was display:flex with no flex-wrap, and its
+   content is a sentence containing a link: a text run, an <a>, then another
+   text run. Flex makes each of those three runs its own item, so on a phone
+   they were squeezed into narrow side-by-side columns and the sentence
+   rendered as three interleaved blocks of text on top of each other.
+   Photographed on a Galaxy A16 during the pre-release device pass.
+   The banner holds a sentence, so it is laid out as one. */
+.offline-banner{display:none;text-align:center;line-height:1.5;padding:7px 22px;background:rgba(248,113,113,.08);border-bottom:1px solid rgba(248,113,113,.2);font-size:12px;color:var(--conn-err);flex-shrink:0}
+.offline-banner.visible{display:block}
 
 /* ── Lost-connection screen ───────────────────────────────────────────
    Escalated from the banner after the hub has been unreachable long
@@ -491,7 +498,7 @@ html[data-display-desktop] .tb-date{display:block !important}
 .https-banner.visible{display:flex}
 .integrity-banner{display:none;align-items:center;gap:10px;padding:8px 22px;background:rgba(220,38,38,.09);border-bottom:2px solid rgba(220,38,38,.35);font-size:12px;color:var(--conn-err);flex-shrink:0}
 .integrity-banner.visible{display:flex}
-.offline-banner.visible{display:flex}
+.offline-banner.visible{display:block}
 .app-update-banner{display:none;align-items:center;justify-content:space-between;gap:8px;padding:7px 22px;background:rgba(245,158,11,.07);border-bottom:1px solid rgba(245,158,11,.18);font-size:12px;color:var(--amber);flex-shrink:0}
 .app-update-banner.visible{display:flex}
 /* ══ ARTEMIS SECURITY MODULE ══════════════════════════════════════════ */
@@ -1934,7 +1941,7 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
 const HESTIA_VERSION    = '2.2.1';
-const HESTIA_BUILD_DATE = '2026-10-22';
+const HESTIA_BUILD_DATE = '2026-10-23';
 
 /* ═══════════════════════════════════════════════════════
    SANDBOX MODE
