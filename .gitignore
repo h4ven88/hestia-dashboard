@@ -40,8 +40,14 @@ scripts/training_athena_control.zip
 # Model-training tooling and its documentation. The nine wake words are
 # trained and shipped; this is finished work kept for reference, not part of
 # the dashboard. Ignored rather than left untracked so `git clean -fd` cannot
-# delete it. (Some older training scripts are already in git history from
-# before this rule; they are harmless there and were left alone.)
+# delete it -- untracked AND unignored is the worst of both, unprotected and
+# unpublished.
+#
+# The second block below was previously left tracked because those files were
+# already in git history from before this rule. That exception is now closed
+# (user's call, 2026-10-23: the wake word work is finished): they are untracked
+# with `git rm --cached`, which leaves every byte on disk and in history while
+# stopping them showing as modified forever. Nothing is deleted.
 scripts/TRAINING_PROCESS.md
 scripts/benchmark_all.py
 scripts/benchmark_compare.py
@@ -53,6 +59,15 @@ scripts/embed_onnx.py
 scripts/replicate_clips.py
 scripts/split_dataset.py
 scripts/train_colab_local.py
+
+# Untracked 2026-10-23, previously in history. Same reasoning as above.
+scripts/benchmark_model.py
+scripts/scrape_all.py
+scripts/scrape_wakeword.py
+scripts/setup_training.py
+scripts/train_local.py
+scripts/train_model.py
+scripts/urls_*.txt
 
 # Rejected/experimental models. The eleven SHIPPED models/*.onnx stay tracked.
 models/athena_backup.onnx
