@@ -71,8 +71,39 @@ object HubClient {
         if (!isSafePath(path)) throw BadPath(path)
 
         val origin = HubTrust.storedOrigin(ctx) ?: throw NotConfigured()
-        val pin = HubTrust.storedPin(ctx)
-        val pinned = HubTrust.Pinned(pin)
+        /* Normalised the way pinnedClient normalises it, so the two agree on
+           what "this device holds a pin" means. "" is what an http-configured
+           hub used to store, and treating it as a real pin would demand a key
+           nothing can present. */
+        val pin = HubTrust.storedPin(ctx)?.ifEmpty { null }
+
+        /* ⛔ THE STEADY-STATE PATH MUST NOT BUILD A CLIENT PER REQUEST, and it
+           did. HubTrust.pinnedClient exists for precisely this reason, and its
+           own comment names camera snapshots as the motivation -- but THIS
+           function is the device poll, which runs about once a second for as
+           long as the app is open. HubProxy was migrated to the shared client.
+           The hotter caller never was.
+
+           What that cost, measured on a Galaxy A16 against a healthy hub: a
+           full TLS handshake on every poll with no connection reuse, plus a
+           Dispatcher and ConnectionPool abandoned per poll, each holding
+           threads and idle sockets until collected. The app reached the
+           dashboard, ran for a minute or two, then every relayed request
+           failed with SocketTimeoutException: Read timed out, and the page
+           showed "Lost connection to your hub".
+
+           Three things were ruled out by measurement first, so do not go
+           looking there again: the same /devices/all returned 47 KB in 0.15s
+           from a PC on the same network five times running; the hub served 16
+           concurrent requests with zero errors and a 2.31s worst case; and
+           logcat showed no Wi-Fi disconnection events. The hub, the link and
+           the dispatcher cap were all fine. The client was the fault.
+
+           TOFU still builds its own, because observedPin lives on the wrapper
+           and a shared client cannot report which key it saw. That path runs
+           once per hub rather than once per second, so it costs nothing. */
+        val tofu = if (pin == null) HubTrust.Pinned(null) else null
+        val client = tofu?.client ?: HubTrust.pinnedClient(ctx)
 
         val requestBody = body?.toRequestBody((contentType ?: "application/json").toMediaType())
         val req = Request.Builder()
@@ -80,14 +111,14 @@ object HubClient {
             .method(method.uppercase(), requestBody)
             .build()
 
-        pinned.client.newCall(req).execute().use { res ->
+        client.newCall(req).execute().use { res ->
             /* A hub whose key changed is refused by the trust manager before
                we get here, so reaching this point means the pin held. If we
                connected with no pin stored, record what we saw -- that is the
-               trust-on-first-use moment, and it happens exactly once. */
-            if (pin == null) {
-                pinned.observedPin?.let { HubTrust.remember(ctx, origin, it) }
-            }
+               trust-on-first-use moment, and it happens exactly once.
+               remember() invalidates the cached client, so the very next
+               request is served by one that enforces the key just stored. */
+            tofu?.observedPin?.let { HubTrust.remember(ctx, origin, it) }
             return Result(res.code, res.body?.string().orEmpty())
         }
     }
@@ -139,7 +170,31 @@ object HubClient {
         val pinned = HubTrust.Pinned(null)   // first use: accept and record
         val req = Request.Builder().url("$normalised/hub2/hubData").get().build()
 
-        pinned.client.newCall(req).execute().use { res ->
+        /* ⛔ FIRST CONTACT NEEDS A LONGER LEASH THAN STEADY STATE, and using
+           the shared client's 5s connect budget here was a real first-run
+           failure on a real phone: discovery found the hub and confirmed it
+           reachable, then this call -- same host, same port, same path, seconds
+           later -- timed out, and the user saw "No answer from that address."
+           on a hub that was answering. Tapping the same row again worked.
+           Intermittent is the worst shape for this: it lands on the very first
+           screen a new tester sees, and it tells them the truthful-sounding
+           lie that their hub is unreachable.
+
+           Why this call and not discovery's: HubDiscovery already overrides to
+           6s for exactly the same reason, so the shared default was only ever
+           tuned for the warm steady-state path (device polling at ~1s against
+           a hub this app has already talked to). A cold TLS handshake against a
+           C-8 Pro's self-signed certificate is a different workload.
+
+           retryOnConnectionFailure stays FALSE. That is a deliberate control --
+           it stops OkHttp silently re-routing a pinned request -- and widening
+           a timeout is not a reason to weaken it. Budget, not retries. */
+        val firstContact = pinned.client.newBuilder()
+            .connectTimeout(java.time.Duration.ofSeconds(20))
+            .readTimeout(java.time.Duration.ofSeconds(20))
+            .build()
+
+        firstContact.newCall(req).execute().use { res ->
             val text = res.body?.string().orEmpty()
             if (!res.isSuccessful) {
                 throw Exception("hub answered ${res.code} rather than identifying itself")

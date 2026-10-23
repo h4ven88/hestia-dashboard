@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The API 30-and-below equivalent of backup_rules.xml, referenced by
+    android:fullBackupContent. minSdk here is 26, so this covers Android 8.0
+    through 11; dataExtractionRules covers 12 and up. Both are needed, and
+    neither one is a substitute for the other.
+
+    See backup_rules.xml for why: what would otherwise travel is the Maker API
+    token, cloudSecret, both PIN hashes, the API keys, and the hub's pinned
+    certificate hash.
+-->
+<full-backup-content>
+    <exclude domain="root" />
+    <exclude domain="file" />
+    <exclude domain="database" />
+    <exclude domain="sharedpref" />
+    <exclude domain="external" />
+</full-backup-content>

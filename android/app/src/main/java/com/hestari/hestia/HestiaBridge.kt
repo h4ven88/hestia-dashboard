@@ -267,6 +267,23 @@ class HestiaBridge(
             } catch (e: HubClient.NotConfigured) {
                 settle(id, null, "not-configured: ${e.message}")
             } catch (e: Exception) {
+                /* A bridge failure used to reach logcat NOWHERE. In a debug
+                   build the page's own console covered it; the release build
+                   compiles that out, so a tester hitting a first-run failure
+                   had a message on screen and no way for anyone to find out
+                   what it was. Found by running the release build: a
+                   hub.configure timeout produced an error screen and a totally
+                   silent log.
+
+                   ⚠ REDACTED AT THE QUERY. A hub URL carries the Maker API
+                   access token in its query string, and an exception message
+                   can quote the URL it failed on -- this is the same live
+                   credential that reached logcat from HubProxy's warnings and
+                   had to be scrubbed from five sites. Everything from '?' on
+                   is dropped rather than trusting any given message not to
+                   carry one. */
+                val reason = (e.message ?: e.javaClass.simpleName).substringBefore('?')
+                android.util.Log.w("HestiaBridge", "$method failed: ${e.javaClass.simpleName}: $reason")
                 settle(id, null, e.message ?: e.javaClass.simpleName)
             }
         }

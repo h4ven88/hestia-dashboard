@@ -135,8 +135,21 @@
         MIXED_CONTENT_NEVER_ALLOW, so the page still cannot load http itself.
         Only CameraProxy can, behind the checks above.
     -->
+    <!--
+        allowBackup="false" is kept, but it is NOT the control. Android's docs:
+        for apps targeting API 31+, "On devices from some device manufacturers,
+        you can't disable device-to-device migration of your app's files."
+        targetSdk is 37 and the test device is Samsung. So the two rule files
+        below do the actual work, and they cover different API ranges:
+        dataExtractionRules from API 31, fullBackupContent for API 30 and below
+        (minSdk is 26). Neither substitutes for the other. See
+        res/xml/backup_rules.xml for what would otherwise travel, and why the
+        pinned certificate hash is the sharpest part of it.
+    -->
     <application
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/backup_rules"
+        android:fullBackupContent="@xml/full_backup_content"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"

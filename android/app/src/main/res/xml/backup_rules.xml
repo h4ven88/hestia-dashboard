@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Nothing in this app may leave the device by backup or by phone-to-phone
+    transfer.
+
+    android:allowBackup="false" is NOT sufficient on its own. Android's own
+    documentation: for apps targeting API 31 or higher, "On devices from some
+    device manufacturers, you can't disable device-to-device migration of your
+    app's files." targetSdk here is 37, and the one test device is Samsung,
+    which is squarely in that category.
+
+    What would otherwise travel to a new handset:
+      * the WebView localStorage: Maker API token, cloudSecret, both PIN
+        hashes, camera URLs, and the Anthropic and Google API keys
+      * hestia_hub_trust: the hub origin AND its pinned SPKI certificate hash
+      * hestia_push: the FCM registration token
+
+    The certificate pin is the sharp one. Carrying it to another device means
+    the trust decision the user made on the trust screen is silently inherited
+    by a handset they never made it on, which is the whole point of pinning
+    undone by a migration wizard.
+
+    So a Smart Switch style transfer would land a fully authorised Hestia on a
+    new phone with no PIN, no re-pin and no confirmation. That is also the
+    DESIRABLE behaviour for a legitimate upgrade, which is exactly why it has
+    to be a decision rather than a default: setup is "install it and it finds
+    your hub" with nothing typed, so re-pairing costs the user almost nothing,
+    while a traded-in or resold phone carrying live household credentials costs
+    them a great deal.
+
+    Both sections are present and both are empty on purpose. The docs are
+    explicit that silence is not denial: "If there are no rules for a
+    particular backup mode, such as if the <device-transfer> section is
+    missing, that mode is fully enabled for all content."
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>
