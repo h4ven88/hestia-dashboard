@@ -403,14 +403,15 @@ footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
     </div>
     <div>
       <h2>The Android app is in open beta, and is not on the Play Store yet</h2>
-      <p>It is installed by downloading the file directly rather than through the
-      Play Store, which means <strong>Android will show you a warning before it
-      installs</strong>. That warning appears for every app not distributed
-      through the store and is not a sign of a problem with this one. The steps
-      below walk through it.</p>
-      <p>A Play Store release is planned. See the roadmap. Until then, you can
-      confirm you have the real file by checking the SHA-256 above against your
-      download.</p>
+      <p>It is installed by downloading the file directly rather than through
+      the Play Store, which adds a couple of taps. Android asks whether to allow
+      installs from the app opening the file, and then
+      <strong>Play Protect offers to scan it</strong>. Let it scan: it checks a
+      sideloaded build on your behalf rather than waving it through, which is
+      worth having. The steps below walk through both.</p>
+      <p>A Play Store release is planned. See the roadmap. Until then you can
+      also confirm you have the real file by checking the SHA-256 above against
+      your download.</p>
     </div>
   </div>
 
@@ -453,13 +454,14 @@ footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
 
     <div class="step">
       <div>
-        <h3>Get past the Play Protect warning</h3>
-        <p>You will see something like <em>&ldquo;unsafe app blocked&rdquo;</em> or
-        a warning about an unknown developer. Choose <strong>More details</strong>,
-        then <strong>Install anyway</strong>.</p>
-        <p>This is Android telling you the app did not come from the Play Store,
-        which is true. It is not telling you anything has been found wrong with
-        the file.</p>
+        <h3>Let Play Protect scan it</h3>
+        <p>Google offers to check the app before it installs. Say yes. It
+        scanned clean on the phones this has been installed on, and it takes a
+        few seconds.</p>
+        <p>Depending on your device you may instead see wording about an
+        unknown developer, which is Android noting the app did not come from the
+        Play Store rather than reporting anything found wrong with it. Choose
+        <strong>More details</strong>, then <strong>Install anyway</strong>.</p>
       </div>
     </div>
 

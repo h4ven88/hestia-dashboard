@@ -76,12 +76,16 @@ case the hub is not reachable on the first attempt.
      one that downloaded it. On a Samsung device going through My Files, it is
      *My Files* that needs the permission, not Samsung Browser. Grant it to
      whichever app the dialog actually names.
-3. **Play Protect will warn you.** The wording varies by device, usually along
-   the lines of *"unsafe app blocked"* or *"app from an unknown developer"*.
-   Choose **More details → Install anyway**. This warning appears for every app
-   not distributed through the Play Store and is not a sign of a problem with
-   the file. If you would rather confirm the download first, check the SHA-256
-   above against the file.
+3. **Let Play Protect scan it.** Google offers to check the app before it
+   installs. Say yes: it has scanned clean on the phones this has been
+   installed on, and having a sideloaded build checked rather than waved
+   through is worth the few seconds.
+
+   Wording varies by device, and on some you get *"unsafe app blocked"* or
+   *"app from an unknown developer"* instead. That is Android noting the app
+   did not come from the Play Store, not a report of anything found wrong with
+   it. Choose **More details → Install anyway**. You can also check the SHA-256
+   above against your download.
 4. Open Hestia. First run will:
    - explain what it is about to do,
    - ask for permission to find devices on your network,
