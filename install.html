@@ -200,6 +200,22 @@ footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
     gap:2px;padding:14px 20px 20px
   }
   nav.nav-open .nav-links{display:flex}
+  /* ⛔ THE OPEN MENU MUST NOT SIT INSIDE A BACKDROP FILTER.
+     nav carries backdrop-filter:blur(24px), which makes it a backdrop root
+     AND the containing block for its position:fixed children. The dropdown is
+     one of those children, so it composited inside the blur instead of
+     painting over the page: on a real phone the panel had no background at
+     all, the page showed straight through the menu items, GitHub was clipped
+     mid-glyph and the amber button overlapped it.
+
+     The landing page already carried this exact rule for this exact reason.
+     install.html was written later and never got it. Photographed on a Galaxy
+     A16; it does not reproduce in a desktop viewport, which is why measuring
+     the geometry said everything was fine. */
+  nav.nav-open{background:var(--bg)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+  /* The top bar already shows Open Dashboard at this width, so repeating it as
+     the last row of the menu was the same button twice on one screen. */
+  .nav-cta-row{display:none}
   .nav-links a{font-size:15px;padding:14px 16px;border-radius:8px}
   .nav-hamburger{display:block}
   .nav-mobile-cta{display:inline-flex;align-items:center;padding:7px 14px;border-radius:6px;background:var(--amber);color:var(--bg);font-size:12.5px;font-weight:400}
@@ -238,7 +254,7 @@ footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
       <li><a href="/#setup">Setup</a></li>
       <li><a href="/#roadmap">Roadmap</a></li>
       <li><a href="https://github.com/h4ven88/hestia-dashboard" target="_blank" rel="noopener">GitHub</a></li>
-      <li><a href="/app" class="nav-cta">Open Dashboard</a></li>
+      <li class="nav-cta-row"><a href="/app" class="nav-cta">Open Dashboard</a></li>
     </ul>
     <div style="display:flex;align-items:center;gap:4px">
       <a href="/app" class="nav-mobile-cta">Open Dashboard</a>
