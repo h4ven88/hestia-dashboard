@@ -1,4 +1,4 @@
-# Hestia for Android — tester install
+# Hestia for Android: tester install
 
 Draft for review. The intent is that most of this becomes a page on
 hestari.com, with the APK itself hosted on GitHub Releases. Nothing here is
@@ -10,10 +10,10 @@ live yet.
 
 | | |
 |---|---|
-| Version | **2.2.2** |
-| Built | 2026-10-22 |
-| Size | 29,019,347 bytes (27.7 MiB) |
-| SHA-256 | `88632196329fbb05957f66fb548698fe57fc2d48310fe9fd352a65c7889e6ee1` |
+| Version | **2.2.3** |
+| Built | 2026-10-24 |
+| Size | 29,019,547 bytes (27.7 MiB) |
+| SHA-256 | `b44ebb71df6856c97295d2ea78ce4b0c944bd0baa399945b664ddbfe863f3a59` |
 | Minimum Android | **8.0** (API 26) |
 | Signing | Release key, v2/v3 scheme |
 
@@ -106,7 +106,7 @@ so if you tap it away you may need to re-enable it in Android's app settings.
 - **Push notifications.** Turn them on, then use Settings → Diagnostics → Send
   Test Notification. Then try a real arm or disarm.
 - **Notifications with the app closed.** Swipe it away and trigger something.
-- **The dashboard generally** — arm and disarm, lights, locks, anything you use.
+- **The dashboard generally.** Arm and disarm, lights, locks, anything you use.
 
 ### Known limits, so you do not spend time on them
 - **Fire tablets cannot run this.** Fire OS has no Google Play Services, so
@@ -118,7 +118,7 @@ so if you tap it away you may need to re-enable it in Android's app settings.
   not to appear.
 - **A force-stopped app will not receive notifications** until you open it
   again. This is Android's own rule for apps the user has explicitly stopped
-  and is not something the app can work around. Normal backgrounding is fine —
+  and is not something the app can work around. Normal backgrounding is fine:
   notifications wake the app even after Android has killed it.
 - **No diagnostics.** This build has the developer console compiled out, so if
   something breaks there is no log to read. Please describe what you saw and
@@ -142,7 +142,7 @@ an app problem from a dashboard problem.
 
 ---
 
-## Hosting — settled
+## Hosting: settled
 
 **The APK goes on GitHub Releases. hestari.com links to it. It cannot live in
 the repo or on the site.**
@@ -173,5 +173,5 @@ with each release.
 3. Do you want the checksum published? It lets a tester verify the file, and it
    costs a line. I would.
 4. Should the page state that the app is unreleased and unverified by Google?
-   I think yes — it sets expectations before the Play Protect dialog does it
+   I think yes, since it sets expectations before the Play Protect dialog does it
    less kindly.

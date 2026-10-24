@@ -193,4 +193,56 @@ console.log('\n--- Lost-connection screen: naming the likely cause');
     /powered on and on the same network/.test(none), none.slice(0, 70));
 }
 
+/* ── The "open your Hestia app" link ──────────────────────────────────────
+   The update banners name a task on the hub, so they hand the user the door
+   rather than leaving them to find Apps and hunt for Hestia. The path was
+   probed against a real C-8: /installedapp/configure/<id> is 200, a trailing
+   slash is 500. What needs pinning here is that it never emits a BROKEN link
+   -- a banner that reads correctly and navigates nowhere is worse than the
+   plain text it replaced. */
+console.log('\n--- "Open your Hestia app" link');
+{
+  const fn = (name) => {
+    const m = new RegExp('(async )?function ' + name + '\\s*\\(').exec(src);
+    if (!m) throw new Error('missing ' + name);
+    let d = 0;
+    for (let j = src.indexOf('{', m.index); j < src.length; j++) {
+      if (src[j] === '{') d++; else if (src[j] === '}' && --d === 0) return src.slice(m.index, j + 1);
+    }
+  };
+  /* A deliberately dumb element stub: href and textContent are all the
+     assertions read, and a real DOM would add nothing. */
+  const link = (appId, hubUrl) => new Function(`
+    const CONFIG = { hestiaAppId: ${JSON.stringify(appId)} };
+    const _hubUrlForThisDevice = () => ${JSON.stringify(hubUrl)};
+    const document = { createElement: () => ({ setAttribute(){} }) };
+    ${fn('_hubAppLink')}
+    const a = _hubAppLink('Open your Hestia app');
+    return a ? a.href : null;
+  `)();
+
+  check('builds the probed path, with no trailing slash',
+    link('123', 'https://192.168.50.139') === 'https://192.168.50.139/installedapp/configure/123',
+    String(link('123', 'https://192.168.50.139')));
+  check('a trailing slash on the hub url does not become a double slash',
+    link('123', 'https://192.168.50.139/') === 'https://192.168.50.139/installedapp/configure/123',
+    String(link('123', 'https://192.168.50.139/')));
+  check('keeps an explicit port, which is how an https hub is reached',
+    link('7', 'https://192.168.50.139:8443') === 'https://192.168.50.139:8443/installedapp/configure/7',
+    String(link('7', 'https://192.168.50.139:8443')));
+
+  /* Every one of these must yield NO link rather than a half-built one. */
+  check('no app id yet: no link at all', link('', 'https://192.168.50.139') === null);
+  check('no hub url yet: no link at all', link('123', '') === null);
+  check('a non-numeric app id is refused, not pasted into a url',
+    link('../../etc', 'https://192.168.50.139') === null,
+    String(link('../../etc', 'https://192.168.50.139')));
+  check('an app id with a query tacked on is refused',
+    link('12?x=1', 'https://192.168.50.139') === null,
+    String(link('12?x=1', 'https://192.168.50.139')));
+  check('an undefined app id does not become the string "undefined"',
+    link(undefined, 'https://192.168.50.139') === null,
+    String(link(undefined, 'https://192.168.50.139')));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);

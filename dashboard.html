@@ -501,6 +501,8 @@ html[data-display-desktop] .tb-date{display:block !important}
 .offline-banner.visible{display:block}
 .app-update-banner{display:none;align-items:center;justify-content:space-between;gap:8px;padding:7px 22px;background:rgba(245,158,11,.07);border-bottom:1px solid rgba(245,158,11,.18);font-size:12px;color:var(--amber);flex-shrink:0}
 .app-update-banner.visible{display:flex}
+.banner-link{color:inherit;text-decoration:underline;text-underline-offset:2px;white-space:nowrap;font-weight:400}
+.banner-link:hover{opacity:.78}
 /* ══ ARTEMIS SECURITY MODULE ══════════════════════════════════════════ */
 .artemis-panel{display:grid;grid-template-columns:1fr 325px;height:100%;min-height:0;overflow:hidden}
 .artemis-left{display:flex;flex-direction:column;gap:10px;padding:16px;overflow-y:auto;border-right:1px solid var(--border)}
@@ -1940,8 +1942,8 @@ input[type=range].srng:disabled::-moz-range-thumb{background:var(--t4);cursor:de
    Copyright © 2026 Haven. CC BY-NC 4.0.
    First published: 2026-03-27
 ═══════════════════════════════════════════════════════ */
-const HESTIA_VERSION    = '2.2.2';
-const HESTIA_BUILD_DATE = '2026-10-23';
+const HESTIA_VERSION    = '2.2.3';
+const HESTIA_BUILD_DATE = '2026-10-24';
 
 /* ═══════════════════════════════════════════════════════
    SANDBOX MODE
@@ -5046,6 +5048,52 @@ let lastFetchTime = null;
 
 // ── App version check — polls GitHub releases, runs once on load then every 6 hours ──
 let _appUpdateCheckTimer = null;
+/* A link straight to the companion app's own page on the hub.
+
+   The banners that say "update the companion app" were correct and useless in
+   the same breath: they named the task and left the user to find Hubitat, open
+   Apps, and hunt for Hestia. The dashboard already knows the hub address and
+   the app's instance id, so it can just hand them the door.
+
+   ⛔ THE PATH WAS PROBED AGAINST A REAL HUB, NOT ASSUMED. /installedapp/
+   configure/<id> answers 200; a TRAILING SLASH answers 500, and /apps/<id> is
+   404. This project has been burned three times by a platform guess that read
+   plausibly (runEvery1Day, the 404 status code, "hub answered vs unreachable"),
+   so the one-line check was worth it.
+
+   Returns null rather than a broken link when either half is missing, so the
+   banner degrades to the text it already had. The id is required to be digits:
+   it is an integer app instance id, and refusing anything else keeps a junk
+   config value from being pasted into a URL.
+
+   An anchor element, not innerHTML -- the surrounding message is assembled
+   from version strings, and there is no reason to open an injection surface
+   for a link. In the app this leaves the WebView by design: MainActivity's
+   shouldOverrideUrlLoading sends anything off the asset origin to the real
+   browser, which is the only place the hub's certificate can be accepted. */
+function _hubAppLink(label) {
+  const id = String(CONFIG.hestiaAppId || '');
+  if (!/^[0-9]+$/.test(id)) return null;
+  const base = String(_hubUrlForThisDevice() || '').replace(/\/+$/, '');
+  if (!base) return null;
+  const a = document.createElement('a');
+  a.href = base + '/installedapp/configure/' + id;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  a.className = 'banner-link';
+  a.textContent = label;
+  return a;
+}
+
+/* Appends the link to a banner message. textContent on the span wipes its
+   children first, so calling this repeatedly cannot stack up links. */
+function _bannerAddHubAppLink(msg, label) {
+  const link = _hubAppLink(label);
+  if (!link) return;
+  msg.appendChild(document.createTextNode(' '));
+  msg.appendChild(link);
+}
+
 function checkAppVersion() {
   fetch('https://api.github.com/repos/h4ven88/hestia-dashboard/releases/latest')
     .then(r => r.ok ? r.json() : null)
@@ -5070,6 +5118,9 @@ function checkAppVersion() {
             msg.textContent = isServedFromHub()
               ? 'Hestia v' + latest + ' is available. Update the companion app (Hubitat Package Manager, or re-paste it under Apps Code), then open the app on your hub and click Done to refresh this dashboard.'
               : 'Hestia v' + latest + ' is available. Refresh the page to update.';
+            /* Only on the hub-served branch: the other one asks for a page
+               refresh and has no reason to send anyone to Hubitat. */
+            if (isServedFromHub()) _bannerAddHubAppLink(msg, 'Open your Hestia app');
             banner.classList.add('visible');
           }
           break;
@@ -5184,6 +5235,9 @@ async function checkCompanionVersion() {
     const msg    = document.getElementById('companion-update-msg');
     if (!banner || !msg) return;
     msg.textContent = text;
+    /* This banner's whole point is "go and update the companion app", so it is
+       the one that most needs somewhere to go. */
+    _bannerAddHubAppLink(msg, 'Open your Hestia app');
     banner.classList.add('visible');
   } catch(e) {}
 }
