@@ -226,9 +226,15 @@ footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
      A16; it does not reproduce in a desktop viewport, which is why measuring
      the geometry said everything was fine. */
   nav.nav-open{background:var(--bg)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
-  /* The top bar already shows Open Dashboard at this width, so repeating it as
-     the last row of the menu was the same button twice on one screen. */
-  .nav-cta-row{display:none}
+  /* ⛔ THIS ROW WAS BRIEFLY HIDDEN AND THAT WAS THE WRONG FIX.
+     The in-menu Open Dashboard looked broken on a phone because it kept its
+     DESKTOP styling: a small inline pill sitting inside a vertical flex list,
+     which is why it rendered beside GitHub rather than under it. The problem
+     was never that the button existed, it was that nothing styled it for this
+     breakpoint. Hiding it removed the symptom and the button with it.
+     The landing page has always styled it here; install.html never did. */
+  .nav-cta{display:block;text-align:center;margin-top:12px;
+    padding:14px 16px!important;border-radius:8px!important}
   .nav-links a{font-size:15px;padding:14px 16px;border-radius:8px}
   .nav-hamburger{display:block}
   .nav-mobile-cta{display:inline-flex;align-items:center;padding:7px 14px;border-radius:6px;background:var(--amber);color:var(--bg);font-size:12.5px;font-weight:400}
