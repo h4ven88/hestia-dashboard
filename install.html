@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Get Hestia | Apps for Android, iOS and the browser</title>
 <meta name="theme-color" content="#0A0A0A">
+<!-- Honoured before the stylesheet parses, so the auto-dark decision is made
+     with the right information from the first byte rather than after a repaint. -->
+<meta name="color-scheme" content="dark">
 <meta name="description" content="Download the Hestia app for Android, or open the dashboard in any browser. Hestia is a free smart home dashboard for Hubitat Elevation.">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Get Hestia: Apps for Android, iOS and the browser">
@@ -24,6 +27,16 @@
 /* Tokens lifted verbatim from hestari-landing.html so the two pages cannot
    drift apart. If that palette changes, change it here too. */
 :root {
+  /* ⛔ LOAD-BEARING, NOT COSMETIC. Without this, Chrome and Samsung Internet
+     treat the page as a light one and apply their own auto-dark pass,
+     algorithmically rewriting colours on a page that is already dark. That is
+     why the mobile menu rendered differently on two Galaxy phones: one had
+     auto-dark on and one did not. Declaring the scheme tells the browser the
+     page handles dark itself and the rewrite is skipped.
+     dashboard.html has always carried this; install.html and the landing page
+     were written later and did not, which is also the most likely cause of the
+     long-standing "Samsung Internet renders the wrong colours" report. */
+  color-scheme: dark;
   --bg:        #0A0A0A;
   --bg-panel:  #111111;
   --bg-card:   #181818;

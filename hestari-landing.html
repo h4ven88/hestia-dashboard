@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Hestari | Hestia Smart Home Dashboard for Hubitat</title>
 <meta name="theme-color" content="#0A0A0A">
+<meta name="color-scheme" content="dark">
 <meta name="description" content="Hestia is a free, open-source smart home dashboard for Hubitat Elevation. Voice control, home security, and beautiful device management in any browser.">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Hestia — Smart Home Dashboard for Hubitat">
@@ -22,6 +23,11 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@100;200;300;400;500&display=swap" rel="stylesheet">
 <style>
 :root {
+  /* ⛔ LOAD-BEARING, NOT COSMETIC. See the same note in install.html: without
+     this, Chrome and Samsung Internet run their own auto-dark pass over a page
+     that is already dark, rewriting its colours. dashboard.html has always
+     declared it; this page did not. */
+  color-scheme: dark;
   --bg:        #0A0A0A;
   --bg-panel:  #111111;
   --bg-card:   #181818;
