@@ -273,7 +273,15 @@ footer{border-top:1px solid var(--border);padding:40px 0}
   .wrap{padding:0 20px}
   .nav-hamburger{display:block}
   .nav-mobile-cta{display:inline-flex;align-items:center;padding:8px 16px;border-radius:7px;background:var(--amber);color:var(--bg);font-size:12px;font-weight:400;letter-spacing:.03em;margin-right:10px}
-  .nav-inner{padding:0 20px;height:52px}
+  /* 56px, not 52px. The bar was 4px shorter here than on the install page and
+     than on this same page at desktop width, so the top ribbon visibly changed
+     height as you moved between pages. Two pages, two stylesheets, nothing
+     holding them together.
+     This is also what my earlier "fix" tripped over: I changed the panel's top
+     from 52 to 56 to match the DESKTOP nav height, which opened a 3px gap
+     under a mobile bar that was still 52. Raising the bar is the correct half
+     of that change; the panel top was only ever a symptom. */
+  .nav-inner{padding:0 20px}
   .nav-links{
     display:none;flex-direction:column;
     /* 56px, matching .nav-inner's height. It was 52px, so the panel started

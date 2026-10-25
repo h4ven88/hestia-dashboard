@@ -54,15 +54,38 @@ for (const p of PAGES) {
 }
 
 console.log('\n=== 3. the panel hangs off the bottom of the bar ===');
+/* ⛔ COMPARE THE MOBILE BAR, NOT THE DESKTOP ONE. The first version of this
+   read .nav-inner's height from the BASE rule and compared it against the
+   panel's top, which is only ever set inside a media query. The landing page
+   overrode the bar to 52px on mobile while the base said 56px, so the test
+   reported a match while the live page had a 3px gap. A false green that
+   covered a regression I had just introduced.
+   So: take the LAST .nav-inner height in the file, which is the mobile
+   override when one exists and the base when it does not. */
+const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '');
 for (const p of PAGES) {
-  const h = /\.nav-inner\{[^}]*height:(\d+)px/.exec(src[p])?.[1];
+  const clean = stripComments(src[p]);
+  const heights = [...clean.matchAll(/\.nav-inner\{[^}]*?(?:^|[;{\s])height:(\d+)px/g)].map(m => m[1]);
+  const h = heights.length ? heights[heights.length - 1] : null;
   /* (?:^|[;{\s]) so this cannot match the "top:1px" inside border-top:1px,
      which it did on the first run and reported as a real failure. */
-  const top = /\.nav-links\{[^}]*?(?:^|[;{\s])top:(\d+)px/.exec(src[p].replace(/\/\*[\s\S]*?\*\//g, ''))?.[1];
-  check(p + ': panel top matches nav height', h && top && h === top, 'nav ' + h + 'px, panel top ' + top + 'px');
+  const top = /\.nav-links\{[^}]*?(?:^|[;{\s])top:(\d+)px/.exec(clean)?.[1];
+  check(p + ': panel top matches the MOBILE bar height', h && top && h === top,
+    'bar ' + h + 'px (heights seen: ' + (heights.join(',') || 'none') + '), panel top ' + top + 'px');
 }
 
-console.log('\n=== 4. install does not link site sections at the dashboard ===');
+console.log('\n=== 4. the two pages feel like one site ===');
+/* The user's words: moving between them felt like navigating to a different
+   site. The bar was 52px on one and 56px on the other. */
+const barOf = (p) => {
+  const clean = stripComments(src[p]);
+  const hs = [...clean.matchAll(/\.nav-inner\{[^}]*?(?:^|[;{\s])height:(\d+)px/g)].map(m => m[1]);
+  return hs.length ? hs[hs.length - 1] : null;
+};
+check('both pages use the same top bar height', barOf(PAGES[0]) === barOf(PAGES[1]),
+  PAGES[0] + '=' + barOf(PAGES[0]) + 'px, ' + PAGES[1] + '=' + barOf(PAGES[1]) + 'px');
+
+console.log('\n=== 5. install does not link site sections at the dashboard ===');
 /* "/" serves the DASHBOARD. The landing sections live at /hestari-landing, so
    href="/#roadmap" silently lands on the dashboard with a dead hash. */
 check('no href="/#..." anywhere in install.html',
