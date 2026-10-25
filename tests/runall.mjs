@@ -11,7 +11,7 @@ import { fileURLToPath } from 'url';
 const DIR = path.dirname(fileURLToPath(import.meta.url)) + path.sep;
 const SUITES = ['ringharness', 'hubharness', 'relinkharness', 'healthharness', 'cloudharness',
                 'garageharness', 'projection-equivalence', 'writeauth', 'cloudsecret', 'endpointauth', 'bridgeharness', 'pushtransport', 'fcmcrypto', 'pinguard',
-                'reminderharness'];
+                'reminderharness', 'navharness'];
 
 let total = 0, failed = 0, missing = 0, unreadable = 0;
 

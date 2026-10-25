@@ -235,7 +235,13 @@ footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
      The landing page has always styled it here; install.html never did. */
   .nav-cta{display:block;text-align:center;margin-top:12px;
     padding:14px 16px!important;border-radius:8px!important}
-  .nav-links a{font-size:15px;padding:14px 16px;border-radius:8px}
+  /* ⛔ EVERY ROW MUST BE BLOCK. Identical bug to the landing page, found only
+     after fixing it there: six of the seven anchors were display:inline, so
+     their tap targets were only as wide as the words. Tapping beside "Setup"
+     did nothing. Row heights disagreed too, 47 against the CTA's 54.
+     Measured at 393px before: x20..110, x20..114, x20..137, x20..92, x20..121,
+     x20..102 against a 353px-wide row. */
+  .nav-links a{display:block;font-size:15px;padding:14px 16px;border-radius:8px}
   .nav-hamburger{display:block}
   .nav-mobile-cta{display:inline-flex;align-items:center;padding:7px 14px;border-radius:6px;background:var(--amber);color:var(--bg);font-size:12.5px;font-weight:400}
   .phead{padding-top:104px;padding-bottom:40px}
@@ -267,11 +273,17 @@ footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
       Hestia
     </a>
     <ul class="nav-links">
-      <li><a href="/#modules">Modules</a></li>
-      <li><a href="/#features">Features</a></li>
-      <li><a href="/install" aria-current="page">Get the App</a></li>
-      <li><a href="/#setup">Setup</a></li>
-      <li><a href="/#roadmap">Roadmap</a></li>
+      <!-- Same items, same order, same wording as the landing page's nav.
+           They drifted: this one was missing About, ordered Get the App third,
+           and spelled it "Get the App" against the landing page's "Get the
+           app". A menu that changes shape as you move between pages reads as
+           a broken site rather than a deliberate one. -->
+      <li><a href="/hestari-landing#modules">Modules</a></li>
+      <li><a href="/hestari-landing#features">Features</a></li>
+      <li><a href="/hestari-landing#setup">Setup</a></li>
+      <li><a href="/hestari-landing#about">About</a></li>
+      <li><a href="/hestari-landing#roadmap">Roadmap</a></li>
+      <li><a href="/install" aria-current="page">Get the app</a></li>
       <li><a href="https://github.com/h4ven88/hestia-dashboard" target="_blank" rel="noopener">GitHub</a></li>
       <li class="nav-cta-row"><a href="/app" class="nav-cta">Open Dashboard</a></li>
     </ul>
@@ -592,7 +604,7 @@ footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
   <div class="road-pointer">
     <p><strong>A Play Store release is planned</strong>, so the app can update
     itself and install without warnings. It is on the
-    <a href="/#roadmap">roadmap</a> along with an iOS app and support for cameras
+    <a href="/hestari-landing#roadmap">roadmap</a> along with an iOS app and support for cameras
     on their own address.</p>
   </div>
 </div>
@@ -604,7 +616,7 @@ footer{border-top:1px solid var(--border);padding:52px 0 44px;margin-top:40px}
     <div class="footer-brand">Hestia</div>
     <ul class="footer-links">
       <li><a href="/app">Open Dashboard</a></li>
-      <li><a href="/#setup">Setup Guide</a></li>
+      <li><a href="/hestari-landing#setup">Setup Guide</a></li>
       <li><a href="https://github.com/h4ven88/hestia-dashboard" target="_blank" rel="noopener">GitHub</a></li>
       <li><a href="https://github.com/h4ven88/hestia-dashboard/issues" target="_blank" rel="noopener">Report a Bug</a></li>
       <li><a href="https://community.hubitat.com/t/hestia-a-new-smart-home-dashboard-for-hubitat/162853" target="_blank" rel="noopener">Community Forum</a></li>
