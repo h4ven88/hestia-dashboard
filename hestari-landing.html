@@ -284,8 +284,20 @@ footer{border-top:1px solid var(--border);padding:40px 0}
   }
   .nav-open .nav-links{display:flex}
   .nav-open{background:var(--bg)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
-  .nav-links a{font-size:15px;padding:14px 16px;border-radius:8px}
-  .nav-links .nhm{display:list-item}
+  /* ⛔ EVERY ROW MUST BE BLOCK. This is the menu bug.
+     An anchor left at display:inline ignores vertical padding for layout, so
+     it renders short and only as wide as its text. The rule below used to set
+     display only on `.nhm`, which is on four of the eight items, so the menu
+     came out with alternating 40px and 28px rows, four full-width rows and
+     four stubby ones, and Open Dashboard as a narrow left-aligned pill instead
+     of a button.
+     Measured before the fix at 393px: .nhm rows x20..373 h36, the rest
+     x20..106 h30, row pitch 40/28/28/40/40/28/40.
+     `.nhm` is not a show/hide class. It appeared in exactly one CSS rule, this
+     one, and on four anchors. Setting display here instead means adding a menu
+     item can no longer silently come out malformed for want of a class nobody
+     documented. */
+  .nav-links a{display:block;font-size:15px;padding:14px 16px;border-radius:8px}
   .nav-cta{text-align:center;margin-top:12px;padding:14px 16px!important;border-radius:8px!important}
   .hero-inner{padding:60px 0 40px}
   .s-label{font-size:10px;letter-spacing:.14em}
